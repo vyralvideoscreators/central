@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Solicita tu prueba gratuita — CENTRAL</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800;900&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --black:   #08080f;
+    --card:    #141421;
+    --card2:   #191927;
+    --border:  rgba(255,255,255,0.07);
+    --border2: rgba(255,255,255,0.14);
+    --text:    #e8e8f0;
+    --muted:   #7070a0;
+    --accent:  #7c5cfc;
+    --glow:    rgba(124,92,252,0.25);
+    --cyan:    #00d4ff;
+    --green:   #22d3a0;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--black);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      repeating-linear-gradient(0deg, transparent, transparent 40px, rgba(255,255,255,0.012) 40px, rgba(255,255,255,0.012) 41px),
+      repeating-linear-gradient(90deg, transparent, transparent 40px, rgba(255,255,255,0.012) 40px, rgba(255,255,255,0.012) 41px);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  nav {
+    position: relative; z-index: 1;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 48px;
+    border-bottom: 1px solid var(--border);
+  }
+  .nav-logo {
+    font-family: 'Syne', sans-serif;
+    font-size: 17px; font-weight: 800;
+    letter-spacing: -0.5px;
+    color: var(--text);
+    text-decoration: none;
+    display: flex; align-items: baseline; gap: 6px;
+  }
+  .nav-logo span { color: var(--accent); }
+  .nav-logo-sub {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 12px; font-weight: 500;
+    color: var(--muted);
+  }
+  .nav-back {
+    font-size: 13px; font-weight: 500;
+    color: var(--muted);
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+  .nav-back:hover { color: var(--text); }
+
+  .wrap {
+    position: relative; z-index: 1;
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 64px 24px 100px;
+  }
+
+  .page-header { text-align: center; margin-bottom: 48px; }
+
+  .section-label {
+    font-size: 10px; font-weight: 600; letter-spacing: 3px;
+    text-transform: uppercase; color: var(--accent);
+    margin-bottom: 16px;
+  }
+
+  h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(28px, 5vw, 42px);
+    font-weight: 900; letter-spacing: -1.5px;
+    margin-bottom: 16px;
+  }
+
+  .page-sub {
+    font-size: 16px; color: var(--muted);
+    max-width: 480px; margin: 0 auto;
+    line-height: 1.7;
+  }
+
+  form {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 40px;
+  }
+
+  fieldset {
+    border: none;
+    margin-bottom: 36px;
+  }
+  fieldset:last-of-type { margin-bottom: 0; }
+
+  .fieldset-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 15px; font-weight: 700;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+  .fieldset-sub {
+    font-size: 13px; color: var(--muted);
+    margin-bottom: 20px;
+  }
+
+  .field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  .field {
+    margin-bottom: 18px;
+  }
+  .field:last-child { margin-bottom: 0; }
+
+  label {
+    display: block;
+    font-size: 13px; font-weight: 600;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+  label .optional {
+    font-weight: 400; color: var(--muted);
+    text-transform: none; letter-spacing: 0;
+  }
+
+  input[type="text"],
+  input[type="email"],
+  select,
+  textarea {
+    width: 100%;
+    background: var(--card2);
+    border: 1px solid var(--border2);
+    border-radius: 10px;
+    padding: 12px 14px;
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    transition: border-color 0.2s;
+  }
+  input[type="text"]:focus,
+  input[type="email"]:focus,
+  select:focus,
+  textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  textarea { resize: vertical; min-height: 80px; }
+
+  select {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='none' stroke='%237070a0' stroke-width='2' viewBox='0 0 24 24'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    padding-right: 36px;
+  }
+
+  .check-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+  }
+  .check-item {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--card2);
+    border: 1px solid var(--border2);
+    border-radius: 10px;
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .check-item:has(input:checked) {
+    border-color: var(--accent);
+    background: rgba(124,92,252,0.1);
+  }
+  .check-item input { accent-color: var(--accent); width: 16px; height: 16px; }
+  .check-item span { font-size: 14px; }
+
+  .radio-row {
+    display: flex; gap: 10px; flex-wrap: wrap;
+  }
+  .radio-item {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--card2);
+    border: 1px solid var(--border2);
+    border-radius: 10px;
+    padding: 10px 16px;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .radio-item:has(input:checked) {
+    border-color: var(--accent);
+    background: rgba(124,92,252,0.1);
+  }
+  .radio-item input { accent-color: var(--accent); }
+  .radio-item span { font-size: 14px; }
+
+  .submit-btn {
+    width: 100%;
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: 8px; min-height: 48px;
+    padding: 14px 32px;
+    background: var(--accent);
+    color: #fff; font-size: 15px; font-weight: 700;
+    border: none; border-radius: 50px;
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.2s;
+    box-shadow: 0 0 40px var(--glow);
+    font-family: 'DM Sans', sans-serif;
+  }
+  .submit-btn:hover { opacity: 0.9; transform: translateY(-2px); }
+  .submit-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+  .form-note {
+    text-align: center;
+    font-size: 12px; color: var(--muted);
+    margin-top: 16px;
+  }
+
+  .form-error {
+    display: none;
+    background: rgba(239,68,68,0.1);
+    border: 1px solid rgba(239,68,68,0.3);
+    color: #f87171;
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-size: 13px;
+    margin-bottom: 24px;
+  }
+  .form-error.show { display: block; }
+
+  .success-panel {
+    display: none;
+    text-align: center;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 56px 40px;
+  }
+  .success-panel.show { display: block; }
+  .success-icon {
+    width: 64px; height: 64px; border-radius: 50%;
+    background: rgba(34,211,160,0.12);
+    border: 1px solid rgba(34,211,160,0.3);
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 24px;
+    font-size: 28px;
+  }
+  .success-panel h2 {
+    font-family: 'Syne', sans-serif;
+    font-size: 24px; font-weight: 800;
+    margin-bottom: 12px;
+  }
+  .success-panel p {
+    color: var(--muted); font-size: 15px;
+    max-width: 400px; margin: 0 auto 28px;
+    line-height: 1.7;
+  }
+  .success-panel a {
+    color: var(--accent); text-decoration: none;
+    font-weight: 600; font-size: 14px;
+  }
+  .success-panel a:hover { text-decoration: underline; }
+
+  @media (max-width: 640px) {
+    nav { padding: 16px 20px; }
+    .nav-logo-sub { display: none; }
+    .wrap { padding: 40px 16px 60px; }
+    form { padding: 24px 20px; }
+    .field-row { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="index.html" class="nav-logo">CENTRAL<span>.</span><span class="nav-logo-sub">by Magic Design LLC</span></a>
+  <a href="index.html" class="nav-back">&larr; Volver al inicio</a>
+</nav>
+
+<div class="wrap">
+
+  <div class="page-header">
+    <div class="section-label">Prueba gratuita</div>
+    <h1>Solicita acceso a CENTRAL</h1>
+    <p class="page-sub">Completa tus datos y cuéntanos un poco sobre tu negocio. Te contactaremos para activar tu período de prueba.</p>
+  </div>
+
+  <form id="trialForm" action="https://formspree.io/f/xwvgzlvv" method="POST">
+
+    <div class="form-error" id="formError">Por favor completa todos los campos obligatorios.</div>
+
+    <fieldset>
+      <div class="fieldset-title">Tus datos</div>
+      <div class="fieldset-sub">Para poder contactarte y activar tu prueba.</div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="fNombres">Nombres *</label>
+          <input type="text" id="fNombres" name="Nombres" required autocomplete="given-name">
+        </div>
+        <div class="field">
+          <label for="fApellidos">Apellidos *</label>
+          <input type="text" id="fApellidos" name="Apellidos" required autocomplete="family-name">
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="fEmail">Correo electrónico *</label>
+        <input type="email" id="fEmail" name="Correo electrónico" required autocomplete="email">
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="fEmpresa">Nombre de la empresa / negocio *</label>
+          <input type="text" id="fEmpresa" name="Empresa" required autocomplete="organization">
+        </div>
+        <div class="field">
+          <label for="fUbicacion">Ubicación (país / ciudad) *</label>
+          <input type="text" id="fUbicacion" name="Ubicación" required placeholder="Ej: Caracas, Venezuela" autocomplete="address-level2">
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="fTipoNegocio">Tipo de negocio *</label>
+        <select id="fTipoNegocio" name="Tipo de negocio" required>
+          <option value="" disabled selected>Selecciona una opción</option>
+          <option>Ropa y accesorios</option>
+          <option>Comida y repostería</option>
+          <option>Belleza y cuidado personal</option>
+          <option>Tecnología y electrónica</option>
+          <option>Hogar y decoración</option>
+          <option>Servicios</option>
+          <option>Otro</option>
+        </select>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <div class="fieldset-title">Plataformas que usas habitualmente *</div>
+      <div class="fieldset-sub">Selecciona todas las que apliquen.</div>
+      <div class="check-grid">
+        <label class="check-item"><input type="checkbox" name="Plataformas" value="WhatsApp"><span>WhatsApp</span></label>
+        <label class="check-item"><input type="checkbox" name="Plataformas" value="Instagram"><span>Instagram</span></label>
+        <label class="check-item"><input type="checkbox" name="Plataformas" value="Facebook"><span>Facebook</span></label>
+        <label class="check-item"><input type="checkbox" name="Plataformas" value="TikTok"><span>TikTok</span></label>
+        <label class="check-item"><input type="checkbox" name="Plataformas" value="Otros"><span>Otros</span></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <div class="fieldset-title">Ayúdanos a mejorar CENTRAL</div>
+      <div class="fieldset-sub">5 preguntas rápidas sobre cómo gestionas tu negocio hoy.</div>
+
+      <div class="field">
+        <label for="q1">1. ¿Cuántas ventas gestionas al día por WhatsApp, Instagram u otras redes? *</label>
+        <select id="q1" name="Ventas por día" required>
+          <option value="" disabled selected>Selecciona una opción</option>
+          <option>1 a 5 ventas</option>
+          <option>6 a 15 ventas</option>
+          <option>16 a 30 ventas</option>
+          <option>Más de 30 ventas</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="q2">2. ¿Cuántas apps usas al día para hacer seguimiento y gestión de pedidos? *</label>
+        <select id="q2" name="Apps usadas al día" required>
+          <option value="" disabled selected>Selecciona una opción</option>
+          <option>1 app</option>
+          <option>2 a 3 apps</option>
+          <option>4 a 5 apps</option>
+          <option>Más de 5 apps</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>3. ¿Usas algún software de gestión de pedidos? *</label>
+        <div class="radio-row">
+          <label class="radio-item"><input type="radio" name="Usa software de gestión" value="Sí" required><span>Sí</span></label>
+          <label class="radio-item"><input type="radio" name="Usa software de gestión" value="No" required><span>No</span></label>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="q4">4. ¿Cómo organizas tu listado de clientes? *</label>
+        <select id="q4" name="Organización de clientes" required>
+          <option value="" disabled selected>Selecciona una opción</option>
+          <option>Excel o Google Sheets</option>
+          <option>Cuaderno físico</option>
+          <option>Notas o contactos del teléfono</option>
+          <option>Un software de gestión</option>
+          <option>No los organizo</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="q5">5. ¿Cuál es tu mayor pérdida de tiempo o dificultad al gestionar pedidos por redes sociales? *</label>
+        <textarea id="q5" name="Mayor dificultad" required placeholder="Cuéntanos brevemente..."></textarea>
+      </div>
+    </fieldset>
+
+    <button type="submit" class="submit-btn" id="submitBtn">Enviar solicitud</button>
+    <p class="form-note">Nos pondremos en contacto contigo en menos de 48 horas.</p>
+  </form>
+
+  <div class="success-panel" id="successPanel">
+    <div class="success-icon">✓</div>
+    <h2>¡Solicitud enviada!</h2>
+    <p>Gracias por tu interés en CENTRAL. Revisamos tu solicitud y te contactaremos muy pronto para activar tu período de prueba.</p>
+    <a href="index.html">&larr; Volver al inicio</a>
+  </div>
+
+</div>
+
+<script>
+  const form = document.getElementById('trialForm');
+  const formError = document.getElementById('formError');
+  const submitBtn = document.getElementById('submitBtn');
+  const successPanel = document.getElementById('successPanel');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const platforms = form.querySelectorAll('input[name="Plataformas"]:checked');
+    if (platforms.length === 0) {
+      formError.textContent = 'Selecciona al menos una plataforma que uses habitualmente.';
+      formError.classList.add('show');
+      form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+
+    if (!form.checkValidity()) {
+      formError.textContent = 'Por favor completa todos los campos obligatorios.';
+      formError.classList.add('show');
+      form.reportValidity();
+      return;
+    }
+
+    formError.classList.remove('show');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Enviando...';
+
+    try {
+      const data = new FormData(form);
+      const res = await fetch(form.action, {
+        method: 'POST',
+        body: data,
+        headers: { 'Accept': 'application/json' }
+      });
+
+      if (res.ok) {
+        form.style.display = 'none';
+        successPanel.classList.add('show');
+        successPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        throw new Error('Submit failed');
+      }
+    } catch (err) {
+      formError.textContent = 'Hubo un problema al enviar tu solicitud. Intenta de nuevo o escríbenos a Magicdes2023@gmail.com.';
+      formError.classList.add('show');
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Enviar solicitud';
+    }
+  });
+</script>
+
+</body>
+</html>

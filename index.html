@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="facebook-domain-verification" content="sywc6yi1wn36qy321thfinlhe2sdl0" />
+<title>CENTRAL — El panel de control para negocios que venden por WhatsApp e Instagram</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800;900&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --black:   #08080f;
+    --surface: #0f0f1a;
+    --card:    #141421;
+    --border:  rgba(255,255,255,0.07);
+    --text:    #e8e8f0;
+    --muted:   #7070a0;
+    --accent:  #7c5cfc;
+    --glow:    rgba(124,92,252,0.25);
+    --cyan:    #00d4ff;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--black);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+
+  /* ── Grid noise texture overlay ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      repeating-linear-gradient(0deg, transparent, transparent 40px, rgba(255,255,255,0.012) 40px, rgba(255,255,255,0.012) 41px),
+      repeating-linear-gradient(90deg, transparent, transparent 40px, rgba(255,255,255,0.012) 40px, rgba(255,255,255,0.012) 41px);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── Nav ── */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 48px;
+    background: rgba(8,8,15,0.8);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+  }
+  .nav-logo {
+    font-family: 'Syne', sans-serif;
+    font-size: 17px; font-weight: 800;
+    letter-spacing: -0.5px;
+    color: var(--text);
+    display: flex; align-items: baseline; gap: 6px;
+  }
+  .nav-logo span { color: var(--accent); }
+  .nav-logo-sub {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 12px; font-weight: 500;
+    letter-spacing: 0;
+    color: var(--muted);
+  }
+  .nav-contact {
+    font-size: 13px; font-weight: 500;
+    color: var(--muted);
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+  .nav-contact:hover { color: var(--text); }
+
+  /* ── Hero ── */
+  .hero {
+    position: relative; z-index: 1;
+    min-height: 100vh;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center;
+    padding: 120px 24px 80px;
+    overflow: hidden;
+  }
+
+  /* Signature element: pulsing connection orb */
+  .orb {
+    position: absolute;
+    width: 600px; height: 600px;
+    border-radius: 50%;
+    background: radial-gradient(circle at center, rgba(124,92,252,0.18) 0%, rgba(0,212,255,0.06) 40%, transparent 70%);
+    top: 50%; left: 50%;
+    transform: translate(-50%, -52%);
+    animation: pulse 6s ease-in-out infinite;
+    pointer-events: none;
+  }
+  .orb::after {
+    content: '';
+    position: absolute;
+    inset: 80px;
+    border-radius: 50%;
+    border: 1px solid rgba(124,92,252,0.2);
+    animation: pulse 6s ease-in-out infinite reverse;
+  }
+  @keyframes pulse {
+    0%, 100% { transform: translate(-50%, -52%) scale(1); opacity: 0.8; }
+    50%       { transform: translate(-50%, -52%) scale(1.06); opacity: 1; }
+  }
+
+  .hero-eyebrow {
+    font-size: 11px; font-weight: 500; letter-spacing: 2.5px;
+    text-transform: uppercase; color: var(--accent);
+    margin-bottom: 20px;
+  }
+
+  h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(36px, 6vw, 72px);
+    font-weight: 900;
+    line-height: 1.05;
+    letter-spacing: -2px;
+    color: var(--text);
+    max-width: 820px;
+    margin-bottom: 24px;
+  }
+  h1 em {
+    font-style: normal;
+    background: linear-gradient(135deg, var(--accent), var(--cyan));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .hero-sub {
+    font-size: 18px; font-weight: 300;
+    color: var(--muted); max-width: 520px;
+    margin: 0 auto 48px;
+    line-height: 1.7;
+  }
+
+  .hero-cta {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 14px 32px;
+    background: var(--accent);
+    color: #fff; font-size: 14px; font-weight: 600;
+    text-decoration: none; border-radius: 50px;
+    transition: opacity 0.2s, transform 0.2s;
+    box-shadow: 0 0 40px var(--glow);
+  }
+  .hero-cta:hover { opacity: 0.88; transform: translateY(-2px); }
+
+  /* ── What we do ── */
+  .section {
+    position: relative; z-index: 1;
+    padding: 100px 48px;
+    max-width: 1100px; margin: 0 auto;
+  }
+
+  .section-label {
+    font-size: 10px; font-weight: 600; letter-spacing: 3px;
+    text-transform: uppercase; color: var(--accent);
+    margin-bottom: 16px;
+  }
+
+  h2 {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(28px, 4vw, 44px);
+    font-weight: 800; letter-spacing: -1.5px;
+    color: var(--text); margin-bottom: 16px;
+  }
+
+  .section-intro {
+    font-size: 17px; color: var(--muted);
+    max-width: 540px; line-height: 1.7;
+    margin-bottom: 60px;
+  }
+
+  .services-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+  }
+
+  .service-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px 28px;
+    transition: border-color 0.25s, transform 0.25s;
+  }
+  .service-card:hover {
+    border-color: rgba(124,92,252,0.35);
+    transform: translateY(-3px);
+  }
+
+  .service-icon {
+    width: 44px; height: 44px; border-radius: 12px;
+    background: linear-gradient(135deg, rgba(124,92,252,0.2), rgba(0,212,255,0.1));
+    border: 1px solid rgba(124,92,252,0.25);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; margin-bottom: 20px;
+  }
+
+  .service-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 18px; font-weight: 700;
+    color: var(--text); margin-bottom: 10px;
+  }
+
+  .service-desc {
+    font-size: 14px; color: var(--muted); line-height: 1.65;
+  }
+
+  /* ── How it works ── */
+  .steps-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 32px;
+  }
+
+  .step-number {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--cyan));
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Syne', sans-serif; font-weight: 800; font-size: 17px;
+    color: #fff; margin-bottom: 20px;
+    box-shadow: 0 0 24px var(--glow);
+  }
+
+  .step-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 18px; font-weight: 700;
+    color: var(--text); margin-bottom: 10px;
+  }
+
+  .step-desc {
+    font-size: 14px; color: var(--muted); line-height: 1.65;
+  }
+
+  /* ── Pricing ── */
+  .pricing-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 24px;
+  }
+
+  .pricing-card {
+    position: relative;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 36px 28px;
+    display: flex; flex-direction: column;
+    transition: border-color 0.25s, transform 0.25s;
+  }
+  .pricing-card:hover {
+    border-color: rgba(124,92,252,0.35);
+    transform: translateY(-3px);
+  }
+  .pricing-card.featured {
+    border-color: var(--accent);
+    box-shadow: 0 0 40px var(--glow);
+  }
+
+  .pricing-badge {
+    position: absolute; top: -13px; left: 50%;
+    transform: translateX(-50%);
+    background: var(--accent); color: #fff;
+    font-size: 11px; font-weight: 600; letter-spacing: 1px;
+    text-transform: uppercase;
+    padding: 5px 14px; border-radius: 20px;
+  }
+
+  .pricing-name {
+    font-family: 'Syne', sans-serif;
+    font-size: 20px; font-weight: 700;
+    color: var(--text); margin-bottom: 8px;
+  }
+
+  .pricing-price {
+    font-family: 'Syne', sans-serif;
+    font-size: 36px; font-weight: 800;
+    color: var(--text); margin-bottom: 4px;
+  }
+  .pricing-price span {
+    font-size: 14px; font-weight: 500; color: var(--muted);
+  }
+
+  .pricing-desc {
+    font-size: 13px; color: var(--muted);
+    margin-bottom: 24px;
+  }
+
+  .pricing-features {
+    list-style: none;
+    margin-bottom: 28px;
+    flex-grow: 1;
+  }
+  .pricing-features li {
+    font-size: 14px; color: var(--text);
+    padding: 10px 0;
+    border-top: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .pricing-features li:first-child { border-top: none; }
+
+  .pricing-cta {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-height: 44px;
+    padding: 12px 24px;
+    border-radius: 50px;
+    font-size: 14px; font-weight: 600;
+    text-decoration: none; text-align: center;
+    transition: opacity 0.2s, transform 0.2s;
+  }
+  .pricing-cta.primary {
+    background: var(--accent); color: #fff;
+    box-shadow: 0 0 30px var(--glow);
+  }
+  .pricing-cta.secondary {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  .pricing-cta:hover { opacity: 0.88; transform: translateY(-2px); }
+
+  /* ── Compatible with ── */
+  .compat-bar {
+    position: relative; z-index: 1;
+    padding: 56px 48px;
+    text-align: center;
+  }
+
+  .compat-label {
+    font-size: 10px; font-weight: 600; letter-spacing: 3px;
+    text-transform: uppercase; color: var(--muted);
+    margin-bottom: 28px;
+  }
+
+  .compat-items {
+    display: flex; flex-wrap: wrap;
+    align-items: center; justify-content: center;
+    gap: 36px;
+  }
+
+  .compat-item {
+    font-family: 'Syne', sans-serif;
+    font-size: 15px; font-weight: 700;
+    color: var(--muted); opacity: 0.8;
+    transition: opacity 0.2s, color 0.2s;
+  }
+  .compat-item:hover { opacity: 1; color: var(--text); }
+
+  .compat-item.ai {
+    background: linear-gradient(135deg, var(--accent), var(--cyan));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    opacity: 1;
+  }
+
+  /* ── Divider ── */
+  .divider {
+    position: relative; z-index: 1;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--border), transparent);
+    margin: 0 48px;
+  }
+
+  /* ── Contact ── */
+  .contact-section {
+    position: relative; z-index: 1;
+    padding: 100px 48px;
+    text-align: center;
+  }
+
+  .contact-section h2 { margin-bottom: 12px; }
+
+  .contact-sub {
+    font-size: 16px; color: var(--muted);
+    margin-bottom: 40px;
+  }
+
+  .contact-actions {
+    display: flex; flex-wrap: wrap;
+    gap: 16px; justify-content: center;
+  }
+
+  .btn-primary {
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: 8px; min-height: 44px;
+    padding: 14px 32px;
+    background: var(--accent);
+    color: #fff; font-size: 14px; font-weight: 600;
+    text-decoration: none; border-radius: 50px;
+    transition: opacity 0.2s, transform 0.2s;
+    box-shadow: 0 0 40px var(--glow);
+  }
+  .btn-primary:hover { opacity: 0.88; transform: translateY(-2px); }
+
+  .btn-secondary {
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: 8px; min-height: 44px;
+    padding: 14px 32px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text); font-size: 14px; font-weight: 600;
+    text-decoration: none; border-radius: 50px;
+    transition: border-color 0.2s, transform 0.2s;
+  }
+  .btn-secondary:hover { border-color: rgba(124,92,252,0.5); transform: translateY(-2px); }
+
+  /* ── Footer ── */
+  footer {
+    position: relative; z-index: 1;
+    padding: 32px 48px;
+    border-top: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 13px; color: var(--muted);
+  }
+
+  .footer-links { display: flex; gap: 20px; }
+  .footer-links a {
+    color: var(--muted); text-decoration: none;
+    transition: color 0.2s;
+  }
+  .footer-links a:hover { color: var(--text); }
+
+  /* ── Responsive ── */
+  @media (max-width: 640px) {
+    nav { padding: 16px 20px; }
+    .nav-logo-sub { display: none; }
+    .nav-contact { display: none; }
+    .section { padding: 60px 20px; }
+    .contact-section { padding: 60px 20px; }
+    .compat-bar { padding: 40px 20px; }
+    .compat-items { gap: 22px; }
+    .pricing-grid, .steps-grid { gap: 24px; }
+    footer { padding: 24px 20px; flex-direction: column; gap: 12px; text-align: center; }
+    .footer-links { justify-content: center; }
+    .divider { margin: 0 20px; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-logo">CENTRAL<span>.</span><span class="nav-logo-sub">by Magic Design LLC</span></div>
+  <a href="mailto:Magicdes2023@gmail.com" class="nav-contact">Magicdes2023@gmail.com</a>
+</nav>
+
+<section class="hero">
+  <div class="orb"></div>
+  <div class="hero-eyebrow">Magic Design LLC — Delaware, USA</div>
+  <h1>CENTRAL</h1>
+  <p class="hero-sub">El panel de control para negocios que venden por WhatsApp e Instagram. Gestiona conversaciones, pedidos y clientes desde un solo lugar.</p>
+  <a href="solicitud.html" class="hero-cta">
+    Solicitar acceso
+    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
+  </a>
+</section>
+
+<div class="divider"></div>
+
+<section class="section">
+  <div class="section-label">Funcionalidades</div>
+  <h2>Todo tu negocio,<br>en un solo panel</h2>
+  <p class="section-intro">CENTRAL conecta tus canales de venta con las herramientas que necesitas para atender clientes, gestionar pedidos y hacer crecer tu negocio.</p>
+
+  <div class="services-grid">
+    <div class="service-card">
+      <div class="service-icon">📥</div>
+      <div class="service-title">Bandeja unificada</div>
+      <div class="service-desc">Recibe y responde mensajes de WhatsApp e Instagram desde un solo panel.</div>
+    </div>
+    <div class="service-card">
+      <div class="service-icon">🧾</div>
+      <div class="service-title">Gestión de pedidos</div>
+      <div class="service-desc">Crea, confirma y envía presupuestos directamente desde la conversación del cliente.</div>
+    </div>
+    <div class="service-card">
+      <div class="service-icon">📦</div>
+      <div class="service-title">Catálogo de productos</div>
+      <div class="service-desc">Administra tu inventario y agrega productos al pedido con un clic.</div>
+    </div>
+    <div class="service-card">
+      <div class="service-icon">👥</div>
+      <div class="service-title">Clientes y reportes</div>
+      <div class="service-desc">Base de datos de clientes con historial de pedidos, exportación a Excel e informes de ventas.</div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<section class="section">
+  <div class="section-label">Cómo funciona</div>
+  <h2>De la conversación<br>al pedido, en 3 pasos</h2>
+  <p class="section-intro">Empezar a usar CENTRAL toma minutos, no semanas.</p>
+
+  <div class="steps-grid">
+    <div class="step">
+      <div class="step-number">1</div>
+      <div class="step-title">Conecta tu WhatsApp</div>
+      <div class="step-desc">Vincula tu número de WhatsApp Business en minutos.</div>
+    </div>
+    <div class="step">
+      <div class="step-number">2</div>
+      <div class="step-title">Recibe pedidos</div>
+      <div class="step-desc">Tus clientes te escriben y tú gestionas todo desde CENTRAL.</div>
+    </div>
+    <div class="step">
+      <div class="step-number">3</div>
+      <div class="step-title">Confirma y envía</div>
+      <div class="step-desc">Genera el resguardo de compra y envíaselo al cliente como imagen directamente por WhatsApp.</div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<section class="section">
+  <div class="section-label">Para quién es CENTRAL</div>
+  <h2>Hecho para negocios<br>que venden por redes sociales</h2>
+
+  <div class="services-grid">
+    <div class="service-card">
+      <div class="service-icon">👗</div>
+      <div class="service-title">Tiendas de ropa y accesorios</div>
+      <div class="service-desc">Gestiona catálogo, tallas y pedidos directamente desde las conversaciones con tus clientes.</div>
+    </div>
+    <div class="service-card">
+      <div class="service-icon">🍰</div>
+      <div class="service-title">Negocios de comida y repostería</div>
+      <div class="service-desc">Organiza pedidos, fechas de entrega y clientes recurrentes sin perder ningún mensaje.</div>
+    </div>
+    <div class="service-card">
+      <div class="service-icon">🛍️</div>
+      <div class="service-title">Cualquier emprendedor</div>
+      <div class="service-desc">Si recibes pedidos por WhatsApp o Instagram, CENTRAL te ayuda a organizarlos todos en un solo lugar.</div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<section class="section">
+  <div class="section-label">Planes</div>
+  <h2>Un plan para cada<br>etapa de tu negocio</h2>
+  <p class="section-intro">Empieza gratis y crece a tu ritmo.</p>
+
+  <div class="pricing-grid">
+    <div class="pricing-card">
+      <div class="pricing-name">Basic</div>
+      <div class="pricing-price">Gratis</div>
+      <div class="pricing-desc">Para empezar a organizar tu negocio.</div>
+      <ul class="pricing-features">
+        <li>Hasta 50 pedidos/mes</li>
+        <li>Bandeja unificada</li>
+        <li>Catálogo básico</li>
+      </ul>
+      <a href="mailto:Magicdes2023@gmail.com" class="pricing-cta secondary">Empezar gratis</a>
+    </div>
+    <div class="pricing-card featured">
+      <div class="pricing-badge">Más popular</div>
+      <div class="pricing-name">Profesional</div>
+      <div class="pricing-price">$29<span>/mes</span></div>
+      <div class="pricing-desc">Para negocios en crecimiento.</div>
+      <ul class="pricing-features">
+        <li>Pedidos ilimitados</li>
+        <li>Catálogo completo</li>
+        <li>Reportes de ventas</li>
+      </ul>
+      <a href="solicitud.html" class="pricing-cta primary">Solicitar acceso</a>
+    </div>
+    <div class="pricing-card">
+      <div class="pricing-name">Business</div>
+      <div class="pricing-price">$59<span>/mes</span></div>
+      <div class="pricing-desc">Para operaciones a mayor escala.</div>
+      <ul class="pricing-features">
+        <li>Todo lo de Profesional</li>
+        <li>Tasa BCV automática</li>
+        <li>Soporte prioritario</li>
+      </ul>
+      <a href="solicitud.html" class="pricing-cta secondary">Solicitar acceso</a>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<div class="compat-bar">
+  <div class="compat-label">Compatible con</div>
+  <div class="compat-items">
+    <span class="compat-item">WhatsApp Business</span>
+    <span class="compat-item">Instagram</span>
+    <span class="compat-item">Meta Business</span>
+    <span class="compat-item">Railway</span>
+    <span class="compat-item ai">Potenciado por IA</span>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<section class="contact-section">
+  <div class="section-label">Contacto</div>
+  <h2>¿Listo para empezar?</h2>
+  <p class="contact-sub">Solicita acceso y empieza a organizar tus pedidos hoy mismo.</p>
+  <div class="contact-actions">
+    <a href="solicitud.html" class="btn-primary">Solicitar acceso</a>
+    <a href="#" class="btn-secondary">Ver demo</a>
+  </div>
+</section>
+
+<footer>
+  <span>© 2026 CENTRAL — Producto de Magic Design LLC. Registrada en Delaware, USA.</span>
+  <div class="footer-links">
+    <a href="#">Política de privacidad</a>
+    <a href="#">Términos de uso</a>
+  </div>
+</footer>
+
+</body>
+</html>
