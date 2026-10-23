@@ -99,7 +99,7 @@
   .btn-primary:hover { opacity: .92; }
   .btn-ghost { background: transparent; color: var(--text); border-color: var(--border2); }
   .btn-ghost:hover { border-color: rgba(124,92,252,.6); }
-  .btn-sm { min-height: 38px; padding: 8px 18px; font-size: 13px; }
+  .btn-sm { min-height: 38px; padding: 8px 18px; font-size: 13px; white-space: nowrap; }
 
   /* ── Hero ── */
   .hero { position: relative; z-index: 1; min-height: 100vh; display: flex; align-items: center;
@@ -108,9 +108,9 @@
     background: radial-gradient(circle, rgba(124,92,252,.2) 0%, rgba(0,212,255,.06) 42%, transparent 70%);
     top: 50%; left: 50%; transform: translate(-50%,-50%); animation: orb 7s ease-in-out infinite; }
   @keyframes orb { 0%,100% { transform: translate(-50%,-50%) scale(1); } 50% { transform: translate(-50%,-50%) scale(1.07); } }
-  .hero-inner { text-align: center; max-width: 860px; margin: 0 auto; }
+  .hero-inner { text-align: center; max-width: 860px; margin: 0 auto; width: 100%; min-width: 0; }
   .eyebrow { font-size: 12px; font-weight: 700; letter-spacing: 2.5px; text-transform: uppercase; color: var(--accent2); margin-bottom: 20px; }
-  h1 { font-family: 'Syne', sans-serif; font-size: clamp(38px, 6.4vw, 74px); font-weight: 800; line-height: 1.04;
+  h1 { font-family: 'Syne', sans-serif; font-size: clamp(38px, 6.4vw, 74px); overflow-wrap: break-word; font-weight: 800; line-height: 1.04;
     letter-spacing: -2px; margin-bottom: 24px; }
   .grad { background: linear-gradient(135deg, var(--accent2), var(--cyan)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
   .hero-sub { font-size: 19px; color: var(--muted); max-width: 640px; margin: 0 auto 36px; }
@@ -143,11 +143,12 @@
   /* ── Stops ── */
   .stop { position: relative; z-index: 1; padding: 104px 0; border-bottom: 1px solid var(--border); }
   .stop-grid { display: grid; grid-template-columns: 1fr 1.05fr; gap: 64px; align-items: center; }
+  .stop-grid > *, .case > *, .eco > *, .steps > * { min-width: 0; }
   .stop.flip .stop-text { order: 2; }
   .stop-num { font-size: 12px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--accent2); margin-bottom: 18px; }
-  .pain { font-family: 'Syne', sans-serif; font-size: clamp(22px, 2.6vw, 30px); font-weight: 700; color: var(--muted);
+  .pain { font-family: 'Syne', sans-serif; font-size: clamp(19px, 2.6vw, 30px); font-weight: 700; color: var(--muted);
     line-height: 1.25; margin-bottom: 14px; }
-  h2 { font-family: 'Syne', sans-serif; font-size: clamp(28px, 3.6vw, 42px); font-weight: 800; letter-spacing: -1.2px; line-height: 1.1; margin-bottom: 18px; }
+  h2 { font-family: 'Syne', sans-serif; font-size: clamp(24px, 3.6vw, 42px); overflow-wrap: break-word; font-weight: 800; letter-spacing: -1.2px; line-height: 1.1; margin-bottom: 18px; }
   .stop-desc { font-size: 17px; color: var(--muted); margin-bottom: 24px; max-width: 500px; }
   .feats { list-style: none; display: grid; gap: 12px; margin-bottom: 26px; }
   .feats li { display: flex; gap: 12px; font-size: 15px; }
@@ -392,6 +393,7 @@
     nav.top { padding: 0 16px; }
     .nav-logo small { display: none; }
     .hero-sub { font-size: 17px; }
+    h1 { font-size: clamp(28px, 9.5vw, 40px); letter-spacing: -1px; }
     .stop, .section { padding: 72px 0; }
     .chat { grid-template-columns: 1fr; }
     .inbox { grid-template-columns: repeat(3, 1fr); }
@@ -407,6 +409,7 @@
     footer { flex-direction: column; text-align: center; padding: 28px 16px 96px; }
     .footer-links { justify-content: center; }
     .tourbar-label { display: none; }
+    .btn-sm { padding: 8px 14px; }
   }
 </style>
 <script type="application/ld+json">
