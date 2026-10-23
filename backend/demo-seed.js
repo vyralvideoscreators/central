@@ -82,13 +82,14 @@ const CONVOS = [
     ['in',  'Paso hoy a buscarlas, pago en efectivo'],
     ['out', 'Perfecto, te esperamos 👍'],
   ]},
-  { c: 'c6', m: 7200, convoSuffix: 'b', msgs: [
-    ['in',  'El motorizado no me encontró ayer 😕'],
-    ['out', 'Disculpa Pedro, lo reprogramamos. ¿A qué hora estás en casa?'],
+  { lead: { name: 'Andrea López', channel: 'ig', id: 'l1' }, m: 12, msgs: [
+    ['in',  'Hola! ¿Cuánto cuesta la sandalia plataforma? 😍'],
+    ['in',  '¿Tienen en talla 37?'],
   ]},
-  { c: 'c2', m: 9000, convoSuffix: 'b', msgs: [
-    ['in',  '¿Hacen envíos a Valencia?'],
-    ['out', 'Sí, por encomienda MRW o Zoom. Llega en 24-48h 📦'],
+  { lead: { name: 'José Rivas', channel: 'wa', id: 'l2', phone: '+58 416 555 0108' }, m: 2900, msgs: [
+    ['in',  'Buenas, ¿hacen envíos a Valencia?'],
+    ['out', 'Hola José, sí, por encomienda MRW o Zoom. Llega en 24-48h 📦'],
+    ['in',  'Perfecto, el lunes les escribo para pedir unas Runner Pro'],
   ]},
 ];
 
@@ -153,15 +154,14 @@ async function seedDemoTenant(client, tenantId, { city = 'Caracas' } = {}) {
   }
 
   for (const cv of CONVOS) {
-    const c = clientByKey[cv.c];
+    const c = cv.lead || { ...clientByKey[cv.c], id: cv.c };
     const isIg = c.channel === 'ig';
-    const base = isIg ? `ig_demo_${cv.c}` : c.phone.replace(/\D/g, '');
-    const waId = base + (cv.convoSuffix ? `_${cv.convoSuffix}` : '');
+    const waId = isIg ? `ig_demo_${c.id}` : c.phone.replace(/\D/g, '');
     const last = new Date(now - cv.m * 60000);
     await client.query(
       `INSERT INTO conversations (wa_id, tenant_id, name, platform, ig_sender_id, last_message_at)
        VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (wa_id, tenant_id) DO NOTHING`,
-      [waId, tenantId, c.name, isIg ? 'ig' : 'wa', isIg ? `demo_${cv.c}` : null, last]
+      [waId, tenantId, c.name, isIg ? 'ig' : 'wa', isIg ? `demo_${c.id}` : null, last]
     );
     const n = cv.msgs.length;
     for (const [i, [role, text]] of cv.msgs.entries()) {

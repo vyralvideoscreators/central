@@ -210,6 +210,40 @@ tbody td { padding: 11px 14px; vertical-align: middle; }
 .btn-cancel { padding: 9px 16px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); color: var(--text2); font-size: 13px; font-weight: 600; cursor: pointer; }
 .btn-danger { padding: 9px 16px; border-radius: 8px; background: var(--red); border: none; color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; }
 
+/* ── Demos ── */
+.demo-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; margin-bottom: 20px; }
+.demo-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.demo-card-title { font-size: 14px; font-weight: 800; }
+.demo-card-sub { font-size: 12px; color: var(--text2); margin-top: 2px; }
+.demo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px 14px; }
+.demo-grid .span-2 { grid-column: span 2; }
+.demo-foot { display: flex; align-items: center; gap: 14px; margin-top: 16px; flex-wrap: wrap; }
+.demo-foot .btn-primary { width: auto; padding: 10px 22px; margin: 0; }
+.demo-check { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text2); cursor: pointer; }
+.demo-key-row { display: flex; align-items: center; gap: 8px; }
+.demo-key-row .form-input { width: 230px; padding: 7px 10px; font-size: 12.5px; }
+.key-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text3); flex-shrink: 0; }
+.key-dot.on { background: var(--green); }
+.paste-toggle { font-size: 12px; color: var(--accent2); cursor: pointer; background: none; border: none; padding: 0; }
+.paste-box { display: none; margin-bottom: 14px; }
+.paste-box.open { display: block; }
+.paste-box textarea { width: 100%; min-height: 110px; resize: vertical; font-family: inherit; }
+.days-pill { display: inline-block; min-width: 54px; text-align: center; padding: 3px 8px; border-radius: 5px; font-size: 11px; font-weight: 700; }
+.days-ok   { background: rgba(34,197,94,.12); color: var(--green); }
+.days-warn { background: rgba(245,200,66,.14); color: var(--yellow); }
+.days-exp  { background: rgba(239,68,68,.12); color: var(--red); }
+.demo-actions { display: flex; gap: 4px; justify-content: flex-end; }
+.demo-actions button { padding: 5px 9px; border-radius: 6px; font-size: 11.5px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: transparent; color: var(--text2); white-space: nowrap; }
+.demo-actions button:hover { background: var(--surface); color: var(--text); }
+.demo-actions button.danger:hover { color: var(--red); border-color: rgba(239,68,68,.35); }
+.cred-box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; font-size: 13px; line-height: 1.9; margin-bottom: 6px; }
+.cred-box code { font-family: ui-monospace, Consolas, monospace; font-size: 14px; font-weight: 700; color: var(--accent2); }
+.cred-note { font-size: 12px; margin-top: 8px; }
+.demo-stats { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 600px) { .demo-stats { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 900px) { .demo-grid { grid-template-columns: 1fr 1fr; } .demo-grid .span-2 { grid-column: span 2; } }
+@media (max-width: 600px) { .demo-grid { grid-template-columns: 1fr; } .demo-grid .span-2 { grid-column: span 1; } .demo-key-row .form-input { width: 160px; } }
+
 /* ── Loading ── */
 .loading-row td { text-align: center; color: var(--text2); padding: 40px; font-size: 13px; }
 </style>
@@ -258,6 +292,9 @@ tbody td { padding: 11px 14px; vertical-align: middle; }
       </div>
       <div class="nav-item" onclick="showPage('tenants',this)">
         <span class="nav-icon">🏢</span> Negocios
+      </div>
+      <div class="nav-item" onclick="showPage('demos',this)">
+        <span class="nav-icon">🧪</span> Demos
       </div>
     </div>
 
@@ -336,6 +373,67 @@ tbody td { padding: 11px 14px; vertical-align: middle; }
         </div>
 
         <div class="pagination" id="paginationBar"></div>
+      </div>
+
+      <!-- DEMOS -->
+      <div class="page" id="page-demos">
+        <div class="page-title">Demos para prospectos</div>
+        <div class="page-sub">Cuentas de prueba con datos de ejemplo de ropa y calzado. Caducan solas al terminar el plazo.</div>
+
+        <div class="stats-grid demo-stats">
+          <div class="stat-card"><div class="stat-label">Demos activas</div><div class="stat-value stat-green" id="dm-active">—</div></div>
+          <div class="stat-card"><div class="stat-label">Caducan en ≤ 2 días</div><div class="stat-value stat-yellow" id="dm-soon">—</div></div>
+          <div class="stat-card"><div class="stat-label">Expiradas</div><div class="stat-value stat-red" id="dm-expired">—</div></div>
+          <div class="stat-card"><div class="stat-label">Creadas esta semana</div><div class="stat-value stat-accent" id="dm-week">—</div></div>
+        </div>
+
+        <div class="demo-card">
+          <div class="demo-card-head">
+            <div>
+              <div class="demo-card-title">Nueva demo</div>
+              <div class="demo-card-sub">Rellena con los datos de la solicitud. Todo es editable antes de crearla.</div>
+            </div>
+            <div class="demo-key-row" title="Se guarda solo mientras esta pestaña esté abierta">
+              <span class="key-dot" id="demoKeyDot"></span>
+              <input class="form-input" id="demoKey" type="password" placeholder="Clave de demos" autocomplete="off" oninput="onDemoKey()">
+            </div>
+          </div>
+
+          <button class="paste-toggle" onclick="togglePaste()">📋 Pegar el correo de la solicitud para autocompletar</button>
+          <div class="paste-box" id="pasteBox" style="margin-top:10px;">
+            <textarea class="form-input" id="pasteText" placeholder="Pega aquí el texto del correo de Formspree…"></textarea>
+            <div style="margin-top:8px;"><button class="btn-sm" onclick="parseSolicitud()">Autocompletar campos</button></div>
+          </div>
+
+          <div class="demo-grid" style="margin-top:14px;">
+            <div><label class="form-label">Nombre del prospecto</label><input class="form-input" id="dmOwner" type="text" placeholder="Ana Pérez"></div>
+            <div><label class="form-label">Correo *</label><input class="form-input" id="dmEmail" type="email" placeholder="ana@sunegocio.com"></div>
+            <div><label class="form-label">Negocio *</label><input class="form-input" id="dmBusiness" type="text" placeholder="Boutique Luna"></div>
+            <div><label class="form-label">Ciudad</label><input class="form-input" id="dmCity" type="text" placeholder="Caracas"></div>
+            <div><label class="form-label">País</label><input class="form-input" id="dmCountry" type="text" placeholder="Venezuela"></div>
+            <div><label class="form-label">Días de demo</label><input class="form-input" id="dmDays" type="number" min="1" max="30" value="7"></div>
+          </div>
+          <div class="msg-error" id="dmErr" style="margin-top:14px;"></div>
+          <div class="demo-foot">
+            <button class="btn-primary" id="dmCreateBtn" onclick="createDemo()">Crear demo</button>
+            <label class="demo-check"><input type="checkbox" id="dmSendEmail" checked> Enviar el acceso por correo al prospecto</label>
+          </div>
+        </div>
+
+        <div class="filters-bar">
+          <select class="filter-select" id="dmFilter" onchange="renderDemos()">
+            <option value="all">Todas</option>
+            <option value="active">Activas</option>
+            <option value="expired">Expiradas</option>
+          </select>
+          <div class="filters-right" id="dmCount"></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Negocio</th><th>Correo</th><th>Creada</th><th>Expira</th><th>Restante</th><th></th></tr></thead>
+            <tbody id="demosBody"><tr class="loading-row"><td colspan="6">Cargando…</td></tr></tbody>
+          </table>
+        </div>
       </div>
 
     </div>
@@ -431,11 +529,25 @@ tbody td { padding: 11px 14px; vertical-align: middle; }
   </div>
 </div>
 
+<!-- ── DEMO CREDENTIALS DIALOG ── -->
+<div class="edit-overlay" id="credOverlay">
+  <div class="edit-box" style="max-width:440px;">
+    <div class="edit-title" id="credTitle">✅ Demo creada</div>
+    <div class="edit-sub">Guarda o comparte estos datos: la clave no se puede volver a ver (solo regenerar).</div>
+    <div class="cred-box" id="credBox"></div>
+    <div class="cred-note" id="credNote"></div>
+    <div class="edit-btns">
+      <button class="btn-cancel" onclick="copyCreds()">Copiar mensaje para WhatsApp</button>
+      <button class="btn-primary-full" onclick="closeCreds()">Listo</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── TOAST ── -->
 <div class="toast" id="toast"></div>
 
 <script>
-const BACKEND = 'https://central-backend-production.up.railway.app';
+const BACKEND = location.origin;
 
 let adminJwt   = localStorage.getItem('central_admin_jwt') || '';
 let adminEmail = '';
@@ -504,6 +616,7 @@ function showPage(name, el) {
   if (el) el.classList.add('active');
   if (name === 'dashboard') loadStats();
   if (name === 'tenants')   loadTenants(currentPage);
+  if (name === 'demos')     loadDemos();
 }
 
 // ── Stats ──
@@ -861,6 +974,194 @@ function fmtDate(d) { if (!d) return '—'; try { return new Date(d).toLocaleDat
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && document.getElementById('loginScreen').style.display !== 'none') doAdminLogin();
 });
+
+// ── Demos ──
+let demos = [];
+let lastCreds = null;
+
+function demoKey() { return document.getElementById('demoKey').value.trim(); }
+function onDemoKey() {
+  const k = demoKey();
+  try { k ? sessionStorage.setItem('central_demo_key', k) : sessionStorage.removeItem('central_demo_key'); } catch {}
+  document.getElementById('demoKeyDot').classList.toggle('on', k.length >= 32);
+}
+(function restoreDemoKey() {
+  let k = '';
+  try { k = sessionStorage.getItem('central_demo_key') || ''; } catch {}
+  const el = document.getElementById('demoKey');
+  if (el && k) { el.value = k; onDemoKey(); }
+})();
+function demoHeaders() { return { ...adminHeader(), 'X-Demo-Key': demoKey() }; }
+function needKey() {
+  if (demoKey().length >= 32) return false;
+  showToast('Introduce la clave de demos (arriba a la derecha)');
+  document.getElementById('demoKey').focus();
+  return true;
+}
+
+function togglePaste() { document.getElementById('pasteBox').classList.toggle('open'); }
+
+// Acepta "Campo: valor" o el campo en una línea y el valor en la siguiente (formato Formspree)
+function parseSolicitud() {
+  const lines = document.getElementById('pasteText').value.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const data = {};
+  const keys = { nombres: 'nombres', apellidos: 'apellidos', 'correo electrónico': 'email', 'correo electronico': 'email', email: 'email',
+                 empresa: 'empresa', 'ubicación': 'ubicacion', ubicacion: 'ubicacion' };
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^([^:]{2,30}):\s*(.*)$/);
+    const rawKey = (m ? m[1] : lines[i]).toLowerCase().replace(/[*]/g, '').trim();
+    const k = keys[rawKey];
+    if (!k) continue;
+    const val = m && m[2] ? m[2] : (lines[i + 1] || '');
+    if (val && !data[k]) data[k] = val.trim();
+  }
+  const set = (id, v) => { if (v) document.getElementById(id).value = v; };
+  set('dmOwner', [data.nombres, data.apellidos].filter(Boolean).join(' '));
+  set('dmEmail', data.email);
+  set('dmBusiness', data.empresa);
+  if (data.ubicacion) {
+    const parts = data.ubicacion.split(/[,/-]/).map(x => x.trim()).filter(Boolean);
+    set('dmCity', parts[0]);
+    set('dmCountry', parts[1]);
+  }
+  const n = Object.keys(data).length;
+  showToast(n ? 'Campos autocompletados — revísalos antes de crear' : 'No se reconocieron campos en el texto');
+}
+
+async function createDemo() {
+  const errEl = document.getElementById('dmErr');
+  errEl.style.display = 'none';
+  if (needKey()) return;
+  const body = {
+    ownerName: document.getElementById('dmOwner').value.trim(),
+    email: document.getElementById('dmEmail').value.trim(),
+    businessName: document.getElementById('dmBusiness').value.trim(),
+    city: document.getElementById('dmCity').value.trim(),
+    country: document.getElementById('dmCountry').value.trim(),
+    days: parseInt(document.getElementById('dmDays').value, 10) || 7,
+    sendEmail: document.getElementById('dmSendEmail').checked,
+  };
+  if (!body.email || !body.businessName) { errEl.textContent = 'El correo y el negocio son obligatorios'; errEl.style.display = 'block'; return; }
+  const btn = document.getElementById('dmCreateBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Creando…';
+  try {
+    const res = await fetch(BACKEND + '/api/admin/demos', { method: 'POST', headers: demoHeaders(), body: JSON.stringify(body) });
+    if (res.status === 401) return adminLogout();
+    const data = await res.json();
+    if (!res.ok) { errEl.textContent = data.error || 'Error al crear la demo'; errEl.style.display = 'block'; return; }
+    ['dmOwner','dmEmail','dmBusiness','dmCity','dmCountry','pasteText'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('dmDays').value = 7;
+    showCreds('✅ Demo creada', { ...data, businessName: body.businessName, ownerName: body.ownerName }, body.sendEmail);
+    loadDemos();
+  } catch {
+    errEl.textContent = 'No se pudo conectar con el servidor'; errEl.style.display = 'block';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Crear demo';
+  }
+}
+
+function fmtDate(d) { return d ? new Date(d).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'; }
+
+function showCreds(title, c, wantedEmail) {
+  lastCreds = c;
+  document.getElementById('credTitle').textContent = title;
+  document.getElementById('credBox').innerHTML =
+    '<div>Correo: <b>' + esc(c.email) + '</b></div>' +
+    '<div>Clave temporal: <code>' + esc(c.password) + '</code></div>' +
+    (c.expiresAt ? '<div>Disponible hasta: <b>' + fmtDate(c.expiresAt) + '</b></div>' : '');
+  const note = document.getElementById('credNote');
+  if (c.emailSent) { note.style.color = 'var(--green)'; note.textContent = '✉️ Correo enviado a ' + c.email; }
+  else if (wantedEmail === false) { note.style.color = 'var(--text2)'; note.textContent = 'No se envió correo: compártelo tú por WhatsApp o email.'; }
+  else { note.style.color = 'var(--yellow)'; note.textContent = '⚠️ El correo no se pudo enviar' + (c.emailError ? ' (' + c.emailError + ')' : ' (Resend no configurado)') + '. Compártelo manualmente.'; }
+  document.getElementById('credOverlay').classList.add('open');
+}
+function closeCreds() { document.getElementById('credOverlay').classList.remove('open'); lastCreds = null; }
+function copyCreds() {
+  if (!lastCreds) return;
+  const link = location.origin + '/central-registro.html?email=' + encodeURIComponent(lastCreds.email);
+  const txt = 'Hola' + (lastCreds.ownerName ? ' ' + lastCreds.ownerName : '') + ', tu demo de CENTRAL ya está lista 🚀\n\n' +
+    'Entra aquí: ' + link + '\nCorreo: ' + lastCreds.email + '\nClave temporal: ' + lastCreds.password +
+    (lastCreds.expiresAt ? '\nDisponible hasta el ' + fmtDate(lastCreds.expiresAt) : '');
+  navigator.clipboard.writeText(txt).then(() => showToast('Mensaje copiado'), () => showToast('No se pudo copiar'));
+}
+
+async function loadDemos() {
+  const body = document.getElementById('demosBody');
+  try {
+    const res = await fetch(BACKEND + '/api/admin/demos', { headers: adminHeader() });
+    if (res.status === 401) return adminLogout();
+    demos = await res.json();
+    if (!Array.isArray(demos)) throw new Error();
+    const weekAgo = Date.now() - 7 * 86400000;
+    document.getElementById('dm-active').textContent  = demos.filter(d => !d.expired).length;
+    document.getElementById('dm-soon').textContent    = demos.filter(d => !d.expired && d.days_left <= 2).length;
+    document.getElementById('dm-expired').textContent = demos.filter(d => d.expired).length;
+    document.getElementById('dm-week').textContent    = demos.filter(d => new Date(d.created_at).getTime() >= weekAgo).length;
+    renderDemos();
+  } catch {
+    body.innerHTML = '<tr class="loading-row"><td colspan="6">Error al cargar</td></tr>';
+  }
+}
+
+function renderDemos() {
+  const f = document.getElementById('dmFilter').value;
+  const list = demos.filter(d => f === 'all' || (f === 'active' ? !d.expired : d.expired));
+  document.getElementById('dmCount').textContent = list.length + ' demos';
+  const body = document.getElementById('demosBody');
+  if (!list.length) { body.innerHTML = '<tr class="loading-row"><td colspan="6">' + (demos.length ? 'Sin resultados' : 'Aún no has creado demos') + '</td></tr>'; return; }
+  body.innerHTML = list.map(d => {
+    const pill = d.expired ? '<span class="days-pill days-exp">Expirada</span>'
+      : '<span class="days-pill ' + (d.days_left <= 2 ? 'days-warn' : 'days-ok') + '">' + d.days_left + (d.days_left === 1 ? ' día' : ' días') + '</span>';
+    const id = esc(d.id);
+    return '<tr>' +
+      '<td><div style="font-weight:600;">' + esc(d.business_name) + '</div><div style="font-size:11.5px;color:var(--text2);">' + esc(d.full_name || '') + '</div></td>' +
+      '<td>' + esc(d.email) + '</td>' +
+      '<td>' + fmtDate(d.created_at) + '</td>' +
+      '<td>' + fmtDate(d.expires_at) + '</td>' +
+      '<td>' + pill + '</td>' +
+      '<td><div class="demo-actions">' +
+        '<button onclick="extendDemo(\'' + id + '\')">+7 días</button>' +
+        '<button onclick="resendDemo(\'' + id + '\')">Nueva clave</button>' +
+        (d.expired ? '' : '<button class="danger" onclick="revokeDemo(\'' + id + '\')">Revocar</button>') +
+        '<button onclick="convertDemo(\'' + id + '\')">Hacer real</button>' +
+      '</div></td></tr>';
+  }).join('');
+}
+
+async function demoAction(path, opts = {}) {
+  const res = await fetch(BACKEND + '/api/admin/demos/' + path, { method: 'POST', headers: opts.key ? demoHeaders() : adminHeader(), body: JSON.stringify(opts.body || {}) });
+  if (res.status === 401) { adminLogout(); return null; }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { showToast(data.error || 'Error'); return null; }
+  return data;
+}
+async function extendDemo(id) {
+  if (needKey()) return;
+  const r = await demoAction(id + '/extend', { key: true, body: { days: 7 } });
+  if (r) { showToast('Demo extendida hasta el ' + fmtDate(r.expiresAt)); loadDemos(); }
+}
+function resendDemo(id) {
+  if (needKey()) return;
+  const d = demos.find(x => x.id === id);
+  showConfirm('¿Generar una clave nueva?', 'La clave anterior de ' + (d ? d.email : 'esta demo') + ' dejará de funcionar y se enviará la nueva por correo.', async () => {
+    const r = await demoAction(id + '/resend', { key: true });
+    if (r) showCreds('🔑 Clave regenerada', { ...r, expiresAt: d && d.expires_at, ownerName: d && d.full_name }, true);
+  });
+}
+function revokeDemo(id) {
+  const d = demos.find(x => x.id === id);
+  showConfirm('¿Revocar esta demo?', 'El acceso de ' + (d ? d.email : 'esta demo') + ' termina ahora mismo. Puedes reactivarla con "+7 días".', async () => {
+    const r = await demoAction(id + '/revoke');
+    if (r) { showToast('Demo revocada'); loadDemos(); }
+  });
+}
+function convertDemo(id) {
+  const d = demos.find(x => x.id === id);
+  showConfirm('¿Convertir en cuenta real?', (d ? d.business_name : 'Esta demo') + ' deja de caducar y pasa a la lista de Negocios. Los datos de ejemplo se conservan; bórralos desde la app si el cliente no los quiere.', async () => {
+    const r = await demoAction(id + '/convert');
+    if (r) { showToast('Convertida en cuenta real'); loadDemos(); }
+  });
+}
 </script>
 </body>
 </html>

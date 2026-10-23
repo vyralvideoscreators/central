@@ -30,7 +30,7 @@ app.use((req, res, next) => {
 app.set('trust proxy', 1);
 const loginAttempts = new Map();
 function loginRateLimit(req, res, next) {
-  const key = req.path + '|' + req.ip;
+  const key = req.baseUrl + '|' + req.ip;
   const now = Date.now();
   const rec = loginAttempts.get(key);
   if (!rec || now > rec.reset) { loginAttempts.set(key, { count: 1, reset: now + 15 * 60000 }); return next(); }
@@ -270,11 +270,11 @@ async function dbGetOrCreateConvo(waId, name, tenantId, platform = 'wa', igSende
   if (!dbReady) return;
   await pool.query(`
     INSERT INTO conversations (wa_id, tenant_id, name, platform, ig_sender_id, last_message_at)
-    VALUES ($1, $2, $3, $4, $5, NOW())
+    VALUES ($1, $2, COALESCE($3, $1), $4, $5, NOW())
     ON CONFLICT (wa_id, tenant_id) DO UPDATE SET
-      name            = COALESCE(EXCLUDED.name, conversations.name),
+      name            = COALESCE($3, conversations.name),
       last_message_at = NOW()
-  `, [waId, tenantId, name || waId, platform, igSenderId]);
+  `, [waId, tenantId, name || null, platform, igSenderId]);
 }
 
 async function dbSaveMessage(msg, waId, tenantId) {

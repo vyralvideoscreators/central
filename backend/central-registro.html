@@ -439,10 +439,20 @@ body {
 </div>
 
 <script>
-const BACKEND = 'https://central-backend-production.up.railway.app';
+const BACKEND = location.origin;
 const APP_URL = '/app';
 
 if (localStorage.getItem('central_jwt')) window.location.href = APP_URL;
+
+// Enlace del correo de demo: prellenar el correo y abrir el login
+document.addEventListener('DOMContentLoaded', () => {
+  const pre = new URLSearchParams(location.search).get('email');
+  if (pre) {
+    const el = document.getElementById('lEmail');
+    if (el) { el.value = pre; document.getElementById('lPass')?.focus(); }
+    if (typeof mobileTab === 'function' && window.innerWidth <= 680) mobileTab('login');
+  }
+});
 
 // En móvil mostrar solo login al cargar
 if (window.innerWidth <= 680) {
@@ -589,7 +599,7 @@ async function doLogin() {
       body: JSON.stringify({ email, password }),
     });
     const data = await res.json();
-    if (!res.ok) { showMsg('loginErr', data.error || 'Correo o contraseña incorrectos'); return; }
+    if (!res.ok) { showMsg('loginErr', (data.error === 'demo_expired' && data.message) || data.error || 'Correo o contraseña incorrectos'); return; }
     saveSession(data);
     showMsg('loginOk', 'Sesión iniciada — redirigiendo…');
     setTimeout(() => window.location.href = APP_URL, 700);

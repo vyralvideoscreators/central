@@ -3741,9 +3741,13 @@ async function verifySessionAndApplyTenant() {
   const token = localStorage.getItem('central_jwt');
   if (!token) return;
   try {
-    const res = await fetch('https://central-backend-production.up.railway.app/api/tenant/profile', {
+    const res = await fetch(location.origin + '/api/tenant/profile', {
       headers: { 'Authorization': 'Bearer ' + token }
     });
+    if (res.status === 403) {
+      const body = await res.clone().json().catch(() => ({}));
+      if (body.error === 'demo_expired') { location.replace('/app'); return; }
+    }
     if (res.status === 401 || res.status === 403) {
       localStorage.removeItem('central_jwt');
       localStorage.removeItem('central_auth');
@@ -3947,8 +3951,8 @@ loadRealConvos();
 // ─────────────────────────────────────────────────────────────
 // CONFIG — backend real WhatsApp Business API
 // ─────────────────────────────────────────────────────────────
-const BACKEND_URL = 'https://central-backend-production.up.railway.app';
-const WS_URL = 'wss://central-backend-production.up.railway.app/ws';
+const BACKEND_URL = location.origin;
+const WS_URL = location.origin.replace(/^http/, 'ws') + '/ws';
 
 let usingRealBackend = false;
 
@@ -8570,24 +8574,6 @@ function applyCustomDates() {
   const fmt = d => new Date(d+'T00:00:00').toLocaleDateString('es-VE', { day:'2-digit', month:'short' });
   document.getElementById('infCustomLabel').textContent = fmt(from) + ' → ' + fmt(to);
 
-  // interpolate data based on day difference
-  const days = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
-  const base = days <= 7 ? infData['7dias'] : days <= 31 ? infData.mes : infData.año;
-  const factor = days / (days <= 7 ? 7 : days <= 31 ? 30 : 365);
-  infData.personalizado = {
-    ...base,
-    ventas: Math.round(base.ventas * factor),
-    pedidos: Math.max(1, Math.round(base.pedidos * factor)),
-    entregados: Math.max(0, Math.round(base.entregados * factor)),
-    pendientes: Math.max(0, Math.round(base.pendientes * factor)),
-    cancelados: Math.max(0, Math.round(base.cancelados * factor)),
-    delivery: Math.max(0, Math.round(base.delivery * factor)),
-    encomiendas: Math.max(0, Math.round(base.encomiendas * factor)),
-    newClients: Math.max(0, Math.round(base.newClients * factor)),
-    bars: Array.from({length: Math.min(days, 10)}, (_,i) => Math.round(base.ventas * factor / Math.min(days,10) * (0.7 + Math.random()*0.6))),
-    barLabels: Array.from({length: Math.min(days, 10)}, (_,i) => { const d = new Date(from+'T00:00:00'); d.setDate(d.getDate() + Math.round(i * days/Math.min(days,10))); return (d.getDate()+'/'+('0'+(d.getMonth()+1)).slice(-2)); }),
-  };
-
   closeCustomDateDrop();
   renderInforme(infTab);
 }
@@ -8875,7 +8861,7 @@ function printInforme() {
 }
 
 function downloadExcel() {
-  const d = infData[infPeriod];
+  const d = getInfData(infPeriod);
   const tabLabels = { ventas:'Ventas', pedidos:'Pedidos', delivery:'Delivery', encomiendas:'Encomiendas', clientes:'Contactos', productos:'Productos' };
   const periodLabel = { hoy:'Hoy', '7dias':'Últimos 7 días', mes:'Este mes', año:'Este año', personalizado: document.getElementById('infCustomLabel')?.textContent || 'Personalizado' }[infPeriod];
   let csv = '';
@@ -10012,14 +9998,15 @@ applyPlanNavigation(activePlan);
   try { renderDeliveryOpts(); } catch(e) {}
   try { renderPayGrids(); } catch(e) {}
 })();
+const ordersReady = loadRealOrders().then(() => { loadRealClients(); });
 loadRealConversations().then(() => {
   const firstKey = Object.keys(convos)[0];
   if (firstKey) {
     loadChat(firstKey);
-    showConvoHistory(firstKey);
+    // El historial del cliente depende de los pedidos: esperar a que carguen
+    ordersReady.finally(() => showConvoHistory(convos[currentConvo] ? currentConvo : firstKey));
   }
 });
-loadRealOrders().then(() => { loadRealClients(); });
 loadRealCatalog();
 
 // ══ CUSTOM CURSOR TOUR ══════════════════════════════════════
@@ -11190,4 +11177,72 @@ function renderQrSettingsHtml() {
 
 </script>
 
+<style>
+  .demo-banner { height: 36px; display: flex; align-items: center; justify-content: center; gap: 10px; padding: 0 16px;
+    background: linear-gradient(90deg,#241a52,#33246e); color: #e4dcff; font-size: 12.5px;
+    border-bottom: 1px solid rgba(167,139,250,.35); white-space: nowrap; overflow: hidden; }
+  .demo-banner.urgent { background: linear-gradient(90deg,#4f1a26,#6b2333); border-bottom-color: rgba(248,113,113,.4); color: #ffe1e1; }
+  .demo-banner b { color: #fff; }
+  .demo-banner .db-sep { opacity: .45; }
+  .demo-banner a { color: #fff; font-weight: 700; text-decoration: none; padding: 4px 11px; border-radius: 7px;
+    background: rgba(255,255,255,.14); }
+  .demo-banner a:hover { background: rgba(255,255,255,.24); }
+  body.is-demo .app { height: calc(100vh - 36px); }
+  .demo-banner .db-short { display: none; }
+  @media (max-width: 680px) {
+    .demo-banner { justify-content: space-between; font-size: 12px; padding: 0 10px; }
+    .demo-banner .db-extra, .demo-banner .db-sep, .demo-banner .db-long { display: none; }
+    .demo-banner .db-short { display: inline; }
+    .demo-banner a { padding: 4px 9px; font-size: 11.5px; }
+  }
+</style>
+<script>
+(function () {
+  if (!window.__DEMO_MODE__) return;
+  var days = Number(window.__DEMO_DAYS_LEFT__) || 0;
+  var n = days <= 0 ? 'hoy' : days + (days === 1 ? ' día' : ' días');
+  var when = days <= 0 ? '<span class="db-long">Tu demo termina </span><span class="db-short">Demo: </span><b>hoy</b>'
+    : '<span class="db-long">Te quedan </span><span class="db-short">Demo: </span><b>' + n + '</b><span class="db-long"> de demo</span>';
+  var biz = '';
+  try { biz = (JSON.parse(localStorage.getItem('central_tenant') || '{}').businessName) || ''; } catch (e) {}
+  var mail = 'mailto:info@magicdesignllc.com?subject=' + encodeURIComponent('Quiero activar CENTRAL' + (biz ? ' — ' + biz : ''));
+  var bar = document.createElement('div');
+  bar.className = 'demo-banner' + (days <= 2 ? ' urgent' : '');
+  bar.innerHTML = '<span>🧪 ' + when + '</span><span class="db-sep">·</span>' +
+    '<span class="db-extra">Entorno de práctica: los mensajes no llegan a clientes reales</span>' +
+    '<a href="' + mail + '">Activar mi cuenta →</a>';
+  var app = document.querySelector('.app');
+  document.body.classList.add('is-demo');
+  document.body.insertBefore(bar, app || document.body.firstChild);
+})();
+
+// Si la demo caduca mientras está abierta, cualquier llamada a la API devuelve demo_expired
+(function () {
+  var orig = window.fetch;
+  window.fetch = function () {
+    return orig.apply(this, arguments).then(function (res) {
+      if (res.status === 403) {
+        res.clone().json().then(function (b) { if (b && b.error === 'demo_expired') location.replace('/app'); }).catch(function () {});
+      }
+      return res;
+    });
+  };
+})();
+
+// Protección básica contra copia del código (no sustituye la protección del servidor)
+(function () {
+  document.addEventListener('contextmenu', function (e) {
+    var t = e.target;
+    if (t && (t.closest('input, textarea, [contenteditable="true"]'))) return;
+    e.preventDefault();
+  });
+  document.addEventListener('keydown', function (e) {
+    var k = (e.key || '').toLowerCase();
+    var mod = e.ctrlKey || e.metaKey;
+    if (k === 'f12' || (mod && (k === 'u' || k === 's')) || (mod && e.shiftKey && (k === 'i' || k === 'j' || k === 'c'))) {
+      e.preventDefault();
+    }
+  });
+})();
+</script>
 </body>
