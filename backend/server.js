@@ -26,6 +26,22 @@ app.use((req, res, next) => {
   express.json({ limit: '20mb' })(req, res, next);
 });
 
+// Límite de intentos de login por IP: 10 cada 15 min (frena fuerza bruta sobre claves)
+app.set('trust proxy', 1);
+const loginAttempts = new Map();
+function loginRateLimit(req, res, next) {
+  const key = req.path + '|' + req.ip;
+  const now = Date.now();
+  const rec = loginAttempts.get(key);
+  if (!rec || now > rec.reset) { loginAttempts.set(key, { count: 1, reset: now + 15 * 60000 }); return next(); }
+  if (++rec.count > 10) {
+    return res.status(429).json({ error: 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.' });
+  }
+  next();
+}
+setInterval(() => { const n = Date.now(); for (const [k, v] of loginAttempts) if (n > v.reset) loginAttempts.delete(k); }, 10 * 60000).unref();
+app.use(['/api/tenant/login', '/api/admin/login'], loginRateLimit);
+
 const PORT             = process.env.PORT || 3000;
 const GRAPH_API_VERSION = 'v21.0';
 const GRAPH_BASE       = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
@@ -199,6 +215,16 @@ async function initDB() {
     // seguir con persistencia igual, no quedarse sin base de datos. Lo mismo
     // aplica a cualquier migración que se añada aquí en el futuro: va en su
     // propio try, después de dbReady, nunca dentro del bloque principal.
+    // Migraciones incrementales — idempotentes, cada una en su propio try
+    try {
+      await pool.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS expires_at   TIMESTAMPTZ DEFAULT NULL`);
+      await pool.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS is_demo      BOOLEAN     DEFAULT false`);
+      await pool.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS demo_days    INTEGER     DEFAULT 7`);
+      console.log('✅ Migraciones de demo aplicadas');
+    } catch (err) {
+      console.error('⚠️  Migración demo:', err.message);
+    }
+
     try {
       await seedDefaultTenant();
     } catch (err) {
@@ -661,10 +687,17 @@ async function requireAuth(req, res, next) {
   // desde Central Admin bloquee el acceso al instante, no solo en el próximo login.
   if (dbReady && decoded.tenantId) {
     try {
-      const { rows } = await pool.query('SELECT active FROM tenants WHERE id = $1', [decoded.tenantId]);
+      const { rows } = await pool.query(
+        'SELECT active, expires_at, is_demo FROM tenants WHERE id = $1',
+        [decoded.tenantId]
+      );
       if (!rows[0] || !rows[0].active) {
         return res.status(403).json({ error: 'Tu cuenta ha sido suspendida. Contacta soporte.' });
       }
+      if (rows[0].expires_at && new Date(rows[0].expires_at) < new Date()) {
+        return res.status(403).json({ error: 'demo_expired', message: 'El período de demo ha finalizado. Contacta a Magic Design para activar tu cuenta.' });
+      }
+      decoded.isDemo = !!rows[0].is_demo;
     } catch (err) {
       return res.status(500).json({ error: 'Error validando la cuenta' });
     }
@@ -980,6 +1013,9 @@ app.post('/api/tenant/login', async (req, res) => {
     if (!tenant.active) return res.status(403).json({ error: 'Tu cuenta ha sido suspendida. Contacta soporte.' });
     const valid = await bcrypt.compare(password, tenant.password_hash);
     if (!valid)  return res.status(401).json({ error: 'Correo o contraseña incorrectos' });
+    if (tenant.expires_at && new Date(tenant.expires_at) < new Date()) {
+      return res.status(403).json({ error: 'demo_expired', message: 'Tu período de demo ha finalizado. Escríbenos a info@magicdesignllc.com para activar tu cuenta.' });
+    }
     const token = jwt.sign({ tenantId: tenant.id, email: tenant.email }, JWT_SECRET, { expiresIn: '30d' });
     res.json({
       success: true,
@@ -1262,6 +1298,10 @@ app.patch('/api/orders/:id', requireAuth, async (req, res) => {
 app.get('/api/reports', requireAuth, async (req, res) => {
   const tenantId = req.tenant.tenantId;
   const { period = 'hoy', from, to } = req.query;
+  const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+  if ((from && !ISO_DATE.test(from)) || (to && !ISO_DATE.test(to))) {
+    return res.status(400).json({ error: 'Fechas inválidas (formato YYYY-MM-DD)' });
+  }
 
   // Build time window
   let startExpr, endExpr, groupBy, labelFn, barCount;
@@ -1338,7 +1378,7 @@ app.get('/api/reports', requireAuth, async (req, res) => {
              SUM(oi.line_price)::float   AS total
       FROM order_items oi
       JOIN orders o ON o.id = oi.order_id
-      WHERE o.tenant_id = $1 AND o.${timeFilter.replace('created_at', 'o.created_at')}
+      WHERE o.tenant_id = $1 AND ${timeFilter.replace('created_at', 'o.created_at')}
       GROUP BY oi.emoji, oi.name
       ORDER BY qty DESC
       LIMIT 6
@@ -1517,7 +1557,32 @@ app.get('/api/media/:mediaId', requireAuth, async (req, res) => {
 // API — Enviar mensaje de texto (WhatsApp)
 // ══════════════════════════════════════════════════════════════
 
-app.post('/api/send', requireAuth, async (req, res) => {
+// En cuentas demo los envíos se guardan y se ven en el chat, pero nunca salen a Meta
+function simulateIfDemo(kind) {
+  return async (req, res, next) => {
+    if (!req.tenant?.isDemo) return next();
+    const b = req.body || {};
+    const tenantId = req.tenant.tenantId;
+    const platform = kind === 'ig' ? 'ig' : 'wa';
+    const convoKey = kind === 'ig' ? (b.igId ? `ig_${b.igId}` : null) : b.waId;
+    if (!convoKey) return res.status(400).json({ error: 'Falta el destinatario' });
+    const text = kind === 'ticket' ? (b.caption || '🧾 Resguardo de compra')
+               : kind === 'media'  ? (b.caption || '📎 Archivo adjunto')
+               : b.text;
+    if (!text) return res.status(400).json({ error: 'Falta el texto' });
+    try {
+      await dbGetOrCreateConvo(convoKey, null, tenantId, platform, kind === 'ig' ? b.igId : null);
+      const sentMessage = { id: 'demo_' + crypto.randomUUID(), role: 'out', type: 'text', text, time: new Date().toISOString() };
+      await dbSaveMessage(sentMessage, convoKey, tenantId);
+      broadcastToTenant(tenantId, { type: 'message_sent', waId: convoKey, platform, message: sentMessage });
+      res.json({ success: true, demo: true, message: sentMessage });
+    } catch (err) {
+      res.status(500).json({ error: 'Error al enviar' });
+    }
+  };
+}
+
+app.post('/api/send', requireAuth, simulateIfDemo('text'), async (req, res) => {
   const { waId, text } = req.body;
   if (!waId || !text) return res.status(400).json({ error: 'Faltan waId o text' });
 
@@ -1551,7 +1616,7 @@ app.post('/api/send', requireAuth, async (req, res) => {
 // API — Enviar archivo adjunto (WhatsApp)
 // ══════════════════════════════════════════════════════════════
 
-app.post('/api/send-media', requireAuth, upload.single('file'), async (req, res) => {
+app.post('/api/send-media', requireAuth, upload.single('file'), simulateIfDemo('media'), async (req, res) => {
   const { waId, caption } = req.body;
   const file = req.file;
   if (!waId || !file) return res.status(400).json({ error: 'Faltan waId o file' });
@@ -1587,7 +1652,7 @@ app.post('/api/send-media', requireAuth, upload.single('file'), async (req, res)
 // API — Enviar ticket como imagen PNG (WhatsApp)
 // ══════════════════════════════════════════════════════════════
 
-app.post('/api/send-ticket', requireAuth, async (req, res) => {
+app.post('/api/send-ticket', requireAuth, simulateIfDemo('ticket'), async (req, res) => {
   const { waId, ticketHtml, caption, orderType } = req.body;
   if (!waId || !ticketHtml) return res.status(400).json({ error: 'Faltan waId o ticketHtml' });
 
@@ -1624,7 +1689,7 @@ app.post('/api/send-ticket', requireAuth, async (req, res) => {
 // API — Enviar mensaje de texto por Instagram
 // ══════════════════════════════════════════════════════════════
 
-app.post('/api/send-instagram', requireAuth, async (req, res) => {
+app.post('/api/send-instagram', requireAuth, simulateIfDemo('ig'), async (req, res) => {
   const { igId, text } = req.body;
   if (!igId || !text) return res.status(400).json({ error: 'Faltan igId o text' });
 
@@ -1662,8 +1727,86 @@ app.get('/auth/instagram/delete',  (req, res) => res.sendStatus(200));
 app.post('/auth/instagram/delete', (req, res) => res.sendStatus(200));
 
 // ══════════════════════════════════════════════════════════════
-// Servir archivos estáticos (HTML, CSS, JS del frontend)
-app.use(express.static(__dirname));
+// Servir archivos estáticos — SPA excluido del acceso público
+// El SPA (central-mvp-v63) solo se sirve via /app con JWT válido
+const path = require('path');
+const fs   = require('fs');
+const SPA_FILE = path.join(__dirname, 'central-mvp-v63 (1) - copia.html');
+
+// Lista blanca: solo páginas públicas e imágenes. Nunca .js, .json, .toml ni el SPA.
+const PUBLIC_STATIC = /^\/[\w.-]+\.(html|png|jpe?g|svg|ico|webp|css)$/i;
+app.use((req, res, next) => {
+  let p;
+  try { p = decodeURIComponent(req.path); } catch { return res.status(400).end(); }
+  if (/^\/central-mvp/i.test(p)) {
+    // URLs viejas del SPA (p.ej. retorno de Stripe) pasan por /app conservando la query
+    const qs = req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '';
+    return res.redirect('/app' + qs);
+  }
+  if (req.method === 'GET' && /\.[a-z0-9]+$/i.test(p) && !PUBLIC_STATIC.test(p)) return res.status(404).end();
+  next();
+});
+app.use(express.static(__dirname, { dotfiles: 'deny', index: false }));
+
+// Sin token en la URL: página mínima que toma el JWT de localStorage y vuelve con él
+const APP_BOOTSTRAP = `<!DOCTYPE html><meta charset="utf-8"><title>CENTRAL</title><script>
+var t=null;try{t=localStorage.getItem('central_jwt')}catch(e){}
+var q=new URLSearchParams(location.search);
+if(t){q.set('token',t);location.replace('/app?'+q.toString())}else{location.replace('/central-registro.html')}
+</script>`;
+
+const APP_LOGOUT = `<!DOCTYPE html><meta charset="utf-8"><script>try{localStorage.removeItem('central_jwt')}catch(e){}location.replace('/central-registro.html')</script>`;
+
+app.get('/app', async (req, res) => {
+  const token = req.query.token;
+  if (!token) return res.type('html').send(APP_BOOTSTRAP);
+
+  let decoded;
+  try { decoded = jwt.verify(token, JWT_SECRET); }
+  catch { return res.type('html').send(APP_LOGOUT); }
+
+  let tenant = null;
+  if (dbReady && decoded.tenantId) {
+    try {
+      const { rows } = await pool.query(
+        'SELECT active, expires_at, is_demo, business_name FROM tenants WHERE id = $1',
+        [decoded.tenantId]
+      );
+      tenant = rows[0];
+    } catch { return res.status(503).send('Servicio no disponible, intenta en un momento'); }
+    if (!tenant || !tenant.active) return res.type('html').send(APP_LOGOUT);
+    if (tenant.expires_at && new Date(tenant.expires_at) < new Date()) {
+      return res.type('html').send(buildExpiredPage(tenant.business_name));
+    }
+  }
+
+  let html;
+  try { html = fs.readFileSync(SPA_FILE, 'utf8'); }
+  catch { return res.status(500).send('Error cargando la app'); }
+
+  let inject = `<script>(function(){var u=new URL(location.href);if(u.searchParams.has('token')){try{localStorage.setItem('central_jwt',u.searchParams.get('token'))}catch(e){}u.searchParams.delete('token');history.replaceState(null,'',u.pathname+(u.search||''))}})();</script>`;
+  if (tenant?.is_demo && tenant.expires_at) {
+    const daysLeft = Math.max(0, Math.ceil((new Date(tenant.expires_at) - new Date()) / 86400000));
+    inject += `<script>window.__DEMO_MODE__=true;window.__DEMO_DAYS_LEFT__=${daysLeft};window.__DEMO_EXPIRES__=${JSON.stringify(new Date(tenant.expires_at).toISOString())};</script>`;
+  }
+  html = html.replace('</head>', inject + '\n</head>');
+
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.send(html);
+});
+
+function escHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+function buildExpiredPage(businessName) {
+  businessName = escHtml(businessName);
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Demo expirado — CENTRAL</title>
+<style>*{box-sizing:border-box;margin:0;padding:0}body{background:#0d0d14;color:#e8e8f0;font-family:-apple-system,'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}.card{background:#15151f;border:1px solid rgba(255,255,255,.08);border-radius:20px;padding:48px 40px;max-width:440px;width:100%;text-align:center}.icon{font-size:48px;margin-bottom:20px}.title{font-size:24px;font-weight:800;margin-bottom:10px}.sub{color:#9999bb;font-size:15px;line-height:1.6;margin-bottom:32px}.btn{display:inline-block;padding:13px 28px;background:linear-gradient(135deg,#7c5cfc,#a78bfa);color:#fff;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px}</style></head>
+<body><div class="card"><div class="icon">⏰</div><div class="title">Tu demo ha expirado</div><div class="sub">El período de prueba de <strong>${businessName || 'tu negocio'}</strong> ha concluido.<br>Contacta a Magic Design LLC para activar tu cuenta completa.</div><a href="mailto:info@magicdesignllc.com" class="btn">Contactar ahora →</a></div></body></html>`;
+}
 
 // ══════════════════════════════════════════════════════════════
 // Health check & rutas raíz
@@ -1812,8 +1955,8 @@ app.post('/api/billing/create-checkout', requireAuth, async (req, res) => {
       payment_method_types: ['card'],
       mode:                'subscription',
       line_items:          [{ price: priceId, quantity: 1 }],
-      success_url:         `${APP_URL.replace(/\/$/, '')}/central-mvp-v63%20(1)%20-%20copia.html?payment=success`,
-      cancel_url:          `${APP_URL.replace(/\/$/, '')}/central-mvp-v63%20(1)%20-%20copia.html?payment=cancelled`,
+      success_url:         `${APP_URL.replace(/\/$/, '')}/app?payment=success`,
+      cancel_url:          `${APP_URL.replace(/\/$/, '')}/app?payment=cancelled`,
       metadata:            { tenantId: tenant.id, plan },
     });
 
@@ -1879,7 +2022,7 @@ app.post('/api/billing/portal', requireAuth, async (req, res) => {
 
     const session = await stripe.billingPortal.sessions.create({
       customer:   customerId,
-      return_url: `${APP_URL}/central-mvp-v63%20(1)%20-%20copia.html`,
+      return_url: `${APP_URL}/app`,
     });
     res.json({ portalUrl: session.url });
   } catch (err) {
@@ -2086,6 +2229,194 @@ app.delete('/api/admin/tenants/:tenantId', requireAdmin, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   try {
     await pool.query('DELETE FROM tenants WHERE id = $1', [req.params.tenantId]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════
+// ADMIN — Demos (cuentas de prueba con datos ficticios y caducidad)
+// Requieren sesión de superadmin + la clave DEMO_CREATION_KEY (header X-Demo-Key)
+// ══════════════════════════════════════════════════════════════
+const { seedDemoTenant } = require('./demo-seed');
+const DEMO_CREATION_KEY = process.env.DEMO_CREATION_KEY || '';
+
+function requireDemoKey(req, res, next) {
+  if (DEMO_CREATION_KEY.length < 32) {
+    return res.status(503).json({ error: 'DEMO_CREATION_KEY no configurada (mínimo 32 caracteres) en Railway' });
+  }
+  const given = Buffer.from(String(req.headers['x-demo-key'] || ''));
+  const expected = Buffer.from(DEMO_CREATION_KEY);
+  if (given.length !== expected.length || !crypto.timingSafeEqual(given, expected)) {
+    return res.status(403).json({ error: 'Clave de demos incorrecta' });
+  }
+  next();
+}
+
+function generateDemoPassword() {
+  const alphabet = 'abcdefghjkmnpqrstuvwxyz23456789';
+  let s = '';
+  for (let i = 0; i < 8; i++) s += alphabet[crypto.randomInt(alphabet.length)];
+  return `demo-${s}`;
+}
+
+async function sendDemoEmail({ to, ownerName, businessName, password, expiresAt }) {
+  const loginUrl = `${APP_URL.replace(/\/$/, '')}/central-registro.html?email=${encodeURIComponent(to)}`;
+  const exp = new Date(expiresAt).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
+  await sendEmail({
+    to,
+    subject: 'Tu demo de CENTRAL está listo 🚀',
+    html: `
+<div style="font-family:-apple-system,'Segoe UI',Arial,sans-serif;background:#0d0d14;padding:32px 16px;">
+  <div style="max-width:520px;margin:0 auto;background:#15151f;border:1px solid #2a2a3a;border-radius:16px;padding:32px;color:#e8e8f0;">
+    <div style="font-size:22px;font-weight:800;margin-bottom:6px;">Hola ${escHtml(ownerName || '')} 👋</div>
+    <div style="color:#9999bb;font-size:15px;line-height:1.6;margin-bottom:24px;">
+      Preparamos una demo de CENTRAL para <strong style="color:#e8e8f0;">${escHtml(businessName)}</strong>, con un catálogo,
+      clientes, pedidos y conversaciones de ejemplo para que pruebes todas las funciones como si fuera tu negocio.
+    </div>
+    <div style="background:#1f1f2e;border-radius:12px;padding:18px 20px;margin-bottom:24px;font-size:14px;line-height:1.9;">
+      <div><span style="color:#9999bb;">Correo:</span> <strong>${escHtml(to)}</strong></div>
+      <div><span style="color:#9999bb;">Clave temporal:</span> <strong style="font-family:monospace;font-size:15px;">${escHtml(password)}</strong></div>
+      <div><span style="color:#9999bb;">Disponible hasta:</span> <strong>${exp}</strong></div>
+    </div>
+    <a href="${loginUrl}" style="display:inline-block;background:linear-gradient(135deg,#7c5cfc,#a78bfa);color:#fff;text-decoration:none;padding:13px 26px;border-radius:10px;font-weight:700;font-size:15px;">Entrar a mi demo →</a>
+    <div style="color:#7070a0;font-size:12.5px;line-height:1.6;margin-top:28px;">
+      Los mensajes que envíes en la demo no salen a WhatsApp ni Instagram: es un entorno de práctica.<br>
+      ¿Dudas? Responde a este correo o escríbenos a info@magicdesignllc.com
+    </div>
+  </div>
+</div>`,
+  });
+}
+
+app.get('/api/admin/demos', requireAdmin, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  try {
+    const { rows } = await pool.query(`
+      SELECT id, business_name, full_name, email, country, created_at, expires_at, active,
+             GREATEST(0, CEIL(EXTRACT(EPOCH FROM (expires_at - NOW())) / 86400))::int AS days_left,
+             (expires_at < NOW()) AS expired
+      FROM tenants WHERE is_demo = true
+      ORDER BY created_at DESC
+    `);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/demos', requireAdmin, requireDemoKey, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  const b = req.body || {};
+  const email = String(b.email || '').trim().toLowerCase();
+  const businessName = String(b.businessName || '').trim();
+  const ownerName = String(b.ownerName || '').trim();
+  const city = String(b.city || '').trim() || 'Caracas';
+  const country = String(b.country || '').trim() || null;
+  const days = Math.min(30, Math.max(1, parseInt(b.days, 10) || 7));
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Correo inválido' });
+  if (!businessName) return res.status(400).json({ error: 'Falta el nombre del negocio' });
+
+  const { rows: existing } = await pool.query('SELECT id, is_demo FROM tenants WHERE lower(email) = $1', [email]);
+  if (existing.length) {
+    return res.status(409).json({ error: existing[0].is_demo
+      ? 'Ya existe una demo con este correo — extiéndela o reenvía el acceso desde la lista'
+      : 'Este correo ya pertenece a una cuenta real de CENTRAL' });
+  }
+
+  const password = generateDemoPassword();
+  const hash = await bcrypt.hash(password, 10);
+  const client = await pool.connect();
+  let tenant;
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(`
+      INSERT INTO tenants (business_name, full_name, email, password_hash, plan, country, is_demo, demo_days, expires_at)
+      VALUES ($1,$2,$3,$4,'pro',$5,true,$6, NOW() + make_interval(hours => $6 * 24))
+      RETURNING id, email, business_name, expires_at
+    `, [businessName, ownerName || null, email, hash, country, days]);
+    tenant = rows[0];
+    await seedDemoTenant(client, tenant.id, { city });
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    client.release();
+    console.error('[DEMO] Error creando demo:', err.message);
+    return res.status(500).json({ error: 'No se pudo crear la demo: ' + err.message });
+  }
+  client.release();
+
+  let emailSent = false, emailError = null;
+  if (process.env.RESEND_API_KEY && b.sendEmail !== false) {
+    try {
+      await sendDemoEmail({ to: email, ownerName, businessName, password, expiresAt: tenant.expires_at });
+      emailSent = true;
+    } catch (err) { emailError = err.message; }
+  }
+  console.log(`[DEMO] Creada demo ${tenant.id} para ${email} (${days} días) por ${req.admin.email}`);
+  res.json({ success: true, tenantId: tenant.id, email, password, expiresAt: tenant.expires_at, emailSent, emailError });
+});
+
+app.post('/api/admin/demos/:tenantId/extend', requireAdmin, requireDemoKey, async (req, res) => {
+  const days = Math.min(30, Math.max(1, parseInt(req.body?.days, 10) || 7));
+  try {
+    const { rows } = await pool.query(`
+      UPDATE tenants SET expires_at = GREATEST(expires_at, NOW()) + make_interval(hours => $2 * 24), active = true
+      WHERE id = $1 AND is_demo = true RETURNING expires_at
+    `, [req.params.tenantId, days]);
+    if (!rows[0]) return res.status(404).json({ error: 'Demo no encontrada' });
+    res.json({ success: true, expiresAt: rows[0].expires_at });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/demos/:tenantId/revoke', requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE tenants SET expires_at = NOW() WHERE id = $1 AND is_demo = true RETURNING id`,
+      [req.params.tenantId]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Demo no encontrada' });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/demos/:tenantId/resend', requireAdmin, requireDemoKey, async (req, res) => {
+  try {
+    const password = generateDemoPassword();
+    const hash = await bcrypt.hash(password, 10);
+    const { rows } = await pool.query(
+      `UPDATE tenants SET password_hash = $2 WHERE id = $1 AND is_demo = true
+       RETURNING email, full_name, business_name, expires_at`,
+      [req.params.tenantId, hash]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Demo no encontrada' });
+    const t = rows[0];
+    let emailSent = false, emailError = null;
+    if (process.env.RESEND_API_KEY) {
+      try {
+        await sendDemoEmail({ to: t.email, ownerName: t.full_name, businessName: t.business_name, password, expiresAt: t.expires_at });
+        emailSent = true;
+      } catch (err) { emailError = err.message; }
+    }
+    res.json({ success: true, email: t.email, password, emailSent, emailError });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Convierte una demo en cuenta real: quita la caducidad (los datos de ejemplo se conservan)
+app.post('/api/admin/demos/:tenantId/convert', requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE tenants SET is_demo = false, expires_at = NULL WHERE id = $1 AND is_demo = true RETURNING id`,
+      [req.params.tenantId]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Demo no encontrada' });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
