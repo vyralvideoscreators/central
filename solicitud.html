@@ -37,10 +37,8 @@
     --border:  rgba(255,255,255,0.07);
     --border2: rgba(255,255,255,0.14);
     --text:    #e8e8f0;
-    --muted:   #8a8ab8;
+    --muted:   #a3a3c8;
     --accent:  #7c5cfc;
-    --accent-strong: #7454f2; /* fondo de botones con texto blanco (4.89:1) */
-    --accent-text:   #9a85ff; /* texto violeta pequeño sobre fondo oscuro (6.8:1) */
     --glow:    rgba(124,92,252,0.25);
     --cyan:    #00d4ff;
     --green:   #22d3a0;
@@ -106,7 +104,7 @@
 
   .section-label {
     font-size: 10px; font-weight: 600; letter-spacing: 3px;
-    text-transform: uppercase; color: var(--accent-text);
+    text-transform: uppercase; color: var(--accent);
     margin-bottom: 16px;
   }
 
@@ -190,7 +188,6 @@
     outline: none;
     border-color: var(--accent);
   }
-  ::placeholder { color: var(--muted); opacity: 1; }
   textarea { resize: vertical; min-height: 80px; }
 
   select {
@@ -246,7 +243,7 @@
     display: inline-flex; align-items: center; justify-content: center;
     gap: 8px; min-height: 48px;
     padding: 14px 32px;
-    background: var(--accent-strong);
+    background: var(--accent);
     color: #fff; font-size: 15px; font-weight: 700;
     border: none; border-radius: 50px;
     cursor: pointer;
@@ -303,7 +300,7 @@
     line-height: 1.7;
   }
   .success-panel a {
-    color: var(--accent-text); text-decoration: none;
+    color: var(--accent); text-decoration: none;
     font-weight: 600; font-size: 14px;
   }
   .success-panel a:hover { text-decoration: underline; }
@@ -374,6 +371,7 @@
           <option>Ropa y accesorios</option>
           <option>Comida y repostería</option>
           <option>Belleza y cuidado personal</option>
+          <option>Mascotas y grooming</option>
           <option>Tecnología y electrónica</option>
           <option>Hogar y decoración</option>
           <option>Servicios</option>
@@ -391,6 +389,21 @@
         <label class="check-item"><input type="checkbox" name="Plataformas" value="Facebook"><span>Facebook</span></label>
         <label class="check-item"><input type="checkbox" name="Plataformas" value="TikTok"><span>TikTok</span></label>
         <label class="check-item"><input type="checkbox" name="Plataformas" value="Otros"><span>Otros</span></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <div class="fieldset-title">¿Qué te gustaría resolver?</div>
+      <div class="fieldset-sub">Opcional. Marca los programas que te interesan y preparamos tu demo y tu presupuesto con eso en mente.</div>
+      <div class="check-grid">
+        <label class="check-item"><input type="checkbox" name="Programas de interés" value="Mensajes y pedidos"><span>Mensajes y pedidos</span></label>
+        <label class="check-item"><input type="checkbox" name="Programas de interés" value="Facturación y cobros"><span>Facturación y cobros</span></label>
+        <label class="check-item"><input type="checkbox" name="Programas de interés" value="Citas online"><span>Citas online</span></label>
+        <label class="check-item"><input type="checkbox" name="Programas de interés" value="Clientes e informes"><span>Clientes e informes</span></label>
+        <label class="check-item"><input type="checkbox" name="Programas de interés" value="Página web"><span>Página web</span></label>
+        <label class="check-item"><input type="checkbox" name="Programas de interés" value="App móvil y rutas"><span>App móvil y rutas</span></label>
+        <label class="check-item"><input type="checkbox" name="Programas de interés" value="Asistente con IA"><span>Asistente con IA</span></label>
+        <label class="check-item"><input type="checkbox" name="Programas de interés" value="Algo a medida"><span>Algo a medida</span></label>
       </div>
     </fieldset>
 
