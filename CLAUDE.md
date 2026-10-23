@@ -26,14 +26,31 @@
 ## Archivos clave
 
 ```
-central-mvp-v63 (1) - copia.html   ← Frontend completo (SPA)
-backend/
-  server.js                         ← Backend Express (API + webhooks + WS)
-  nixpacks.toml                     ← Config build Railway (Chromium)
-  .env.example                      ← Todas las variables de entorno documentadas
-  package.json
-AGENTES.md                          ← Guía de uso de agentes Claude
+backend/                              ← LO QUE SE DESPLIEGA EN RAILWAY
+  server.js                           ← Backend Express (API + webhooks + WS)
+  central-mvp-v63 (1) - copia.html    ← SPA de producción (solo se sirve en /app con JWT)
+  central-registro.html               ← Login / registro
+  central-admin.html                  ← Panel superadmin (Dashboard, Negocios, Demos)
+  demo-seed.js                        ← Datos ficticios de las cuentas demo
+  nixpacks.toml, .env.example, package.json
+central-mvp-v63 (1) - copia.html      ← Copia ANTIGUA de la raíz, NO se despliega — no editar
+index.html, solicitud.html, …         ← Sitio público (solicitud por Formspree)
+AGENTES.md                            ← Guía de uso de agentes Claude
 ```
+
+**Edita siempre la copia de `backend/`.** La raíz tiene versiones antiguas de algunos HTML.
+
+## Demos para prospectos
+
+- Se crean desde `central-admin.html` → Demos (sesión superadmin + `DEMO_CREATION_KEY`).
+- `tenants.is_demo = true`, `expires_at` → login, API y `/app` rechazan la cuenta al caducar.
+- En demos, los envíos a WhatsApp/Instagram se simulan (`simulateIfDemo`): nunca salen a Meta.
+- El SPA muestra un banner con los días restantes (`window.__DEMO_MODE__`, inyectado en `/app`).
+
+## Seguridad del servidor
+
+- Estáticos por lista blanca (`PUBLIC_STATIC` en server.js): solo .html públicos e imágenes. Nunca .js/.json.
+- Rate limit en `/api/tenant/login` y `/api/admin/login`.
 
 ## Convenciones de código
 
@@ -42,16 +59,16 @@ AGENTES.md                          ← Guía de uso de agentes Claude
 - Los endpoints usan `requireAuth` middleware que inyecta `req.tenant.tenantId`
 - **Siempre filtrar por `tenant_id`** — es multi-tenant; una query sin filtro expone datos de otros negocios
 - El body de POST/PATCH usa **camelCase** (`clientName`, `payStatus`, `deliveryStatus`)
-- La BD devuelve **snake_case** (`client_name`, `pay_status`, `delivery_status`)
+- Las funciones `db*` de pedidos, clientes y catálogo devuelven **camelCase** a la API (la BD es snake_case)
 - Variables de entorno: todas documentadas en `backend/.env.example`
 
 ### Frontend (SPA)
 - Patrón de carga: `loadRealX()` async → fallback a datos demo si falla
-- `BACKEND_URL` es la constante con la URL del backend
+- `BACKEND_URL = location.origin` (SPA, login y API se sirven desde el mismo servidor)
 - `apiAuthHeader()` devuelve `{ Authorization: 'Bearer <jwt>' }`
 - `apiHeaders()` devuelve headers con Content-Type + Auth
 - IDs del backend se guardan como `_backendId` en los objetos locales
-- El startup llama todos los loaders en paralelo: `Promise.all([loadRealConversations(), loadRealCatalog(), loadRealClients(), loadRealOrders()])`
+- Arranque: `loadRealOrders()` (luego clientes), `loadRealConversations()` y `loadRealCatalog()`; el historial del cliente espera a que carguen los pedidos
 
 ## Reglas de trabajo
 
@@ -82,7 +99,7 @@ AGENTES.md                          ← Guía de uso de agentes Claude
 | Pedidos | `orders` | `loadRealOrders()` | `GET/POST /api/orders`, `PATCH /api/orders/:id` |
 | Catálogo | `catalog` | `loadRealCatalog()` | `GET/POST /api/catalog`, `PATCH/DELETE /api/catalog/:id` |
 | Clientes | `clientsDB` | `loadRealClients()` | `GET/POST /api/clients`, `PATCH/DELETE /api/clients/:id` |
-| Informes | `realInfData` | `loadRealInformes(period)` | `GET /api/reports?period=` |
+| Informes | `getInfData(period)` | calculado en el navegador a partir de `orders` | (`GET /api/reports` existe pero el SPA no lo usa) |
 | Ajustes | `businessProfile` | al cargar tenant | `GET/PATCH /api/tenant/profile` |
 
 ## Agentes disponibles

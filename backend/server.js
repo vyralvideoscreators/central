@@ -33,10 +33,12 @@ function loginRateLimit(req, res, next) {
   const key = req.baseUrl + '|' + req.ip;
   const now = Date.now();
   const rec = loginAttempts.get(key);
-  if (!rec || now > rec.reset) { loginAttempts.set(key, { count: 1, reset: now + 15 * 60000 }); return next(); }
-  if (++rec.count > 10) {
+  if (rec && now <= rec.reset && rec.count >= 10) {
     return res.status(429).json({ error: 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.' });
   }
+  if (!rec || now > rec.reset) loginAttempts.set(key, { count: 1, reset: now + 15 * 60000 });
+  else rec.count++;
+  res.on('finish', () => { if (res.statusCode === 200) loginAttempts.delete(key); });
   next();
 }
 setInterval(() => { const n = Date.now(); for (const [k, v] of loginAttempts) if (n > v.reset) loginAttempts.delete(k); }, 10 * 60000).unref();
@@ -623,6 +625,13 @@ function broadcastToTenant(tenantId, data) {
   clients.forEach(ws => { if (ws.readyState === 1) ws.send(payload); });
 }
 
+function closeTenantSockets(tenantId) {
+  const clients = tenantClients.get(String(tenantId));
+  if (!clients) return;
+  clients.forEach(ws => { try { ws.close(); } catch {} });
+  tenantClients.delete(String(tenantId));
+}
+
 // Fallback: broadcast a todos cuando no hay multi-tenant en DB
 function broadcastAll(data) {
   const payload = JSON.stringify(data);
@@ -639,6 +648,15 @@ wss.on('connection', (ws) => {
       if (msg.type === 'auth') {
         try {
           const decoded = jwt.verify(msg.token, JWT_SECRET);
+          if (!decoded.tenantId) throw new Error('sin tenant');
+          if (dbReady) {
+            const { rows } = await pool.query('SELECT active, expires_at FROM tenants WHERE id = $1', [decoded.tenantId]);
+            const t = rows[0];
+            if (!t || !t.active || (t.expires_at && new Date(t.expires_at) <= new Date())) {
+              ws.send(JSON.stringify({ type: 'auth_error', message: 'Cuenta no disponible' }));
+              return ws.close();
+            }
+          }
           tenantId = String(decoded.tenantId);
           if (!tenantClients.has(tenantId)) tenantClients.set(tenantId, new Set());
           tenantClients.get(tenantId).add(ws);
@@ -683,6 +701,7 @@ async function requireAuth(req, res, next) {
   } catch {
     return res.status(401).json({ error: 'Token inválido o expirado' });
   }
+  if (!decoded.tenantId) return res.status(401).json({ error: 'Token inválido o expirado' });
   // Revalidar en cada petición que la cuenta siga activa — para que una suspensión
   // desde Central Admin bloquee el acceso al instante, no solo en el próximo login.
   if (dbReady && decoded.tenantId) {
@@ -694,7 +713,7 @@ async function requireAuth(req, res, next) {
       if (!rows[0] || !rows[0].active) {
         return res.status(403).json({ error: 'Tu cuenta ha sido suspendida. Contacta soporte.' });
       }
-      if (rows[0].expires_at && new Date(rows[0].expires_at) < new Date()) {
+      if (rows[0].expires_at && new Date(rows[0].expires_at) <= new Date()) {
         return res.status(403).json({ error: 'demo_expired', message: 'El período de demo ha finalizado. Contacta a Magic Design para activar tu cuenta.' });
       }
       decoded.isDemo = !!rows[0].is_demo;
@@ -1013,7 +1032,7 @@ app.post('/api/tenant/login', async (req, res) => {
     if (!tenant.active) return res.status(403).json({ error: 'Tu cuenta ha sido suspendida. Contacta soporte.' });
     const valid = await bcrypt.compare(password, tenant.password_hash);
     if (!valid)  return res.status(401).json({ error: 'Correo o contraseña incorrectos' });
-    if (tenant.expires_at && new Date(tenant.expires_at) < new Date()) {
+    if (tenant.expires_at && new Date(tenant.expires_at) <= new Date()) {
       return res.status(403).json({ error: 'demo_expired', message: 'Tu período de demo ha finalizado. Escríbenos a info@magicdesignllc.com para activar tu cuenta.' });
     }
     const token = jwt.sign({ tenantId: tenant.id, email: tenant.email }, JWT_SECRET, { expiresIn: '30d' });
@@ -1378,7 +1397,7 @@ app.get('/api/reports', requireAuth, async (req, res) => {
              SUM(oi.line_price)::float   AS total
       FROM order_items oi
       JOIN orders o ON o.id = oi.order_id
-      WHERE o.tenant_id = $1 AND ${timeFilter.replace('created_at', 'o.created_at')}
+      WHERE o.tenant_id = $1 AND oi.tenant_id = o.tenant_id AND ${timeFilter.replace('created_at', 'o.created_at')}
       GROUP BY oi.emoji, oi.name
       ORDER BY qty DESC
       LIMIT 6
@@ -1560,7 +1579,8 @@ app.get('/api/media/:mediaId', requireAuth, async (req, res) => {
 // En cuentas demo los envíos se guardan y se ven en el chat, pero nunca salen a Meta
 function simulateIfDemo(kind) {
   return async (req, res, next) => {
-    if (!req.tenant?.isDemo) return next();
+    if (req.tenant?.isDemo === false) return next();
+    if (req.tenant?.isDemo !== true) return res.status(503).json({ error: 'Servicio no disponible, intenta en un momento' });
     const b = req.body || {};
     const tenantId = req.tenant.tenantId;
     const platform = kind === 'ig' ? 'ig' : 'wa';
@@ -1743,7 +1763,7 @@ app.use((req, res, next) => {
     const qs = req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '';
     return res.redirect('/app' + qs);
   }
-  if (req.method === 'GET' && /\.[a-z0-9]+$/i.test(p) && !PUBLIC_STATIC.test(p)) return res.status(404).end();
+  if ((req.method === 'GET' || req.method === 'HEAD') && /\.[a-z0-9]+$/i.test(p) && !PUBLIC_STATIC.test(p)) return res.status(404).end();
   next();
 });
 app.use(express.static(__dirname, { dotfiles: 'deny', index: false }));
@@ -1758,15 +1778,18 @@ if(t){q.set('token',t);location.replace('/app?'+q.toString())}else{location.repl
 const APP_LOGOUT = `<!DOCTYPE html><meta charset="utf-8"><script>try{localStorage.removeItem('central_jwt')}catch(e){}location.replace('/central-registro.html')</script>`;
 
 app.get('/app', async (req, res) => {
+  res.setHeader('Referrer-Policy', 'no-referrer');
   const token = req.query.token;
   if (!token) return res.type('html').send(APP_BOOTSTRAP);
 
   let decoded;
   try { decoded = jwt.verify(token, JWT_SECRET); }
   catch { return res.type('html').send(APP_LOGOUT); }
+  if (!decoded.tenantId) return res.type('html').send(APP_LOGOUT);
 
+  if (!dbReady) return res.status(503).send('Servicio no disponible, intenta en un momento');
   let tenant = null;
-  if (dbReady && decoded.tenantId) {
+  {
     try {
       const { rows } = await pool.query(
         'SELECT active, expires_at, is_demo, business_name FROM tenants WHERE id = $1',
@@ -1775,7 +1798,7 @@ app.get('/app', async (req, res) => {
       tenant = rows[0];
     } catch { return res.status(503).send('Servicio no disponible, intenta en un momento'); }
     if (!tenant || !tenant.active) return res.type('html').send(APP_LOGOUT);
-    if (tenant.expires_at && new Date(tenant.expires_at) < new Date()) {
+    if (tenant.expires_at && new Date(tenant.expires_at) <= new Date()) {
       return res.type('html').send(buildExpiredPage(tenant.business_name));
     }
   }
@@ -1793,6 +1816,7 @@ app.get('/app', async (req, res) => {
 
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.send(html);
 });
@@ -2254,6 +2278,12 @@ function requireDemoKey(req, res, next) {
   next();
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+app.param('tenantId', (req, res, next, id) => {
+  if (req.path.startsWith('/api/admin/demos/') && !UUID_RE.test(id)) return res.status(404).json({ error: 'Demo no encontrada' });
+  next();
+});
+
 function generateDemoPassword() {
   const alphabet = 'abcdefghjkmnpqrstuvwxyz23456789';
   let s = '';
@@ -2362,7 +2392,7 @@ app.post('/api/admin/demos/:tenantId/extend', requireAdmin, requireDemoKey, asyn
   const days = Math.min(30, Math.max(1, parseInt(req.body?.days, 10) || 7));
   try {
     const { rows } = await pool.query(`
-      UPDATE tenants SET expires_at = GREATEST(expires_at, NOW()) + make_interval(hours => $2 * 24), active = true
+      UPDATE tenants SET expires_at = GREATEST(expires_at, NOW()) + make_interval(hours => $2 * 24)
       WHERE id = $1 AND is_demo = true RETURNING expires_at
     `, [req.params.tenantId, days]);
     if (!rows[0]) return res.status(404).json({ error: 'Demo no encontrada' });
@@ -2375,10 +2405,11 @@ app.post('/api/admin/demos/:tenantId/extend', requireAdmin, requireDemoKey, asyn
 app.post('/api/admin/demos/:tenantId/revoke', requireAdmin, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `UPDATE tenants SET expires_at = NOW() WHERE id = $1 AND is_demo = true RETURNING id`,
+      `UPDATE tenants SET expires_at = NOW() - INTERVAL '1 second' WHERE id = $1 AND is_demo = true RETURNING id`,
       [req.params.tenantId]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Demo no encontrada' });
+    closeTenantSockets(req.params.tenantId);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
