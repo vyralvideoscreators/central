@@ -2,7 +2,6 @@ providers = ["node"]
 
 [phases.setup]
 nixPkgs = [
-  "...",
   "chromium",
   "nss",
   "freetype",

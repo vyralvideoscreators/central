@@ -4029,6 +4029,27 @@ const TICKET_CSS = `
 `;
 
 // ─── ORDERS DATA ───────────────────────────────────────────────
+async function loadRealOrders() {
+  try {
+    const res = await fetch(BACKEND_URL + '/api/orders', { headers: apiAuthHeader() });
+    if (!res.ok) throw new Error('Backend respondió ' + res.status);
+    const data = await res.json();
+    if (!Array.isArray(data) || data.length === 0) return false;
+    orders = data.map(o => ({
+      id: o.id,
+      client: o.client_name || o.client || '—',
+      product: o.product_summary || o.product || '—',
+      platform: o.platform || 'wa',
+      price: o.total_price ? '$' + parseFloat(o.total_price).toFixed(2) : '$0',
+      pay: o.pay_status || 'pend',
+      delivery: o.delivery_status || 'to_deliver',
+      time: o.created_at ? new Date(o.created_at).toLocaleTimeString('es-VE', { hour:'2-digit', minute:'2-digit' }) : '—',
+      _backendId: o.id,
+    }));
+    return true;
+  } catch (err) { return false; }
+}
+
 let orders = [
   { id:'#0051', client:'Carlos Mendoza', product:'Bolso Cuero Marrón x1', platform:'ig', price:'$65', pay:'pend', delivery:'to_deliver', time:'hace 5 min' },
   { id:'#0050', client:'Pedro Gutiérrez', product:'Camisa Lino Blanca x2', platform:'ig', price:'$50', pay:'pend', delivery:'to_deliver', time:'hace 22 min' },
@@ -4596,7 +4617,7 @@ function updateDetailDeliveryBtn(delivery) {
   btn.childNodes[btn.childNodes.length-1].textContent = ' ' + cfg.label;
 }
 
-function toggleOrderDelivery() {
+async function toggleOrderDelivery() {
   const o = orders.find(o => o.id === currentDetailId);
   if (!o) return;
   const cycle = { to_deliver:'delivered', delivered:'not_delivered', not_delivered:'to_deliver' };
@@ -4605,9 +4626,16 @@ function toggleOrderDelivery() {
   renderOrders();
   const labels = { to_deliver:'Por entregar', delivered:'Entregado ✓', not_delivered:'No entregado ⚠' };
   showToast(`${currentDetailId} → ${labels[o.delivery]}`);
+  const backendId = o._backendId || o.id;
+  try {
+    await fetch(`${BACKEND_URL}/api/orders/${backendId}`, {
+      method: 'PATCH', headers: apiHeaders(),
+      body: JSON.stringify({ delivery_status: o.delivery }),
+    });
+  } catch (err) { /* local ya actualizado */ }
 }
 
-function toggleOrderPay() {
+async function toggleOrderPay() {
   const o = orders.find(o => o.id === currentDetailId);
   if (!o) return;
   o.pay = o.pay === 'ok' ? 'pend' : 'ok';
@@ -4619,6 +4647,13 @@ function toggleOrderPay() {
     : '<span style="color:var(--yellow);font-weight:700;">⏳ Pendiente</span>';
   renderOrders();
   showToast(o.pay === 'ok' ? `Pago de ${currentDetailId} confirmado ✓` : `Pago de ${currentDetailId} marcado como pendiente`);
+  const backendId = o._backendId || o.id;
+  try {
+    await fetch(`${BACKEND_URL}/api/orders/${backendId}`, {
+      method: 'PATCH', headers: apiHeaders(),
+      body: JSON.stringify({ pay_status: o.pay }),
+    });
+  } catch (err) { /* local ya actualizado */ }
 }
 
 function printOrder() {
@@ -5165,6 +5200,22 @@ function confirmOrder() {
     dateStr, timeStr, productDetail: d.productDetail || '',
   };
 
+  // Persist to backend (fire-and-forget; local state already updated)
+  if (typeof BACKEND_URL !== 'undefined') {
+    const payload = {
+      clientName: newOrder.client, platform: newOrder.platform,
+      productSummary: newOrder.product, totalPrice: parseFloat((newOrder.price+'').replace(/[^0-9.]/g,'')),
+      payStatus: newOrder.pay, deliveryStatus: newOrder.delivery,
+      address: orderExtras[d.id].address, notes: orderExtras[d.id].notes,
+      items: d.items || [],
+    };
+    fetch(`${BACKEND_URL}/api/orders`, {
+      method: 'POST', headers: apiHeaders(), body: JSON.stringify(payload),
+    }).then(r => r.ok ? r.json() : null).then(saved => {
+      if (saved?.id) { newOrder._backendId = saved.id; }
+    }).catch(() => {});
+  }
+
   renderOrders();
 
   // Send ticket to chat — stays in conversation
@@ -5592,6 +5643,55 @@ document.addEventListener('keydown', function(e) {
   }
 });
 
+// ─── CATALOG API ──────────────────────────────────────────────
+async function loadRealCatalog() {
+  try {
+    const res = await fetch(BACKEND_URL + '/api/catalog', { headers: apiAuthHeader() });
+    if (!res.ok) throw new Error('Backend respondió ' + res.status);
+    const flat = await res.json();
+    if (!Array.isArray(flat) || flat.length === 0) {
+      console.log('Sin catálogo en backend — usando datos de ejemplo');
+      return false;
+    }
+    // Transform flat array → grouped by category (frontend format)
+    const map = {};
+    flat.forEach(p => {
+      const key = p.category_key || 'varios';
+      if (!map[key]) {
+        map[key] = {
+          key,
+          name:  p.category_name  || key,
+          emoji: p.category_emoji || '📦',
+          products: [],
+          _fromBackend: true,
+        };
+      }
+      map[key].products.push({
+        id:     p.id,
+        name:   p.name,
+        price:  '$' + parseFloat(p.price || 0).toFixed(2),
+        emoji:  p.emoji  || '📦',
+        sizes:  Array.isArray(p.sizes)  ? p.sizes  : [],
+        colors: Array.isArray(p.colors) ? p.colors : [],
+        _backendId: p.id,
+      });
+    });
+    // Keep the 'varios' free-form entry always present
+    if (!map['varios']) {
+      map['varios'] = { key:'varios', name:'Varios', emoji:'📦', products:[] };
+    }
+    if (!map['varios'].products.find(p => p.isVarios)) {
+      map['varios'].products.unshift({ id:'pvarios', name:'Artículo libre', price:'$0', emoji:'📦', sizes:[], colors:[], isVarios:true });
+    }
+    catalog = Object.values(map);
+    console.log('✓ Catálogo cargado desde backend:', flat.length, 'productos');
+    return true;
+  } catch (err) {
+    console.warn('No se pudo cargar el catálogo desde backend, usando datos de ejemplo:', err.message);
+    return false;
+  }
+}
+
 let catalog = [
   {
     key: 'calzado', name: 'Calzado', emoji: '👟',
@@ -5834,14 +5934,13 @@ function selectEmojiDirect(emoji, el) {
   el.classList.add('selected');
 }
 
-function saveCatProduct() {
+async function saveCatProduct() {
   const catKey = document.getElementById('cpCategoryKey').value;
   const editId = document.getElementById('cpEditId').value;
   const name   = document.getElementById('cpName').value.trim();
   const price  = document.getElementById('cpPrice').value.trim();
   if (!name) { document.getElementById('cpName').focus(); return; }
 
-  // build sizes array based on measure type
   let sizes = [];
   if (currentMeasure === 'talla')  sizes = editingSizes;
   if (currentMeasure === 'peso')   sizes = editingWeights;
@@ -5856,6 +5955,32 @@ function saveCatProduct() {
     weights: editingWeights, litros: editingLitros, unidades: editingUnidades,
   };
 
+  // Persist to backend if available
+  const apiPayload = {
+    name, emoji: editingEmoji,
+    price: parseFloat((price || '0').replace(/[^0-9.]/g,'')),
+    sizes, colors: productData.colors,
+    category_key: catKey,
+    category_name: cat ? cat.name : catKey,
+    category_emoji: cat ? cat.emoji : '📦',
+  };
+  const backendId = editId && catalog.flatMap(c=>c.products).find(p=>p.id===editId)?._backendId;
+  try {
+    const url    = backendId ? `${BACKEND_URL}/api/catalog/${backendId}` : `${BACKEND_URL}/api/catalog`;
+    const method = backendId ? 'PATCH' : 'POST';
+    const res = await fetch(url, { method, headers: apiHeaders(), body: JSON.stringify(apiPayload) });
+    if (res.ok) {
+      const saved = await res.json();
+      // Refresh catalog from backend to stay in sync
+      await loadRealCatalog();
+      showToast(backendId ? `"${name}" actualizado ✓` : `"${name}" agregado al catálogo ✓`);
+      closeCatProductModal();
+      renderCatalog();
+      return;
+    }
+  } catch (err) { /* fallback to local */ }
+
+  // Local fallback
   if (editId) {
     const prod = cat.products.find(p => p.id === editId);
     Object.assign(prod, productData);
@@ -5868,9 +5993,14 @@ function saveCatProduct() {
   renderCatalog();
 }
 
-function deleteProduct(catKey, prodId) {
-  const cat = catalog.find(c => c.key === catKey);
+async function deleteProduct(catKey, prodId) {
+  const cat  = catalog.find(c => c.key === catKey);
   const prod = cat.products.find(p => p.id === prodId);
+  const backendId = prod?._backendId || prodId;
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/catalog/${backendId}`, { method:'DELETE', headers: apiHeaders() });
+    if (res.ok) { await loadRealCatalog(); showToast(`"${prod.name}" eliminado`); renderCatalog(); return; }
+  } catch (err) { /* fallback */ }
   cat.products = cat.products.filter(p => p.id !== prodId);
   showToast(`"${prod.name}" eliminado`);
   renderCatalog();
@@ -7661,6 +7791,53 @@ function switchSettings(panel, el) {
 }
 
 // ─── CLIENTS DATABASE ─────────────────────────────────────────
+// ─── CLIENTS API ──────────────────────────────────────────────
+async function loadRealClients() {
+  try {
+    const res = await fetch(BACKEND_URL + '/api/clients', { headers: apiAuthHeader() });
+    if (!res.ok) throw new Error('Backend respondió ' + res.status);
+    const data = await res.json();
+    if (!Array.isArray(data) || data.length === 0) {
+      console.log('Sin clientes en backend — usando datos de ejemplo');
+      return false;
+    }
+    const gradients = [
+      'linear-gradient(135deg,#f093fb,#f5576c)',
+      'linear-gradient(135deg,#4facfe,#00f2fe)',
+      'linear-gradient(135deg,#43e97b,#38f9d7)',
+      'linear-gradient(135deg,#f7971e,#ffd200)',
+      'linear-gradient(135deg,#a18cd1,#fbc2eb)',
+      'linear-gradient(135deg,#30cfd0,#330867)',
+      'linear-gradient(135deg,#f953c6,#b91d73)',
+      'linear-gradient(135deg,#11998e,#38ef7d)',
+    ];
+    clientsDB = data.map((c, i) => ({
+      id:      c.id,
+      name:    c.name,
+      phone:   c.phone   || '',
+      ig:      c.ig      || '',
+      email:   c.email   || '',
+      city:    c.city    || '',
+      zone:    c.zone    || '',
+      address: c.address || '',
+      extraAddresses: Array.isArray(c.extra_addresses) ? c.extra_addresses : [],
+      pay:     c.pay_method || '',
+      channel: c.channel  || 'wa',
+      notes:   c.notes    || '',
+      grad:    gradients[i % gradients.length],
+      orders:  [],
+      isNew:   false,
+      isVip:   c.is_vip || false,
+      _backendId: c.id,
+    }));
+    console.log('✓ Clientes cargados desde backend:', clientsDB.length);
+    return true;
+  } catch (err) {
+    console.warn('No se pudo cargar clientes desde backend, usando datos de ejemplo:', err.message);
+    return false;
+  }
+}
+
 let clientsDB = [
   { id:'c001', name:'María Fernández', phone:'+58 412 555 0123', ig:'@mariafe', email:'mariafe@gmail.com', city:'Caracas', zone:'Las Mercedes', address:'Urb. Las Mercedes, Calle 5, Casa 12', pay:'Zelle', channel:'wa', notes:'Talla M en ropa. Le gustan los colores oscuros.', grad:'linear-gradient(135deg,#f093fb,#f5576c)', orders:['#0047'], isNew:true, isVip:false },
   { id:'c002', name:'Carlos Mendoza', phone:'+58 414 333 0456', ig:'@carlosm', email:'', city:'Maracay', zone:'Aragua', address:'Av. Bolívar 45, Maracay', pay:'Binance', channel:'ig', notes:'Prefiere encomienda. Paga rápido.', grad:'linear-gradient(135deg,#E1306C,#fd1d1d)', orders:['#0051'], isNew:true, isVip:false },
@@ -7885,7 +8062,7 @@ function populateProfileModal(client) {
   document.getElementById('profileOverlay').classList.add('visible');
 }
 
-function saveClientProfile() {
+async function saveClientProfile() {
   const name = document.getElementById('pmFieldName').value.trim();
   if (!name) { document.getElementById('pmFieldName').focus(); return; }
 
@@ -7905,6 +8082,34 @@ function saveClientProfile() {
     notes:   document.getElementById('pmFieldNotes').value.trim(),
   };
 
+  const apiPayload = {
+    name:            data.name,
+    phone:           data.phone,
+    ig:              data.ig,
+    email:           data.email,
+    city:            data.city,
+    zone:            data.zone,
+    address:         data.address,
+    extra_addresses: data.extraAddresses,
+    pay_method:      data.pay,
+    channel:         data.channel,
+    notes:           data.notes,
+  };
+
+  try {
+    const backendId = existing?._backendId;
+    const url    = backendId ? `${BACKEND_URL}/api/clients/${backendId}` : `${BACKEND_URL}/api/clients`;
+    const method = backendId ? 'PATCH' : 'POST';
+    const res = await fetch(url, { method, headers: apiHeaders(), body: JSON.stringify(apiPayload) });
+    if (res.ok) {
+      await loadRealClients();
+      showToast(backendId ? `Ficha de ${name} actualizada ✓` : `${name} agregado a tus clientes ✓`);
+      closeProfileModal();
+      if (document.getElementById('v-clientes').classList.contains('active')) renderClients();
+      return;
+    }
+  } catch (err) { /* fallback to local */ }
+
   if (existing) {
     Object.assign(existing, data);
     existing._unsaved = false;
@@ -7914,14 +8119,24 @@ function saveClientProfile() {
     clientsDB.push({ ...temp, ...data, id: currentClientId, _unsaved: false });
     showToast(`${name} agregado a tus clientes ✓`);
   }
-
   closeProfileModal();
   if (document.getElementById('v-clientes').classList.contains('active')) renderClients();
 }
 
-function deleteClient() {
-  const c = clientsDB.find(c => c.id === currentClientId);
+async function deleteClient() {
+  const c = clientsDB.find(cl => cl.id === currentClientId);
   if (!c) return;
+  const backendId = c._backendId || c.id;
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/clients/${backendId}`, { method:'DELETE', headers: apiHeaders() });
+    if (res.ok) {
+      await loadRealClients();
+      closeProfileModal();
+      renderClients();
+      showToast(`${c.name} eliminado de clientes`);
+      return;
+    }
+  } catch (err) { /* fallback */ }
   clientsDB = clientsDB.filter(cl => cl.id !== currentClientId);
   closeProfileModal();
   renderClients();
@@ -8231,8 +8446,26 @@ function saveNewOrder() {
   const dateStr = now.toLocaleDateString('es-VE',{day:'2-digit',month:'long',year:'numeric'});
   const timeStr = now.toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});
   const newId = '#0' + String(orders.length + 53).padStart(2,'0');
-  orders.unshift({ id:newId, client:clientName, product:productLabel, platform:'wa', price:document.getElementById('noTotal').value||'$0', pay:'pend', delivery:'to_deliver', time:'ahora mismo', items:allItems });
+  const newOrderData = { id:newId, client:clientName, product:productLabel, platform:'wa', price:document.getElementById('noTotal').value||'$0', pay:'pend', delivery:'to_deliver', time:'ahora mismo', items:allItems };
+  orders.unshift(newOrderData);
   orderExtras[newId] = { pay:payLabel, delivery:delLabel, address, notes, emoji:firstEmoji, shipping:shippingVal||null, dateStr, timeStr, productDetail:'' };
+
+  // Persist to backend (fire-and-forget)
+  if (typeof BACKEND_URL !== 'undefined') {
+    const priceVal = parseFloat((newOrderData.price+'').replace(/[^0-9.]/g,'')) || 0;
+    const payload = {
+      clientName, platform: 'wa',
+      productSummary: productLabel, totalPrice: priceVal,
+      payStatus: 'pend', deliveryStatus: 'to_deliver',
+      address, notes, items: allItems,
+    };
+    fetch(`${BACKEND_URL}/api/orders`, {
+      method: 'POST', headers: apiHeaders(), body: JSON.stringify(payload),
+    }).then(r => r.ok ? r.json() : null).then(saved => {
+      if (saved?.id) { newOrderData._backendId = saved.id; }
+    }).catch(() => {});
+  }
+
   renderOrders();
   closeNewOrderModal();
   showToast(`Pedido ${newId} creado ✓`);
@@ -9733,7 +9966,12 @@ applyPlanNavigation(activePlan);
   try { renderDeliveryOpts(); } catch(e) {}
   try { renderPayGrids(); } catch(e) {}
 })();
-loadRealConversations().then(() => {
+Promise.all([
+  loadRealConversations(),
+  loadRealCatalog(),
+  loadRealClients(),
+  loadRealOrders(),
+]).then(() => {
   const firstKey = Object.keys(convos)[0] || 'maria';
   loadChat(firstKey);
   showConvoHistory(firstKey);

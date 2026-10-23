@@ -36,6 +36,7 @@ const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
 const STRIPE_PRICE_PRO      = process.env.STRIPE_PRICE_PRO || '';
 const STRIPE_PRICE_BUSINESS = process.env.STRIPE_PRICE_BUSINESS || '';
 const APP_URL               = process.env.APP_URL || 'https://central-backend-production.up.railway.app';
+const RESEND_FROM           = process.env.RESEND_FROM || 'CENTRAL <onboarding@resend.dev>';
 
 // Variables de entorno de compatibilidad (para el tenant por defecto / legacy)
 const DEFAULT_PHONE_ID  = process.env.WHATSAPP_PHONE_NUMBER_ID;
@@ -951,6 +952,11 @@ app.post('/api/tenant/register', async (req, res) => {
     `, [businessName, fullName || null, email, hash, plan || 'basic', country || null, whatsappNumber || null]);
     const tenant = rows[0];
     const token  = jwt.sign({ tenantId: tenant.id, email: tenant.email }, JWT_SECRET, { expiresIn: '30d' });
+    if (process.env.RESEND_API_KEY) {
+      sendWelcomeEmail(tenant.email, tenant.business_name).catch(err =>
+        console.error('[EMAIL] Bienvenida no enviada:', err.message)
+      );
+    }
     res.json({
       success: true,
       token,
@@ -986,30 +992,48 @@ app.post('/api/tenant/login', async (req, res) => {
 });
 
 // ── Email via Resend ──
-async function sendResetEmail(to, resetUrl) {
+async function sendEmail({ to, subject, html }) {
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      from: 'CENTRAL <onboarding@resend.dev>',
-      to: [to],
-      subject: 'Restablecer contraseña — CENTRAL',
-      html: `
-        <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#0d0d14;color:#e8e8f0;border-radius:16px;">
-          <h2 style="color:#a78bfa;margin-bottom:8px;">Restablecer contraseña</h2>
-          <p style="color:#9999bb;margin-bottom:24px;">Haz clic en el botón para crear una nueva contraseña. El enlace expira en 1 hora.</p>
-          <a href="${resetUrl}" style="display:inline-block;padding:12px 28px;background:linear-gradient(135deg,#7c5cfc,#a78bfa);color:#fff;border-radius:10px;text-decoration:none;font-weight:700;">Restablecer contraseña</a>
-          <p style="color:#5555aa;font-size:12px;margin-top:24px;">Si no solicitaste esto, ignora este correo.</p>
-        </div>`,
-    }),
+    body: JSON.stringify({ from: RESEND_FROM, to: [to], subject, html }),
   });
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`Resend error: ${err}`);
   }
+  console.log(`[EMAIL] Enviado a ${to}: ${subject}`);
+}
+
+async function sendResetEmail(to, resetUrl) {
+  await sendEmail({
+    to,
+    subject: 'Restablecer contraseña — CENTRAL',
+    html: `
+      <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#0d0d14;color:#e8e8f0;border-radius:16px;">
+        <h2 style="color:#a78bfa;margin-bottom:8px;">Restablecer contraseña</h2>
+        <p style="color:#9999bb;margin-bottom:24px;">Haz clic en el botón para crear una nueva contraseña. El enlace expira en 1 hora.</p>
+        <a href="${resetUrl}" style="display:inline-block;padding:12px 28px;background:linear-gradient(135deg,#7c5cfc,#a78bfa);color:#fff;border-radius:10px;text-decoration:none;font-weight:700;">Restablecer contraseña</a>
+        <p style="color:#5555aa;font-size:12px;margin-top:24px;">Si no solicitaste esto, ignora este correo.</p>
+      </div>`,
+  });
+}
+
+async function sendWelcomeEmail(to, businessName) {
+  await sendEmail({
+    to,
+    subject: '¡Bienvenido a CENTRAL! 🎉',
+    html: `
+      <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#0d0d14;color:#e8e8f0;border-radius:16px;">
+        <h2 style="color:#a78bfa;margin-bottom:8px;">¡Hola, ${businessName}!</h2>
+        <p style="color:#9999bb;margin-bottom:16px;">Tu cuenta en CENTRAL está lista. Conecta tu WhatsApp e Instagram y empieza a gestionar tus pedidos desde un solo lugar.</p>
+        <a href="${APP_URL}" style="display:inline-block;padding:12px 28px;background:linear-gradient(135deg,#7c5cfc,#a78bfa);color:#fff;border-radius:10px;text-decoration:none;font-weight:700;">Abrir CENTRAL</a>
+        <p style="color:#5555aa;font-size:12px;margin-top:24px;">¿Necesitas ayuda? Responde este correo o escríbenos.</p>
+      </div>`,
+  });
 }
 
 // ── Forgot password ──
@@ -1505,8 +1529,6 @@ app.get('/status', (req, res) => res.json({
   whatsapp_configured:  !!DEFAULT_PHONE_ID,
   instagram_configured: !!DEFAULT_IG_TOKEN,
 }));
-
-app.get('/health', (req, res) => res.json({ status:'ok', db:dbReady, timestamp:new Date().toISOString() }));
 
 app.get('/privacy', (req, res) => {
   res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Política de Privacidad — CENTRAL</title>
