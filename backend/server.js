@@ -1256,6 +1256,155 @@ app.patch('/api/orders/:id', requireAuth, async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════
+// API — Reports
+// ══════════════════════════════════════════════════════════════
+
+app.get('/api/reports', requireAuth, async (req, res) => {
+  const tenantId = req.tenant.tenantId;
+  const { period = 'hoy', from, to } = req.query;
+
+  // Build time window
+  let startExpr, endExpr, groupBy, labelFn, barCount;
+  const now = new Date();
+
+  if (period === 'hoy') {
+    const todayStr = now.toISOString().slice(0, 10);
+    startExpr = `'${todayStr} 00:00:00'`;
+    endExpr   = `'${todayStr} 23:59:59'`;
+    groupBy   = `EXTRACT(HOUR FROM created_at)`;
+    barCount  = 24;
+  } else if (period === '7dias') {
+    const d = new Date(now); d.setDate(d.getDate() - 6);
+    startExpr = `'${d.toISOString().slice(0,10)} 00:00:00'`;
+    endExpr   = `NOW()`;
+    groupBy   = `DATE(created_at)`;
+    barCount  = 7;
+  } else if (period === 'mes') {
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
+    startExpr = `'${firstDay} 00:00:00'`;
+    endExpr   = `NOW()`;
+    groupBy   = `DATE(created_at)`;
+    barCount  = 31;
+  } else if (period === 'año') {
+    startExpr = `'${now.getFullYear()}-01-01 00:00:00'`;
+    endExpr   = `NOW()`;
+    groupBy   = `EXTRACT(MONTH FROM created_at)`;
+    barCount  = 12;
+  } else if (period === 'personalizado' && from && to) {
+    startExpr = `'${from} 00:00:00'`;
+    endExpr   = `'${to} 23:59:59'`;
+    groupBy   = `DATE(created_at)`;
+    barCount  = 31;
+  } else {
+    return res.status(400).json({ error: 'period inválido' });
+  }
+
+  const timeFilter = `created_at BETWEEN ${startExpr} AND ${endExpr}`;
+
+  try {
+    // KPIs
+    const { rows: kpi } = await pool.query(`
+      SELECT
+        COALESCE(SUM(total_price), 0)::float                                        AS ventas,
+        COUNT(*)::int                                                                AS pedidos,
+        COUNT(*) FILTER (WHERE delivery_status = 'delivered')::int                  AS entregados,
+        COUNT(*) FILTER (WHERE delivery_status = 'to_deliver')::int                 AS pendientes,
+        COUNT(*) FILTER (WHERE delivery_status = 'not_delivered')::int              AS cancelados,
+        COUNT(*) FILTER (WHERE delivery_method_label ILIKE '%Motorizado%'
+                            OR delivery_method_label ILIKE '%Delivery%')::int        AS delivery,
+        COUNT(*) FILTER (WHERE delivery_method_label ILIKE '%Encomienda%')::int     AS encomiendas,
+        COUNT(*) FILTER (WHERE platform = 'wa')::int                                AS count_wa,
+        COUNT(*) FILTER (WHERE platform = 'ig')::int                                AS count_ig
+      FROM orders
+      WHERE tenant_id = $1 AND ${timeFilter}
+    `, [tenantId]);
+
+    const k = kpi[0];
+    const total = k.pedidos || 1;
+    const waCount = k.count_wa || 0;
+    const igCount = k.count_ig || 0;
+    const canalTotal = waCount + igCount || 1;
+
+    // New clients in period
+    const { rows: nc } = await pool.query(`
+      SELECT COUNT(*)::int AS cnt FROM clients
+      WHERE tenant_id = $1 AND created_at BETWEEN ${startExpr} AND ${endExpr}
+    `, [tenantId]);
+
+    // Top products
+    const { rows: tp } = await pool.query(`
+      SELECT oi.emoji || ' ' || oi.name AS name,
+             SUM(oi.qty)::int            AS qty,
+             SUM(oi.line_price)::float   AS total
+      FROM order_items oi
+      JOIN orders o ON o.id = oi.order_id
+      WHERE o.tenant_id = $1 AND o.${timeFilter.replace('created_at', 'o.created_at')}
+      GROUP BY oi.emoji, oi.name
+      ORDER BY qty DESC
+      LIMIT 6
+    `, [tenantId]);
+
+    // Time-series bars
+    const { rows: ts } = await pool.query(`
+      SELECT ${groupBy} AS bucket,
+             COALESCE(SUM(total_price), 0)::float AS amount
+      FROM orders
+      WHERE tenant_id = $1 AND ${timeFilter}
+      GROUP BY bucket
+      ORDER BY bucket
+    `, [tenantId]);
+
+    // Build bars arrays
+    let bars = [], barLabels = [];
+    if (period === 'hoy') {
+      for (let h = 0; h < 24; h++) {
+        const row = ts.find(r => parseInt(r.bucket) === h);
+        if (row || h <= now.getHours()) {
+          bars.push(row ? Math.round(row.amount) : 0);
+          barLabels.push(h + ':00');
+        }
+      }
+    } else if (period === 'año') {
+      const months = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+      for (let m = 1; m <= 12; m++) {
+        const row = ts.find(r => parseInt(r.bucket) === m);
+        bars.push(row ? Math.round(row.amount) : 0);
+        barLabels.push(months[m - 1]);
+      }
+    } else {
+      ts.forEach(r => {
+        bars.push(Math.round(r.amount));
+        const d = new Date(r.bucket);
+        barLabels.push(period === '7dias'
+          ? ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][d.getDay()]
+          : String(d.getDate()));
+      });
+    }
+    if (bars.length === 0) { bars = [0]; barLabels = ['—']; }
+
+    res.json({
+      ventas: Math.round(k.ventas * 100) / 100,
+      pedidos: k.pedidos,
+      entregados: k.entregados,
+      pendientes: k.pendientes,
+      cancelados: k.cancelados,
+      delivery: k.delivery,
+      encomiendas: k.encomiendas,
+      newClients: nc[0].cnt,
+      topProducts: tp.map(p => [p.name, p.qty, '$' + p.total.toFixed(2)]),
+      bars,
+      barLabels,
+      canal: {
+        wa: Math.round(waCount / canalTotal * 100),
+        ig: Math.round(igCount / canalTotal * 100),
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════
 // API — Clientes
 // ══════════════════════════════════════════════════════════════
 

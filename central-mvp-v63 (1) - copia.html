@@ -4078,7 +4078,7 @@ function goView(v) {
   if (v === 'catalogo') { document.getElementById('nav-catalogo').classList.add('active'); renderCatalog(); }
   if (v === 'ajustes')  { document.getElementById('nav-ajustes').classList.add('active'); switchSettings('perfil', document.querySelector('.ssn-item')); }
   if (v === 'clientes') { document.getElementById('nav-clientes').classList.add('active'); renderClients(); }
-  if (v === 'informes') { document.getElementById('nav-informes').classList.add('active'); renderInforme('ventas'); }
+  if (v === 'informes') { document.getElementById('nav-informes').classList.add('active'); renderInforme('ventas'); loadRealInformes(infPeriod).then(ok => { if (ok) renderInforme(infTab); }); }
   if (v === 'pagos')    { document.getElementById('nav-pagos').classList.add('active'); renderPagTab('dashboard'); }
 }
 
@@ -8476,7 +8476,22 @@ let infPeriod = 'hoy';
 let infCanal = 'todos';
 let infTab = 'ventas';
 
-// simulated data per period
+// Cache de datos reales por período
+const realInfData = {};
+
+async function loadRealInformes(period, from, to) {
+  try {
+    let url = `${BACKEND_URL}/api/reports?period=${period}`;
+    if (period === 'personalizado' && from && to) url += `&from=${from}&to=${to}`;
+    const res = await fetch(url, { headers: apiAuthHeader() });
+    if (!res.ok) throw new Error('Backend respondió ' + res.status);
+    const data = await res.json();
+    realInfData[period] = data;
+    return true;
+  } catch (err) { return false; }
+}
+
+// simulated data per period (fallback cuando no hay datos reales)
 const infData = {
   hoy:    { ventas:576,  pedidos:12, entregados:7,  pendientes:5,  cancelados:0, delivery:5, encomiendas:2, newClients:3,  topProducts:[['👟 Zapatilla Runner Pro',8,'$360'],['👗 Vestido Floral',3,'$114'],['👜 Bolso Cuero',1,'$65']], bars:[40,65,90,80,100,70,576], barLabels:['10am','11am','12pm','1pm','2pm','3pm','4pm'], canal:{wa:65,ig:35} },
   '7dias':{ ventas:2840, pedidos:58, entregados:42, pendientes:12, cancelados:4, delivery:30, encomiendas:8, newClients:11, topProducts:[['👟 Zapatilla Runner Pro',22,'$990'],['👗 Vestido Floral',14,'$532'],['👜 Bolso Cuero',9,'$585'],['👔 Camisa Lino',7,'$175']], bars:[320,480,510,390,620,280,240], barLabels:['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'], canal:{wa:60,ig:40} },
@@ -8486,13 +8501,13 @@ const infData = {
 
 function setInfPeriod(p, el) {
   infPeriod = p;
-  // close custom drop if open
   closeCustomDateDrop();
   document.querySelectorAll('#infPeriodBtns .inf-filter-btn').forEach(b => b.classList.remove('active'));
   el.classList.add('active');
-  // reset custom label
   document.getElementById('infCustomLabel').textContent = 'Personalizado';
   renderInforme(infTab);
+  // Load real data in background; re-render when ready
+  loadRealInformes(p).then(ok => { if (ok) renderInforme(infTab); });
 }
 
 // ─── CUSTOM DATE RANGE ────────────────────────────────────────
@@ -8587,6 +8602,8 @@ function applyCustomDates() {
 
   closeCustomDateDrop();
   renderInforme(infTab);
+  // Load real data for custom range
+  loadRealInformes('personalizado', from, to).then(ok => { if (ok) renderInforme(infTab); });
 }
 
 // close custom drop when clicking outside
@@ -8611,7 +8628,7 @@ function switchInfTab(tab, el) {
 }
 
 function renderInforme(tab) {
-  const d = infData[infPeriod];
+  const d = realInfData[infPeriod] || infData[infPeriod] || infData['hoy'];
   const body = document.getElementById('infBody');
   body.innerHTML = '';
 
