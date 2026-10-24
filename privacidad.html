@@ -6,7 +6,7 @@
 <title>Política de privacidad — CENTRAL by Magic Design LLC</title>
 <meta name="description" content="Cómo CENTRAL, de Magic Design LLC, trata los datos de tu cuenta, de tus clientes, citas, pedidos y pagos, y cómo solicitar la eliminación de tus datos.">
 <link rel="canonical" href="https://magicdesignllc.com/privacidad.html">
-<meta name="theme-color" content="#08080f">
+<meta name="theme-color" content="#000000">
 <link rel="icon" href="/favicon.ico" sizes="48x48">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
@@ -26,19 +26,21 @@
 <meta name="twitter:description" content="Cómo CENTRAL, de Magic Design LLC, trata los datos de tu cuenta, de tus clientes, citas, pedidos y pagos, y cómo solicitar la eliminación de tus datos.">
 <meta name="twitter:image" content="https://magicdesignllc.com/og-image.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800;900&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --black:   #08080f;
-    --surface: #0f0f1a;
-    --card:    #141421;
+    --black:   #000000;
+    --surface: #07070b;
+    --card:    #0d0d13;
     --border:  rgba(255,255,255,0.07);
     --text:    #e8e8f0;
-    --muted:   #7070a0;
+    --muted:   #a3a3c8;
     --soft:    #a0a0c0;
     --accent:  #7c5cfc;
+    --accent-strong: #7454f2; /* fondo con texto blanco (4.89:1) */
+    --accent-text:   #a690ff; /* texto violeta sobre fondo oscuro (8:1) */
     --cyan:    #00d4ff;
   }
 
@@ -47,7 +49,7 @@
   body {
     background: var(--black);
     color: var(--text);
-    font-family: 'DM Sans', sans-serif;
+    font-family: 'Inter', sans-serif;
     font-size: 16px;
     line-height: 1.7;
     overflow-x: hidden;
@@ -58,8 +60,8 @@
     position: fixed;
     inset: 0;
     background-image:
-      repeating-linear-gradient(0deg, transparent, transparent 40px, rgba(255,255,255,0.012) 40px, rgba(255,255,255,0.012) 41px),
-      repeating-linear-gradient(90deg, transparent, transparent 40px, rgba(255,255,255,0.012) 40px, rgba(255,255,255,0.012) 41px);
+      repeating-linear-gradient(0deg, transparent, transparent 40px, rgba(255,255,255,0.006) 40px, rgba(255,255,255,0.006) 41px),
+      repeating-linear-gradient(90deg, transparent, transparent 40px, rgba(255,255,255,0.006) 40px, rgba(255,255,255,0.006) 41px);
     pointer-events: none;
     z-index: 0;
   }
@@ -68,13 +70,13 @@
     position: fixed; top: 0; left: 0; right: 0; z-index: 100;
     display: flex; align-items: center; justify-content: space-between;
     padding: 20px 48px;
-    background: rgba(8,8,15,0.8);
+    background: rgba(0,0,0,0.8);
     backdrop-filter: blur(16px);
     border-bottom: 1px solid var(--border);
   }
   .nav-logo {
-    font-family: 'Syne', sans-serif;
-    font-size: 17px; font-weight: 800;
+    font-family: 'Inter', sans-serif;
+    font-size: 17px; font-weight: 600;
     letter-spacing: -0.5px;
     color: var(--text);
     text-decoration: none;
@@ -82,7 +84,7 @@
   }
   .nav-logo span { color: var(--accent); }
   .nav-logo-sub {
-    font-family: 'DM Sans', sans-serif;
+    font-family: 'Inter', sans-serif;
     font-size: 12px; font-weight: 500;
     letter-spacing: 0;
     color: var(--muted);
@@ -104,13 +106,13 @@
   .eyebrow {
     font-size: 12px; font-weight: 500;
     letter-spacing: 3px; text-transform: uppercase;
-    color: var(--accent);
+    color: var(--accent-text);
     margin-bottom: 14px;
   }
   h1 {
-    font-family: 'Syne', sans-serif;
+    font-family: 'Inter', sans-serif;
     font-size: clamp(30px, 5vw, 44px);
-    font-weight: 800;
+    font-weight: 600;
     letter-spacing: -1px;
     line-height: 1.15;
     margin-bottom: 12px;
@@ -118,8 +120,8 @@
   .updated { font-size: 14px; color: var(--muted); margin-bottom: 36px; }
   .lead { color: var(--soft); margin-bottom: 8px; }
   h2 {
-    font-family: 'Syne', sans-serif;
-    font-size: 20px; font-weight: 700;
+    font-family: 'Inter', sans-serif;
+    font-size: 20px; font-weight: 600;
     letter-spacing: -0.3px;
     margin: 40px 0 12px;
     scroll-margin-top: 90px;
