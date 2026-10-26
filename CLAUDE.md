@@ -42,6 +42,15 @@ AGENTES.md                            ← Guía de uso de agentes Claude
 
 ## Demos para prospectos
 
+**Las demos viven en un servicio aparte: `central-demo`** (Railway, mismo proyecto `diligent-wonder`).
+- URL: https://central-demo-production-93a7.up.railway.app — panel: `/central-admin.html` (mismas credenciales de admin).
+- Despliega desde la rama **`demo`** del repo `central`, carpeta `/backend`. Los cambios en `main` NO llegan a las demos hasta promoverlos: `git checkout demo && git merge main && git push origin demo` (probar antes).
+- `DEMO_ONLY=true`: el servidor **no arranca** si tiene cualquier variable `STRIPE_*`, `WHATSAPP_*`, `INSTAGRAM_*`, `META_*`, `RESEND_*`, `TWILIO_*`, `CLOVER_*` o `DEFAULT_TENANT_*`. Nunca añadas claves externas a ese servicio.
+- Base de datos propia `central_demo` (dentro del mismo Postgres) con el usuario `central_demo_user`, que no puede conectarse a la base de producción `railway` (CONNECT revocado a PUBLIC; CENTRAL y Kisses usan el superusuario `postgres`). Creada con `backend/scripts/setup-demo-db.js`.
+- En producción, `DEMO_ADMIN_URL` hace que el panel enlace al gestor de demos y bloquea crear demos allí. `backend/scripts/migrate-demos.js` mueve demos antiguas de producción a `central_demo`.
+- Coste: dentro de los 5 USD incluidos del plan Hobby; alerta de consumo por correo a 5 USD (sin límite duro).
+
+Funcionamiento (igual en ambos servidores):
 - Se crean desde `central-admin.html` → Demos (sesión superadmin + `DEMO_CREATION_KEY`).
 - `tenants.is_demo = true`, `expires_at` → login, API y `/app` rechazan la cuenta al caducar.
 - En demos, los envíos a WhatsApp/Instagram se simulan (`simulateIfDemo`): nunca salen a Meta.
