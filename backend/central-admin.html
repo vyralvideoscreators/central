@@ -387,7 +387,13 @@ tbody td { padding: 11px 14px; vertical-align: middle; }
           <div class="stat-card"><div class="stat-label">Creadas esta semana</div><div class="stat-value stat-accent" id="dm-week">—</div></div>
         </div>
 
-        <div class="demo-card">
+        <div class="demo-card" id="demoElsewhere" style="display:none;">
+          <div class="demo-card-title">Las demos se gestionan en el servidor de demos</div>
+          <div class="demo-card-sub" style="margin:6px 0 16px;">Está separado de tus clientes reales: sin claves de pago ni de mensajería, con su propia base de datos. Entra con tus mismas credenciales de admin.</div>
+          <a class="btn-primary" id="demoElsewhereLink" href="#" target="_blank" rel="noopener" style="display:inline-block;width:auto;padding:10px 22px;text-decoration:none;">Abrir gestor de demos →</a>
+        </div>
+
+        <div class="demo-card" id="demoCreateCard">
           <div class="demo-card-head">
             <div>
               <div class="demo-card-title">Nueva demo</div>
@@ -1085,7 +1091,23 @@ function copyCreds() {
   navigator.clipboard.writeText(txt).then(() => showToast('Mensaje copiado'), () => showToast('No se pudo copiar'));
 }
 
+let adminConfig = null;
+async function loadAdminConfig() {
+  if (adminConfig) return adminConfig;
+  try {
+    const res = await fetch(BACKEND + '/api/admin/config', { headers: adminHeader() });
+    adminConfig = res.ok ? await res.json() : {};
+  } catch { adminConfig = {}; }
+  return adminConfig;
+}
+
 async function loadDemos() {
+  const cfg = await loadAdminConfig();
+  if (cfg.demoAdminUrl && /^https:\/\//.test(cfg.demoAdminUrl)) {
+    document.getElementById('demoElsewhere').style.display = '';
+    document.getElementById('demoElsewhereLink').href = cfg.demoAdminUrl.replace(/\/$/, '') + '/central-admin.html';
+    document.getElementById('demoCreateCard').style.display = 'none';
+  }
   const body = document.getElementById('demosBody');
   try {
     const res = await fetch(BACKEND + '/api/admin/demos', { headers: adminHeader() });

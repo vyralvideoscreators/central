@@ -17,6 +17,20 @@ const jwt        = require('jsonwebtoken');
 const Stripe     = require('stripe');
 const crypto     = require('crypto');
 
+// ── Modo "solo demos" (servicio central-demo) ─────────────────
+// En este modo el servidor no puede tener ninguna clave de servicios externos:
+// si encuentra una, no arranca. Todas las cuentas se tratan como demo.
+const DEMO_ONLY = process.env.DEMO_ONLY === 'true';
+if (DEMO_ONLY) {
+  const FORBIDDEN_ENV = /^(STRIPE_|WHATSAPP_|INSTAGRAM_|META_|RESEND_|TWILIO_|CLOVER_|DEFAULT_TENANT_)/;
+  const found = Object.keys(process.env).filter(k => FORBIDDEN_ENV.test(k) && process.env[k]);
+  if (found.length) {
+    console.error('⛔ DEMO_ONLY: este servicio no puede tener claves externas. Quita: ' + found.join(', '));
+    process.exit(1);
+  }
+  console.log('🧪 Servidor en modo SOLO DEMOS: sin pagos, sin mensajería, sin correo');
+}
+
 const app = express();
 app.use(cors());
 // El webhook de Stripe necesita el body sin procesar para validar la firma
@@ -25,6 +39,11 @@ app.use((req, res, next) => {
   if (req.originalUrl === '/api/billing/webhook') return next();
   express.json({ limit: '20mb' })(req, res, next);
 });
+
+if (DEMO_ONLY) {
+  const DEMO_ONLY_CLOSED = /^\/(webhook|auth\/|api\/billing\/webhook|api\/tenant\/(register|forgot-password|reset-password)|privacy)/i;
+  app.use((req, res, next) => (DEMO_ONLY_CLOSED.test(req.path) ? res.status(404).json({ error: 'No disponible en el servidor de demos' }) : next()));
+}
 
 // Límite de intentos de login por IP: 10 cada 15 min (frena fuerza bruta sobre claves)
 app.set('trust proxy', 1);
@@ -49,7 +68,7 @@ const GRAPH_API_VERSION = 'v21.0';
 const GRAPH_BASE       = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 const JWT_SECRET       = process.env.JWT_SECRET || 'central_jwt_dev_secret_cambiar_en_prod';
 
-const stripe           = process.env.STRIPE_SECRET_KEY ? Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' }) : null;
+const stripe           = (!DEMO_ONLY && process.env.STRIPE_SECRET_KEY) ? Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' }) : null;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
 const STRIPE_PRICE_PRO      = process.env.STRIPE_PRICE_PRO || '';
 const STRIPE_PRICE_BUSINESS = process.env.STRIPE_PRICE_BUSINESS || '';
@@ -716,7 +735,7 @@ async function requireAuth(req, res, next) {
       if (rows[0].expires_at && new Date(rows[0].expires_at) <= new Date()) {
         return res.status(403).json({ error: 'demo_expired', message: 'El período de demo ha finalizado. Contacta a Magic Design para activar tu cuenta.' });
       }
-      decoded.isDemo = !!rows[0].is_demo;
+      decoded.isDemo = DEMO_ONLY || !!rows[0].is_demo;
     } catch (err) {
       return res.status(500).json({ error: 'Error validando la cuenta' });
     }
@@ -1830,6 +1849,16 @@ const path = require('path');
 const fs   = require('fs');
 const SPA_FILE = path.join(__dirname, 'central-mvp-v63 (1) - copia.html');
 
+if (DEMO_ONLY) {
+  app.get('/central-registro.html', (req, res) => {
+    let html;
+    try { html = fs.readFileSync(path.join(__dirname, 'central-registro.html'), 'utf8'); }
+    catch { return res.status(500).send('Error'); }
+    const css = '<style>#panelReg,#mobileTabs{display:none!important}.main-wrap{grid-template-columns:1fr!important;max-width:440px!important}#panelLogin>div:last-child{display:none!important}</style>';
+    res.type('html').send(html.replace('</head>', css + '</head>').replace('Accede a tu panel de negocios', 'Accede a tu demo de CENTRAL'));
+  });
+}
+
 // Lista blanca: solo páginas públicas e imágenes. Nunca .js, .json, .toml ni el SPA.
 const PUBLIC_STATIC = /^\/[\w.-]+\.(html|png|jpe?g|svg|ico|webp|css)$/i;
 app.use((req, res, next) => {
@@ -1873,6 +1902,7 @@ app.get('/app', async (req, res) => {
         [decoded.tenantId]
       );
       tenant = rows[0];
+      if (tenant && DEMO_ONLY) tenant.is_demo = true;
     } catch { return res.status(503).send('Servicio no disponible, intenta en un momento'); }
     if (!tenant || !tenant.active) return res.type('html').send(APP_LOGOUT);
     if (tenant.expires_at && new Date(tenant.expires_at) <= new Date()) {
@@ -1930,7 +1960,7 @@ function buildExpiredPage(businessName) {
 // Health check & rutas raíz
 // ══════════════════════════════════════════════════════════════
 app.get('/', (req, res) => res.redirect('/central-registro.html'));
-app.get('/health', (req, res) => res.json({ status:'ok', db:dbReady, timestamp:new Date().toISOString() }));
+app.get('/health', (req, res) => res.json({ status:'ok', db:dbReady, mode: DEMO_ONLY ? 'demo' : 'production', timestamp:new Date().toISOString() }));
 app.get('/status', (req, res) => res.json({
   status:    'ok',
   service:   'CENTRAL Backend',
@@ -2357,6 +2387,10 @@ app.delete('/api/admin/tenants/:tenantId', requireAdmin, async (req, res) => {
 // ADMIN — Demos (cuentas de prueba con datos ficticios y caducidad)
 // Requieren sesión de superadmin + la clave DEMO_CREATION_KEY (header X-Demo-Key)
 // ══════════════════════════════════════════════════════════════
+app.get('/api/admin/config', requireAdmin, (req, res) => {
+  res.json({ demoOnly: DEMO_ONLY, demoAdminUrl: DEMO_ONLY ? null : (process.env.DEMO_ADMIN_URL || null) });
+});
+
 const { seedDemoTenant, wipeDemoData } = require('./demo-seed');
 const DEMO_CREATION_KEY = process.env.DEMO_CREATION_KEY || '';
 
@@ -2431,6 +2465,9 @@ app.get('/api/admin/demos', requireAdmin, async (req, res) => {
 });
 
 app.post('/api/admin/demos', requireAdmin, requireDemoKey, async (req, res) => {
+  if (!DEMO_ONLY && process.env.DEMO_ADMIN_URL) {
+    return res.status(409).json({ error: 'Las demos se crean en el servidor de demos: ' + process.env.DEMO_ADMIN_URL });
+  }
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   const b = req.body || {};
   const email = String(b.email || '').trim().toLowerCase();
