@@ -46,6 +46,12 @@ AGENTES.md                            ← Guía de uso de agentes Claude
 - `tenants.is_demo = true`, `expires_at` → login, API y `/app` rechazan la cuenta al caducar.
 - En demos, los envíos a WhatsApp/Instagram se simulan (`simulateIfDemo`): nunca salen a Meta.
 - El SPA muestra un banner con los días restantes (`window.__DEMO_MODE__`, inyectado en `/app`).
+- **Aislamiento (no romper):**
+  - `DEMO_ALLOWED_ROUTES` en server.js es una **lista blanca**: una demo solo puede usar esas rutas; cualquier ruta nueva queda bloqueada para demos (`demo_blocked`) hasta añadirla a propósito. No añadas rutas que llamen a servicios externos.
+  - Facturación de demos con `demoBilling`: el cambio de plan (basic/pro/business) se guarda directo, **nunca** se llama a Stripe. Las demos arrancan en `business`.
+  - Las demos no pueden conectar WhatsApp/Instagram, descargar media de Meta, recibir correos de recuperación ni cambiar su correo de acceso. Límite de 1 MB por petición y de filas por tabla.
+  - `/app` inyecta para demos un aislador de `localStorage` (claves con prefijo `central_demo_<tenantId>__`) y quita del HTML las conversaciones de ejemplo originales de la app.
+- **Datos de ejemplo:** `demo-seed.js` es 100 % inventado. `node backend/test/demo-data.test.js` comprueba que no coincide con datos originales; ejecútalo si tocas el seed. Panel admin → "Reiniciar datos" vuelve a sembrar una demo.
 
 ## Seguridad del servidor
 

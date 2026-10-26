@@ -3926,6 +3926,7 @@ const convos = {
 
 // Claves de las conversaciones de ejemplo — se eliminan en cuanto llegan datos reales del backend
 const DEMO_CONVO_KEYS = ['maria','carlos','luisa','valentina','ana','pedro','roberto','gabriela','miguel','isabella'];
+if (window.__DEMO_MODE__) DEMO_CONVO_KEYS.forEach(k => { delete convos[k]; });
 
 // ─── PERSISTENCIA DE CONVERSACIONES REALES ───────────────────
 function saveRealConvos() {
@@ -7512,8 +7513,8 @@ async function loadBillingStatus() {
         statusEl.textContent = 'Acceso otorgado manualmente';
         statusEl.style.color = 'var(--blue)';
       } else {
-        const statusMap = { free:'Gratis', active:'Activo', past_due:'Pago pendiente', cancelled:'Cancelado' };
-        const statusColor = { free:'var(--text3)', active:'var(--green)', past_due:'var(--yellow)', cancelled:'var(--red)' };
+        const statusMap = { free:'Gratis', active:'Activo', past_due:'Pago pendiente', cancelled:'Cancelado', demo:'Demo · sin cobros' };
+        const statusColor = { free:'var(--text3)', active:'var(--green)', past_due:'var(--yellow)', cancelled:'var(--red)', demo:'var(--blue)' };
         statusEl.textContent = statusMap[bs] || bs;
         statusEl.style.color = statusColor[bs] || 'var(--text2)';
       }
@@ -7542,20 +7543,35 @@ async function loadBillingStatus() {
     const btnBasic = document.getElementById('planBtn-basic');
     const btnPro   = document.getElementById('planBtn-pro');
     const btnBiz   = document.getElementById('planBtn-biz');
-    if (btnBasic) { btnBasic.disabled = plan === 'basic'; btnBasic.textContent = plan === 'basic' ? '✓ Plan actual' : 'Cambiar plan'; }
+    if (btnBasic) {
+      btnBasic.disabled = plan === 'basic' || !data.demo;
+      btnBasic.textContent = plan === 'basic' ? '✓ Plan actual' : 'Cambiar plan';
+      btnBasic.onclick = data.demo ? () => startCheckout('basic') : null;
+    }
     if (btnPro)   { btnPro.disabled   = plan === 'pro';   btnPro.textContent   = plan === 'pro'   ? '✓ Plan actual' : 'Actualizar plan'; }
     if (btnBiz)   { btnBiz.disabled   = plan === 'business'; btnBiz.textContent = plan === 'business' ? '✓ Plan actual' : 'Actualizar plan'; }
+    if (data.demo) {
+      if (btnPro && plan === 'business') btnPro.textContent = 'Cambiar plan';
+      if (nextDate) nextDate.textContent = 'Demo: cambia de plan cuando quieras, sin ningún cobro.';
+    }
   } catch(e) {}
 }
 
 async function startCheckout(plan) {
   try {
-    showToast('Redirigiendo a Stripe…');
+    if (!window.__DEMO_MODE__) showToast('Redirigiendo a Stripe…');
     const res  = await fetch(BACKEND_URL + '/api/billing/create-checkout', {
       method: 'POST', headers: apiHeaders(), body: JSON.stringify({ plan }),
     });
     const data = await res.json();
-    if (!res.ok) { showToast(data.error || 'Error al iniciar pago'); return; }
+    if (!res.ok) { showToast(data.message || data.error || 'Error al iniciar pago'); return; }
+    if (data.demo) {
+      showToast('✓ ' + (data.message || 'Plan cambiado'));
+      setPlan(data.plan);
+      loadBillingStatus();
+      return;
+    }
+    if (!data.checkoutUrl) { showToast('Error al iniciar pago'); return; }
     window.location.href = data.checkoutUrl;
   } catch { showToast('Error de conexión'); }
 }
@@ -7566,11 +7582,13 @@ async function openStripePortal() {
     const res  = await fetch(BACKEND_URL + '/api/billing/portal', { method:'POST', headers: apiHeaders() });
     const data = await res.json();
     if (!res.ok) { showToast(data.error || 'Error'); return; }
+    if (data.demo || !data.portalUrl) { showToast(data.message || 'No disponible'); return; }
     window.open(data.portalUrl, '_blank');
   } catch { showToast('Error de conexión'); }
 }
 
 async function confirmCancelSubscription() {
+  if (window.__DEMO_MODE__) { showToast('En la demo no hay suscripción ni cobros.'); return; }
   if (!confirm('¿Cancelar tu suscripción? Seguirás teniendo acceso hasta el final del período actual.')) return;
   try {
     const res  = await fetch(BACKEND_URL + '/api/billing/cancel', { method:'POST', headers: apiHeaders() });
@@ -11216,13 +11234,38 @@ function renderQrSettingsHtml() {
   document.body.insertBefore(bar, app || document.body.firstChild);
 })();
 
+// Módulo Pagos de ejemplo: cuentas y transacciones inventadas, solo para la demo
+(function () {
+  if (!window.__DEMO_MODE__) return;
+  try {
+    if (typeof cuentasCobro === 'undefined' || cuentasCobro.length) return;
+    var biz = 'Mi negocio';
+    try { biz = (JSON.parse(localStorage.getItem('central_tenant') || '{}').businessName) || biz; } catch (e) {}
+    cuentasCobro.push(
+      { id: 'demo_cb1', banco: 'Banco Aurora', emoji: '🏦', telefono: '0414-555-2390', rif: 'J-00000000-0', cuenta: '—', nombre: biz, activo: true, metodo: 'Pago Móvil' },
+      { id: 'demo_cb2', banco: 'Zelle', emoji: '💵', telefono: 'pagos@ejemplo-demo.com', rif: '—', cuenta: '—', nombre: biz, activo: true, metodo: 'Zelle' }
+    );
+    transacciones.push(
+      { cliente: 'Daniela Quintero',  pedido: 'Tenis Urbano Nube',     metodo: 'Pago Móvil', ref: '20481937', monto: '$68.00',  estado: 'ok',   hora: 'hace 6 min' },
+      { cliente: 'Noelia Arismendi',  pedido: 'Blusa + Palazzo',       metodo: 'Zelle',      ref: 'ZL-77310', monto: '$80.00',  estado: 'ok',   hora: 'hace 30 min' },
+      { cliente: 'Tomás Echeverri',   pedido: 'Chaqueta Denim',        metodo: 'Pago Móvil', ref: '20482260', monto: '$56.00',  estado: 'pend', hora: 'hace 1 h' },
+      { cliente: 'Mariela Sotillo',   pedido: '2x Blusa Amapola',      metodo: 'Zelle',      ref: 'ZL-77294', monto: '$74.00',  estado: 'pend', hora: 'hace 5 h' },
+      { cliente: 'Rocío Villamizar',  pedido: 'Botín Chelsea Siena',   metodo: 'Pago Móvil', ref: '20479915', monto: '$83.00',  estado: 'ok',   hora: 'ayer' },
+      { cliente: 'Andrés Palacios',   pedido: 'Tenis Urbano Nube',     metodo: 'Pago Móvil', ref: '20479002', monto: '$64.00',  estado: 'fail', hora: 'ayer' }
+    );
+  } catch (e) {}
+})();
+
 // Si la demo caduca mientras está abierta, cualquier llamada a la API devuelve demo_expired
 (function () {
   var orig = window.fetch;
   window.fetch = function () {
     return orig.apply(this, arguments).then(function (res) {
       if (res.status === 403) {
-        res.clone().json().then(function (b) { if (b && b.error === 'demo_expired') location.replace('/app'); }).catch(function () {});
+        res.clone().json().then(function (b) {
+          if (b && b.error === 'demo_expired') location.replace('/app');
+          else if (b && b.error === 'demo_blocked' && typeof showToast === 'function') showToast(b.message);
+        }).catch(function () {});
       }
       return res;
     });

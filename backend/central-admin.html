@@ -1122,6 +1122,7 @@ function renderDemos() {
       '<td><div class="demo-actions">' +
         '<button onclick="extendDemo(\'' + id + '\')">+7 días</button>' +
         '<button onclick="resendDemo(\'' + id + '\')">Nueva clave</button>' +
+        '<button onclick="resetDemoData(\'' + id + '\')">Reiniciar datos</button>' +
         (d.expired ? '' : '<button class="danger" onclick="revokeDemo(\'' + id + '\')">Revocar</button>') +
         '<button onclick="convertDemo(\'' + id + '\')">Hacer real</button>' +
       '</div></td></tr>';
@@ -1146,6 +1147,14 @@ function resendDemo(id) {
   showConfirm('¿Generar una clave nueva?', 'La clave anterior de ' + (d ? d.email : 'esta demo') + ' dejará de funcionar y se enviará la nueva por correo.', async () => {
     const r = await demoAction(id + '/resend', { key: true });
     if (r) showCreds('🔑 Clave regenerada', { ...r, expiresAt: d && d.expires_at, ownerName: d && d.full_name }, true);
+  });
+}
+function resetDemoData(id) {
+  if (needKey()) return;
+  const d = demos.find(x => x.id === id);
+  showConfirm('¿Reiniciar los datos de esta demo?', 'Se borran los cambios que haya hecho ' + (d ? d.email : 'el prospecto') + ' y vuelven los productos, clientes, pedidos y conversaciones de ejemplo, en plan Business. La clave y la fecha de caducidad no cambian.', async () => {
+    const r = await demoAction(id + '/reset-data', { key: true });
+    if (r) showToast('Datos de la demo reiniciados');
   });
 }
 function revokeDemo(id) {

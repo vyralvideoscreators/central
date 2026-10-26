@@ -722,7 +722,73 @@ async function requireAuth(req, res, next) {
     }
   }
   req.tenant = decoded;
+  if (decoded.isDemo) {
+    const blocked = await demoGuard(req);
+    if (blocked) return res.status(blocked.status).json(blocked.body);
+  }
   next();
+}
+
+// ── Aislamiento de cuentas demo ────────────────────────────────
+// Una demo solo puede usar las rutas de esta lista. Cualquier ruta nueva queda
+// bloqueada para demos hasta que se añada aquí de forma explícita.
+const DEMO_ALLOWED_ROUTES = new Set([
+  'GET /api/tenant/profile', 'PUT /api/tenant/profile',
+  'GET /api/conversations', 'GET /api/conversations/:waId',
+  'GET /api/orders', 'POST /api/orders', 'PATCH /api/orders/:id',
+  'GET /api/reports',
+  'GET /api/clients', 'POST /api/clients', 'PATCH /api/clients/:id', 'DELETE /api/clients/:id',
+  'GET /api/catalog', 'POST /api/catalog', 'PATCH /api/catalog/:id', 'DELETE /api/catalog/:id',
+  'POST /api/send', 'POST /api/send-media', 'POST /api/send-ticket', 'POST /api/send-instagram',
+  'GET /api/billing/status', 'POST /api/billing/create-checkout', 'POST /api/billing/cancel', 'POST /api/billing/portal',
+]);
+const DEMO_MAX_BODY = 1024 * 1024;
+const DEMO_ROW_LIMITS = {
+  'POST /api/orders': ['orders', 300], 'POST /api/clients': ['clients', 300], 'POST /api/catalog': ['catalog_products', 100],
+  'POST /api/send': ['messages', 600], 'POST /api/send-media': ['messages', 600],
+  'POST /api/send-ticket': ['messages', 600], 'POST /api/send-instagram': ['messages', 600],
+};
+const DEMO_BLOCKED = { status: 403, body: { error: 'demo_blocked', message: 'Esta función no está disponible en la demo.' } };
+
+async function demoGuard(req) {
+  const key = req.method + ' ' + (req.route?.path || req.path);
+  if (!DEMO_ALLOWED_ROUTES.has(key)) return DEMO_BLOCKED;
+  if (parseInt(req.headers['content-length'] || '0', 10) > DEMO_MAX_BODY) {
+    return { status: 413, body: { error: 'demo_limit', message: 'En la demo los archivos y datos están limitados a 1 MB.' } };
+  }
+  const limit = DEMO_ROW_LIMITS[key];
+  if (limit) {
+    const { rows } = await pool.query(`SELECT COUNT(*)::int AS n FROM ${limit[0]} WHERE tenant_id = $1`, [req.tenant.tenantId]);
+    if (rows[0].n >= limit[1]) {
+      return { status: 429, body: { error: 'demo_limit', message: 'Has llegado al límite de datos de la demo.' } };
+    }
+  }
+  return null;
+}
+
+// Facturación simulada: en una demo nunca se llama a Stripe
+function demoBilling(kind) {
+  return async (req, res, next) => {
+    if (req.tenant?.isDemo === false) return next();
+    if (req.tenant?.isDemo !== true) return res.status(503).json({ error: 'Servicio no disponible, intenta en un momento' });
+    const tenantId = req.tenant.tenantId;
+    try {
+      if (kind === 'status') {
+        const { rows } = await pool.query('SELECT plan, expires_at FROM tenants WHERE id = $1 AND is_demo = true', [tenantId]);
+        return res.json({ plan: rows[0]?.plan || 'business', billingStatus: 'demo', demo: true,
+          hasSubscription: false, nextBillingDate: null, planExpiresAt: rows[0]?.expires_at || null });
+      }
+      if (kind === 'checkout') {
+        const plan = req.body?.plan;
+        if (!['basic', 'pro', 'business'].includes(plan)) return res.status(400).json({ error: 'Plan inválido' });
+        await pool.query('UPDATE tenants SET plan = $1 WHERE id = $2 AND is_demo = true', [plan, tenantId]);
+        return res.json({ demo: true, plan, message: 'Plan cambiado. En la demo no se realiza ningún cobro.' });
+      }
+      return res.json({ demo: true, message: 'En la demo no hay suscripción ni cobros: cambia de plan cuando quieras sin coste.' });
+    } catch (err) {
+      return res.status(500).json({ error: 'Error en la demo' });
+    }
+  };
 }
 
 async function getTenantCredentials(tenantId) {
@@ -1097,9 +1163,9 @@ app.post('/api/tenant/forgot-password', async (req, res) => {
   if (!email) return res.status(400).json({ error: 'Correo requerido' });
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   try {
-    const { rows } = await pool.query('SELECT id FROM tenants WHERE email = $1 AND active = true', [email]);
+    const { rows } = await pool.query('SELECT id, is_demo FROM tenants WHERE email = $1 AND active = true', [email]);
     // Siempre responder OK para no revelar si el correo existe
-    if (rows[0]) {
+    if (rows[0] && !rows[0].is_demo) {
       const token   = crypto.randomBytes(32).toString('hex');
       const expires = new Date(Date.now() + 60 * 60 * 1000); // 1 hora
       await pool.query('UPDATE tenants SET reset_token=$1, reset_token_expires=$2 WHERE id=$3', [token, expires, rows[0].id]);
@@ -1125,7 +1191,7 @@ app.post('/api/tenant/reset-password', async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   try {
     const { rows } = await pool.query(
-      'SELECT id FROM tenants WHERE reset_token=$1 AND reset_token_expires > NOW() AND active=true',
+      'SELECT id FROM tenants WHERE reset_token=$1 AND reset_token_expires > NOW() AND active=true AND is_demo IS NOT TRUE',
       [token]
     );
     if (!rows[0]) return res.status(400).json({ error: 'El enlace no es válido o ha expirado' });
@@ -1168,7 +1234,9 @@ app.get('/api/tenant/profile', requireAuth, async (req, res) => {
 
 app.put('/api/tenant/profile', requireAuth, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
-  const allowed = ['business_name', 'full_name', 'email', 'country', 'whatsapp_number'];
+  const allowed = req.tenant.isDemo
+    ? ['business_name', 'full_name', 'country', 'whatsapp_number']
+    : ['business_name', 'full_name', 'email', 'country', 'whatsapp_number'];
   const sets = [];
   const values = [];
   let i = 1;
@@ -1808,6 +1876,23 @@ app.get('/app', async (req, res) => {
   catch { return res.status(500).send('Error cargando la app'); }
 
   let inject = `<script>(function(){var u=new URL(location.href);if(u.searchParams.has('token')){try{localStorage.setItem('central_jwt',u.searchParams.get('token'))}catch(e){}u.searchParams.delete('token');history.replaceState(null,'',u.pathname+(u.search||''))}})();</script>`;
+  if (tenant?.is_demo) {
+    // Las demos no reciben las conversaciones de ejemplo originales escritas en la app
+    html = html.replace(/const convos = \{\r?\n[\s\S]*?\r?\n\};\r?\n/, 'const convos = {};\n')
+               .replace(/Zapatilla Runner/g, 'Tenis Urbano')
+               .replace(/(<div class="convo-list" id="convoList">)[\s\S]*?(\r?\n\s*<\/div>\r?\n\s*<\/div>\r?\n\r?\n\s*<!-- CENTER: chat -->)/, '$1$2')
+               .replace(/(id="chatName">)[^<]*/, '$1')
+               .replace(/(id="chatAvatar"[^>]*>)[^<]*/, '$1')
+               .replace(/(id="simCliente" value=")[^"]*/, '$1Cliente de ejemplo');
+  }
+  if (tenant?.is_demo) {
+    // Va al principio del <head>: corre antes que cualquier script de la app
+    const tid = JSON.stringify(String(decoded.tenantId).replace(/[^0-9a-f-]/gi, ''));
+    const shim = `<script>(function(){var P='central_demo_'+${tid}+'__',K={central_jwt:1,central_auth:1,central_tenant:1,central_lang:1};var S=Storage.prototype,g=S.getItem,s=S.setItem,r=S.removeItem;function k(key){key=String(key);return K[key]?key:P+key}S.getItem=function(a){return g.call(this,k(a))};S.setItem=function(a,b){return s.call(this,k(a),b)};S.removeItem=function(a){return r.call(this,k(a))};S.clear=function(){for(var i=this.length-1;i>=0;i--){var x=S.key.call(this,i);if(x&&x.indexOf(P)===0)r.call(this,x)}};})();</script>`;
+    html = /<meta charset[^>]*>/i.test(html)
+      ? html.replace(/<meta charset[^>]*>/i, (m) => m + shim)
+      : html.replace(/<head>/i, (m) => m + shim);
+  }
   if (tenant?.is_demo && tenant.expires_at) {
     const daysLeft = Math.max(0, Math.ceil((new Date(tenant.expires_at) - new Date()) / 86400000));
     inject += `<script>window.__DEMO_MODE__=true;window.__DEMO_DAYS_LEFT__=${daysLeft};window.__DEMO_EXPIRES__=${JSON.stringify(new Date(tenant.expires_at).toISOString())};</script>`;
@@ -1955,7 +2040,7 @@ app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), asyn
   res.json({ received: true });
 });
 
-app.post('/api/billing/create-checkout', requireAuth, async (req, res) => {
+app.post('/api/billing/create-checkout', requireAuth, demoBilling('checkout'), async (req, res) => {
   if (!stripe) return res.status(503).json({ error: 'Stripe no configurado' });
   const { plan } = req.body;
   if (!['pro','business'].includes(plan)) return res.status(400).json({ error: 'Plan inválido' });
@@ -1991,7 +2076,7 @@ app.post('/api/billing/create-checkout', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/billing/status', requireAuth, async (req, res) => {
+app.get('/api/billing/status', requireAuth, demoBilling('status'), async (req, res) => {
   try {
     const { rows } = await pool.query(
       'SELECT plan, billing_status, plan_expires_at, stripe_subscription_id FROM tenants WHERE id=$1',
@@ -2020,7 +2105,7 @@ app.get('/api/billing/status', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/billing/cancel', requireAuth, async (req, res) => {
+app.post('/api/billing/cancel', requireAuth, demoBilling('info'), async (req, res) => {
   if (!stripe) return res.status(503).json({ error: 'Stripe no configurado' });
   try {
     const { rows } = await pool.query('SELECT stripe_subscription_id FROM tenants WHERE id=$1', [req.tenant.tenantId]);
@@ -2037,7 +2122,7 @@ app.post('/api/billing/cancel', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/billing/portal', requireAuth, async (req, res) => {
+app.post('/api/billing/portal', requireAuth, demoBilling('info'), async (req, res) => {
   if (!stripe) return res.status(503).json({ error: 'Stripe no configurado' });
   try {
     const { rows } = await pool.query('SELECT stripe_customer_id FROM tenants WHERE id=$1', [req.tenant.tenantId]);
@@ -2263,7 +2348,7 @@ app.delete('/api/admin/tenants/:tenantId', requireAdmin, async (req, res) => {
 // ADMIN — Demos (cuentas de prueba con datos ficticios y caducidad)
 // Requieren sesión de superadmin + la clave DEMO_CREATION_KEY (header X-Demo-Key)
 // ══════════════════════════════════════════════════════════════
-const { seedDemoTenant } = require('./demo-seed');
+const { seedDemoTenant, wipeDemoData } = require('./demo-seed');
 const DEMO_CREATION_KEY = process.env.DEMO_CREATION_KEY || '';
 
 function requireDemoKey(req, res, next) {
@@ -2363,7 +2448,7 @@ app.post('/api/admin/demos', requireAdmin, requireDemoKey, async (req, res) => {
     await client.query('BEGIN');
     const { rows } = await client.query(`
       INSERT INTO tenants (business_name, full_name, email, password_hash, plan, country, is_demo, demo_days, expires_at)
-      VALUES ($1,$2,$3,$4,'pro',$5,true,$6, NOW() + make_interval(hours => $6 * 24))
+      VALUES ($1,$2,$3,$4,'business',$5,true,$6, NOW() + make_interval(hours => $6 * 24))
       RETURNING id, email, business_name, expires_at
     `, [businessName, ownerName || null, email, hash, country, days]);
     tenant = rows[0];
@@ -2437,6 +2522,29 @@ app.post('/api/admin/demos/:tenantId/resend', requireAdmin, requireDemoKey, asyn
     res.json({ success: true, email: t.email, password, emailSent, emailError });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Vuelve a dejar la demo con los datos de ejemplo iniciales y en plan Business
+app.post('/api/admin/demos/:tenantId/reset-data', requireAdmin, requireDemoKey, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query('SELECT id FROM tenants WHERE id = $1 AND is_demo = true FOR UPDATE', [req.params.tenantId]);
+    if (!rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Demo no encontrada' }); }
+    const { rows: cityRows } = await client.query('SELECT city FROM clients WHERE tenant_id = $1 AND city IS NOT NULL LIMIT 1', [req.params.tenantId]);
+    await wipeDemoData(client, req.params.tenantId);
+    await seedDemoTenant(client, req.params.tenantId, { city: cityRows[0]?.city || undefined });
+    await client.query("UPDATE tenants SET plan = 'business' WHERE id = $1", [req.params.tenantId]);
+    await client.query('COMMIT');
+    broadcastToTenant(req.params.tenantId, { type: 'demo_reset' });
+    res.json({ success: true });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[DEMO] Error reiniciando datos:', err.message);
+    res.status(500).json({ error: 'No se pudieron reiniciar los datos' });
+  } finally {
+    client.release();
   }
 });
 

@@ -1,101 +1,117 @@
-// Datos ficticios para cuentas demo (ropa y calzado).
-// Todos los teléfonos usan el prefijo 555, reservado para ficción.
+// Datos 100 % inventados para las cuentas demo (ropa y calzado).
+// Nada de aquí puede coincidir con datos reales ni con los datos de prueba
+// originales de la app: test/demo-data.test.js lo comprueba.
+// Teléfonos con el bloque 555-2xxx, reservado para ficción.
 
 const C = {
-  rojo:   { name: 'Rojo',        hex: '#d63c3c' },
-  azul:   { name: 'Azul marino', hex: '#1f3a6b' },
-  negro:  { name: 'Negro',       hex: '#1a1a1a' },
-  celeste:{ name: 'Azul claro',  hex: '#8db8e0' },
-  blanco: { name: 'Blanco',      hex: '#f5f5f5' },
-  beige:  { name: 'Beige',       hex: '#d9c4a3' },
-  nude:   { name: 'Nude',        hex: '#e3bfa6' },
+  coral:   { name: 'Coral',          hex: '#f0806a' },
+  marfil:  { name: 'Marfil',         hex: '#f3ead8' },
+  arena:   { name: 'Arena',          hex: '#d6c3a1' },
+  oliva:   { name: 'Oliva',          hex: '#6b7a3a' },
+  indigo:  { name: 'Índigo',         hex: '#2f3e6e' },
+  humo:    { name: 'Gris humo',      hex: '#8a8f98' },
+  hueso:   { name: 'Blanco hueso',   hex: '#efe9df' },
+  menta:   { name: 'Verde menta',    hex: '#9fd8c0' },
+  camel:   { name: 'Camel',          hex: '#b07a45' },
+  azabache:{ name: 'Negro azabache', hex: '#151515' },
 };
 
 const PRODUCTS = [
-  { key: 'p1', cat: ['ropa', 'Ropa', '👗'],    name: 'Vestido Floral Midi',   emoji: '👗', price: 38, sizes: ['S', 'M', 'L'],               colors: [C.rojo, C.azul] },
-  { key: 'p2', cat: ['ropa', 'Ropa', '👗'],    name: 'Jean Skinny Tiro Alto', emoji: '👖', price: 28, sizes: ['26', '28', '30', '32'],       colors: [C.negro, C.celeste] },
-  { key: 'p3', cat: ['ropa', 'Ropa', '👗'],    name: 'Camisa de Lino',        emoji: '👔', price: 25, sizes: ['S', 'M', 'L', 'XL'],         colors: [C.blanco, C.beige] },
-  { key: 'p4', cat: ['calzado', 'Calzado', '👟'], name: 'Zapatilla Runner Pro', emoji: '👟', price: 48, sizes: ['37', '38', '39', '40', '41', '42'], colors: [C.blanco, C.negro] },
-  { key: 'p5', cat: ['calzado', 'Calzado', '👟'], name: 'Sandalia Plataforma',  emoji: '👡', price: 32, sizes: ['36', '37', '38', '39', '40'], colors: [C.nude, C.negro] },
+  { key: 'p1', cat: ['prendas', 'Prendas', '👚'], name: 'Blusa Bordada Amapola',  emoji: '👚', price: 34, sizes: ['XS', 'S', 'M', 'L'],            colors: [C.coral, C.marfil] },
+  { key: 'p2', cat: ['prendas', 'Prendas', '👚'], name: 'Pantalón Palazzo Brisa', emoji: '👖', price: 42, sizes: ['S', 'M', 'L', 'XL'],            colors: [C.arena, C.oliva] },
+  { key: 'p3', cat: ['prendas', 'Prendas', '👚'], name: 'Chaqueta Denim Cropped', emoji: '🧥', price: 56, sizes: ['S', 'M', 'L'],                  colors: [C.indigo, C.humo] },
+  { key: 'p4', cat: ['zapatos', 'Zapatos', '👟'], name: 'Tenis Urbano Nube',      emoji: '👟', price: 64, sizes: ['36', '37', '38', '39', '40', '41'], colors: [C.hueso, C.menta] },
+  { key: 'p5', cat: ['zapatos', 'Zapatos', '👟'], name: 'Botín Chelsea Siena',    emoji: '👢', price: 79, sizes: ['36', '37', '38', '39', '40'],    colors: [C.camel, C.azabache] },
 ];
 
 const CLIENTS = [
-  { key: 'c1', name: 'María Fernández',  phone: '+58 412 555 0101', ig: '',              zone: 'Chacao',       pay: 'Pago móvil', channel: 'wa', vip: true,  notes: 'Clienta frecuente. Prefiere entregas en la tarde.' },
-  { key: 'c2', name: 'Valentina Torres', phone: '',                 ig: '@vale.torres',  zone: 'Las Mercedes', pay: 'Zelle',      channel: 'ig', vip: false, notes: 'Talla M en vestidos.' },
-  { key: 'c3', name: 'Carlos Mendoza',   phone: '+58 414 555 0103', ig: '',              zone: 'El Rosal',     pay: 'Efectivo',   channel: 'wa', vip: false, notes: '' },
-  { key: 'c4', name: 'Luisa Martínez',   phone: '+58 424 555 0104', ig: '',              zone: 'Los Palos Grandes', pay: 'Pago móvil', channel: 'wa', vip: true, notes: 'Compra para ella y su hija. Calza 38.' },
-  { key: 'c5', name: 'Sofía Ramos',      phone: '',                 ig: '@sofiaramos_',  zone: 'Altamira',     pay: 'Zelle',      channel: 'ig', vip: false, notes: '' },
-  { key: 'c6', name: 'Pedro Gutiérrez',  phone: '+58 412 555 0106', ig: '',              zone: 'La Castellana', pay: 'Binance',   channel: 'wa', vip: false, notes: 'Pide factura con RIF.' },
+  { key: 'c1', name: 'Daniela Quintero',  phone: '+58 412 555 2301', ig: '',                zone: 'Los Pinos',         pay: 'Pago móvil',    channel: 'wa', vip: true,  notes: 'Compra cada quincena. Prefiere entregas después de las 5 pm.' },
+  { key: 'c2', name: 'Noelia Arismendi',  phone: '',                 ig: '@noe.arismendi',  zone: 'El Mirador',        pay: 'Zelle',         channel: 'ig', vip: false, notes: 'Talla S en blusas.' },
+  { key: 'c3', name: 'Andrés Palacios',   phone: '+58 414 555 2303', ig: '',                zone: 'Centro',            pay: 'Efectivo',      channel: 'wa', vip: false, notes: '' },
+  { key: 'c4', name: 'Rocío Villamizar',  phone: '+58 424 555 2304', ig: '',                zone: 'Valle Alto',        pay: 'Transferencia', channel: 'wa', vip: true,  notes: 'Regala a sus sobrinas. Calza 37.' },
+  { key: 'c5', name: 'Mariela Sotillo',   phone: '',                 ig: '@marielasotillo', zone: 'Jardines del Este', pay: 'Zelle',         channel: 'ig', vip: false, notes: '' },
+  { key: 'c6', name: 'Tomás Echeverri',   phone: '+58 416 555 2306', ig: '',                zone: 'Zona Norte',        pay: 'Tarjeta',       channel: 'wa', vip: false, notes: 'Pide factura a nombre de su empresa.' },
 ];
 
-// d = días atrás, h = hora del día
+// d = días atrás, h = hora; items = [producto, talla, índice de color, cantidad]
 const ORDERS = [
-  { c: 'c1', d: 0, h: 10, items: [['p1', 'M', 0, 1]],                pay: 'pend', del: 'to_deliver',    payL: 'Pago móvil', delL: 'Motorizado independiente', ship: 3 },
-  { c: 'c2', d: 0, h: 12, items: [['p4', '39', 0, 1], ['p2', '28', 0, 1]], pay: 'ok', del: 'to_deliver', payL: 'Zelle', delL: 'Motorizado independiente', ship: 3 },
-  { c: 'c6', d: 0, h: 15, items: [['p3', 'L', 1, 2]],                pay: 'pend', del: 'to_deliver',    payL: 'Binance',    delL: 'Retiro en tienda',         ship: 0 },
-  { c: 'c4', d: 1, h: 11, items: [['p5', '38', 0, 2]],               pay: 'ok',   del: 'delivered',     payL: 'Pago móvil', delL: 'Motorizado independiente', ship: 3 },
-  { c: 'c3', d: 1, h: 17, items: [['p4', '42', 1, 1]],               pay: 'ok',   del: 'delivered',     payL: 'Efectivo',   delL: 'Retiro en tienda',         ship: 0 },
-  { c: 'c5', d: 2, h: 13, items: [['p1', 'S', 1, 1]],                pay: 'pend', del: 'delivered',     payL: 'Zelle',      delL: 'Encomienda',               ship: 5 },
-  { c: 'c1', d: 3, h: 16, items: [['p2', '30', 1, 1], ['p3', 'M', 0, 1]], pay: 'ok', del: 'delivered', payL: 'Pago móvil', delL: 'Motorizado independiente', ship: 3 },
-  { c: 'c2', d: 4, h: 10, items: [['p5', '37', 1, 1]],               pay: 'ok',   del: 'delivered',     payL: 'Zelle',      delL: 'Encomienda',               ship: 5 },
-  { c: 'c6', d: 5, h: 14, items: [['p4', '41', 0, 1]],               pay: 'pend', del: 'not_delivered', payL: 'Binance',    delL: 'Motorizado independiente', ship: 3 },
-  { c: 'c4', d: 6, h: 18, items: [['p1', 'L', 0, 1], ['p5', '38', 1, 1]], pay: 'ok', del: 'delivered', payL: 'Pago móvil', delL: 'Motorizado independiente', ship: 3 },
-  { c: 'c3', d: 8, h: 12, items: [['p2', '32', 0, 2]],               pay: 'ok',   del: 'delivered',     payL: 'Efectivo',   delL: 'Retiro en tienda',         ship: 0 },
+  { c: 'c1', d: 0, h: 11, items: [['p4', '38', 1, 1]],                      pay: 'pend', del: 'to_deliver',    payL: 'Pago móvil',    delL: 'Motorizado independiente', ship: 4 },
+  { c: 'c2', d: 0, h: 13, items: [['p1', 'S', 0, 1], ['p2', 'M', 0, 1]],    pay: 'ok',   del: 'to_deliver',    payL: 'Zelle',         delL: 'Motorizado independiente', ship: 4 },
+  { c: 'c6', d: 0, h: 16, items: [['p3', 'L', 0, 1]],                       pay: 'pend', del: 'to_deliver',    payL: 'Tarjeta',       delL: 'Retiro en tienda',         ship: 0 },
+  { c: 'c4', d: 1, h: 10, items: [['p5', '37', 0, 1]],                      pay: 'ok',   del: 'delivered',     payL: 'Transferencia', delL: 'Motorizado independiente', ship: 4 },
+  { c: 'c3', d: 1, h: 18, items: [['p4', '41', 0, 1]],                      pay: 'ok',   del: 'delivered',     payL: 'Efectivo',      delL: 'Retiro en tienda',         ship: 0 },
+  { c: 'c5', d: 2, h: 12, items: [['p1', 'M', 1, 2]],                       pay: 'pend', del: 'delivered',     payL: 'Zelle',         delL: 'Encomienda',               ship: 6 },
+  { c: 'c1', d: 3, h: 17, items: [['p2', 'S', 1, 1], ['p1', 'S', 1, 1]],    pay: 'ok',   del: 'delivered',     payL: 'Pago móvil',    delL: 'Motorizado independiente', ship: 4 },
+  { c: 'c2', d: 4, h: 15, items: [['p3', 'S', 1, 1]],                       pay: 'ok',   del: 'delivered',     payL: 'Zelle',         delL: 'Encomienda',               ship: 6 },
+  { c: 'c6', d: 5, h: 9,  items: [['p5', '40', 1, 1]],                      pay: 'pend', del: 'not_delivered', payL: 'Tarjeta',       delL: 'Motorizado independiente', ship: 4 },
+  { c: 'c4', d: 6, h: 19, items: [['p4', '37', 1, 1], ['p1', 'XS', 0, 1]],  pay: 'ok',   del: 'delivered',     payL: 'Transferencia', delL: 'Motorizado independiente', ship: 4 },
+  { c: 'c3', d: 9, h: 14, items: [['p2', 'L', 0, 1]],                       pay: 'ok',   del: 'delivered',     payL: 'Efectivo',      delL: 'Retiro en tienda',         ship: 0 },
 ];
 
-// m = minutos atrás del último mensaje; msgs: [role, text]
+// m = minutos desde el último mensaje; msgs = [rol, texto]
 const CONVOS = [
-  { c: 'c1', m: 4, msgs: [
-    ['in',  '¡Hola! ¿Tienen el vestido floral en talla M? 😍'],
-    ['out', '¡Hola María! Sí, tenemos en rojo y azul marino. ¿Cuál prefieres?'],
-    ['in',  'El rojo porfa. ¿Me lo pueden llevar hoy a Chacao?'],
-    ['out', 'Claro, el motorizado sale a las 4pm. Serían $38 + $3 de envío.'],
-    ['in',  'Perfecto, ya te hago el pago móvil 🙌'],
+  { c: 'c1', m: 6, msgs: [
+    ['in',  'Buenas tardes 😊 ¿los Tenis Nube tienen talla 38 en verde menta?'],
+    ['out', '¡Hola Daniela! Sí, nos queda un par en 38 verde menta. Son $64.'],
+    ['in',  '¿Me los mandan hoy a Los Pinos?'],
+    ['out', 'Claro, el envío sale a las 5 pm y cuesta $4. ¿Te lo aparto?'],
+    ['in',  'Sí porfa, ya te envío el pago móvil 💸'],
   ]},
-  { c: 'c2', m: 25, msgs: [
-    ['in',  'Holaa, vi las Runner Pro en sus historias 👟'],
-    ['out', '¡Hola Vale! Sí, quedan en blanco y negro. ¿Qué talla usas?'],
-    ['in',  '39. Y también quiero el jean skinny en 28'],
-    ['out', 'Listo, te queda en $76 + envío. Te paso los datos de Zelle.'],
-    ['in',  'Ya pagué, te mando el capture ✨'],
+  { c: 'c2', m: 31, msgs: [
+    ['in',  'Holiii, vi la blusa Amapola en tus historias ✨'],
+    ['out', '¡Hola Noe! Viene en coral y marfil, desde la XS hasta la L.'],
+    ['in',  'Coral en S. Y el palazzo arena en M también 🙈'],
+    ['out', 'Perfecto, son $76 + $4 de envío. Te paso el Zelle.'],
+    ['in',  'Listo, ya pagué. Te mando el comprobante.'],
   ]},
-  { c: 'c6', m: 70, msgs: [
-    ['in',  'Buenas, necesito 2 camisas de lino talla L en beige'],
-    ['out', 'Buenas Pedro, sí hay disponibles. ¿Paso a retiro o envío?'],
-    ['in',  'Paso a buscarlas. ¿Aceptan Binance?'],
-    ['out', 'Sí aceptamos. Te paso la dirección de la tienda 📍'],
+  { c: 'c6', m: 85, msgs: [
+    ['in',  'Hola, ¿tienen la chaqueta denim en índigo talla L?'],
+    ['out', 'Hola Tomás, sí hay. ¿La pasas a buscar o te la enviamos?'],
+    ['in',  'Paso esta tarde por la tienda. ¿Aceptan tarjeta?'],
+    ['out', 'Sí, aceptamos tarjeta. Te esperamos hasta las 7 pm 👍'],
   ]},
-  { c: 'c4', m: 180, msgs: [
-    ['in',  '¡Me encantaron las sandalias! Llegaron perfectas 💕'],
-    ['out', '¡Qué alegría Luisa! Gracias por tu compra 🙏'],
-    ['in',  '¿Les entra mercancía nueva pronto?'],
-    ['out', 'La próxima semana llegan colores nuevos, te aviso primero ⭐'],
+  { c: 'c4', m: 200, msgs: [
+    ['in',  '¡Los botines llegaron perfectos! A mi sobrina le encantaron 💛'],
+    ['out', '¡Qué alegría, Rocío! Gracias por confiar en nosotros 🙏'],
+    ['in',  '¿Van a sacar más colores?'],
+    ['out', 'El mes que viene llega el Chelsea en vino tinto. Te aviso primero ⭐'],
   ]},
-  { c: 'c5', m: 300, msgs: [
-    ['in',  'Hola! El vestido me llegó pero aún no te he pagado, ¿te puedo pagar mañana?'],
-    ['out', 'Hola Sofía, claro que sí. Te dejo los datos de Zelle por aquí.'],
-    ['in',  'Gracias 🙏 mañana a primera hora'],
+  { c: 'c5', m: 340, msgs: [
+    ['in',  'Hola, me llegaron las blusas pero todavía no te he pagado 😅 ¿te pago el lunes?'],
+    ['out', 'Hola Mariela, sin problema. Te dejo aquí los datos de Zelle.'],
+    ['in',  'Mil gracias, el lunes temprano te escribo.'],
   ]},
-  { c: 'c3', m: 1500, msgs: [
-    ['in',  '¿Las Runner Pro vienen en 42?'],
-    ['out', 'Sí Carlos, en negro tenemos 42 disponible.'],
-    ['in',  'Paso hoy a buscarlas, pago en efectivo'],
-    ['out', 'Perfecto, te esperamos 👍'],
+  { c: 'c3', m: 1600, msgs: [
+    ['in',  '¿Los Tenis Nube vienen en 41?'],
+    ['out', 'Sí Andrés, en blanco hueso nos queda la 41.'],
+    ['in',  'Paso hoy en la tarde, pago en efectivo.'],
+    ['out', 'Perfecto, te los dejamos separados 👟'],
   ]},
-  { lead: { name: 'Andrea López', channel: 'ig', id: 'l1' }, m: 12, msgs: [
-    ['in',  'Hola! ¿Cuánto cuesta la sandalia plataforma? 😍'],
-    ['in',  '¿Tienen en talla 37?'],
+  { lead: { id: 'l1', name: 'Lucía Benavides', channel: 'ig' }, m: 14, msgs: [
+    ['in',  'Hola!! ¿Cuánto cuesta el botín Chelsea? 😍'],
+    ['in',  '¿Hay en 36?'],
   ]},
-  { lead: { name: 'José Rivas', channel: 'wa', id: 'l2', phone: '+58 416 555 0108' }, m: 2900, msgs: [
-    ['in',  'Buenas, ¿hacen envíos a Valencia?'],
-    ['out', 'Hola José, sí, por encomienda MRW o Zoom. Llega en 24-48h 📦'],
-    ['in',  'Perfecto, el lunes les escribo para pedir unas Runner Pro'],
+  { lead: { id: 'l2', name: 'Óscar Lameda', channel: 'wa', phone: '+58 412 555 2308' }, m: 2900, msgs: [
+    ['in',  'Buenas, ¿hacen envíos a otras ciudades?'],
+    ['out', 'Hola Óscar, sí, enviamos por encomienda. Llega en 24 a 48 horas 📦'],
+    ['in',  'Excelente, la semana que viene les pido unos tenis.'],
   ]},
 ];
 
 function money(n) { return Math.round(n * 100) / 100; }
 
-async function seedDemoTenant(client, tenantId, { city = 'Caracas' } = {}) {
+async function wipeDemoData(client, tenantId) {
+  const { rows } = await client.query('SELECT is_demo FROM tenants WHERE id = $1', [tenantId]);
+  if (!rows[0]?.is_demo) throw new Error('Solo se pueden vaciar cuentas demo');
+  await client.query('DELETE FROM messages WHERE tenant_id = $1', [tenantId]);
+  await client.query('DELETE FROM conversations WHERE tenant_id = $1', [tenantId]);
+  await client.query('DELETE FROM order_items WHERE tenant_id = $1', [tenantId]);
+  await client.query('DELETE FROM orders WHERE tenant_id = $1', [tenantId]);
+  await client.query('DELETE FROM clients WHERE tenant_id = $1', [tenantId]);
+  await client.query('DELETE FROM catalog_products WHERE tenant_id = $1', [tenantId]);
+}
+
+async function seedDemoTenant(client, tenantId, { city = 'Ciudad Demo' } = {}) {
   const now = Date.now();
   const at = (days, hour) => {
     const d = new Date(now - days * 86400000);
@@ -131,8 +147,7 @@ async function seedDemoTenant(client, tenantId, { city = 'Caracas' } = {}) {
     const c = clientByKey[o.c];
     const lines = o.items.map(([pk, size, colorIdx, qty]) => {
       const p = byKey[pk];
-      const color = p.colors[colorIdx];
-      return { pk, p, qty, detail: `${color.name} · Talla ${size}`, unit: p.price, line: money(p.price * qty) };
+      return { pk, p, qty, detail: `${p.colors[colorIdx].name} · Talla ${size}`, unit: p.price, line: money(p.price * qty) };
     });
     const subtotal = lines.reduce((s, l) => s + l.line, 0);
     const summary = lines.map(l => `${l.qty > 1 ? l.qty + 'x ' : ''}${l.p.name}`).join(' + ');
@@ -174,4 +189,4 @@ async function seedDemoTenant(client, tenantId, { city = 'Caracas' } = {}) {
   }
 }
 
-module.exports = { seedDemoTenant };
+module.exports = { seedDemoTenant, wipeDemoData, DEMO_DATA: { PRODUCTS, CLIENTS, ORDERS, CONVOS, COLORS: C } };
