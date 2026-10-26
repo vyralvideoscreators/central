@@ -10,7 +10,7 @@ const git = (ref) => { try { return execSync(`git show "${ref}"`, { cwd: repo, e
 const corpusSources = [
   'c472c0b:central-mvp-v63 (1) - copia.html',
   'c472c0b:backend/central-mvp-v63 (1) - copia.html',
-  'HEAD:backend/central-mvp-v63 (1) - copia.html',
+  '4fdca86:backend/central-mvp-v63 (1) - copia.html',
   '44ec1a8:backend/demo-seed.js',
 ];
 const norm = (t) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();

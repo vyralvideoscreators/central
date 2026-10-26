@@ -723,7 +723,9 @@ async function requireAuth(req, res, next) {
   }
   req.tenant = decoded;
   if (decoded.isDemo) {
-    const blocked = await demoGuard(req);
+    let blocked;
+    try { blocked = await demoGuard(req); }
+    catch { return res.status(500).json({ error: 'Error validando la demo' }); }
     if (blocked) return res.status(blocked.status).json(blocked.body);
   }
   next();
@@ -753,8 +755,15 @@ const DEMO_BLOCKED = { status: 403, body: { error: 'demo_blocked', message: 'Est
 async function demoGuard(req) {
   const key = req.method + ' ' + (req.route?.path || req.path);
   if (!DEMO_ALLOWED_ROUTES.has(key)) return DEMO_BLOCKED;
-  if (parseInt(req.headers['content-length'] || '0', 10) > DEMO_MAX_BODY) {
-    return { status: 413, body: { error: 'demo_limit', message: 'En la demo los archivos y datos están limitados a 1 MB.' } };
+  const tooBig = { status: 413, body: { error: 'demo_limit', message: 'En la demo los archivos y datos están limitados a 1 MB.' } };
+  if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
+    const len = req.headers['content-length'];
+    if (len === undefined) return { status: 411, body: { error: 'demo_limit', message: 'Petición no válida en la demo.' } };
+    if (parseInt(len, 10) > DEMO_MAX_BODY) return tooBig;
+    if (req.body && JSON.stringify(req.body).length > DEMO_MAX_BODY) return tooBig;
+  }
+  if (key === 'POST /api/orders' && Array.isArray(req.body?.items) && req.body.items.length > 30) {
+    return { status: 400, body: { error: 'demo_limit', message: 'En la demo un pedido admite hasta 30 artículos.' } };
   }
   const limit = DEMO_ROW_LIMITS[key];
   if (limit) {
@@ -1888,7 +1897,7 @@ app.get('/app', async (req, res) => {
   if (tenant?.is_demo) {
     // Va al principio del <head>: corre antes que cualquier script de la app
     const tid = JSON.stringify(String(decoded.tenantId).replace(/[^0-9a-f-]/gi, ''));
-    const shim = `<script>(function(){var P='central_demo_'+${tid}+'__',K={central_jwt:1,central_auth:1,central_tenant:1,central_lang:1};var S=Storage.prototype,g=S.getItem,s=S.setItem,r=S.removeItem;function k(key){key=String(key);return K[key]?key:P+key}S.getItem=function(a){return g.call(this,k(a))};S.setItem=function(a,b){return s.call(this,k(a),b)};S.removeItem=function(a){return r.call(this,k(a))};S.clear=function(){for(var i=this.length-1;i>=0;i--){var x=S.key.call(this,i);if(x&&x.indexOf(P)===0)r.call(this,x)}};})();</script>`;
+    const shim = `<script>(function(){var P='central_demo_'+${tid}+'__',K={central_jwt:1,central_auth:1,central_tenant:1,central_lang:1};var S=Storage.prototype,g=S.getItem,s=S.setItem,r=S.removeItem;function k(key){key=String(key);return K[key]?key:P+key}S.getItem=function(a){return g.call(this,k(a))};S.setItem=function(a,b){return s.call(this,k(a),b)};S.removeItem=function(a){return r.call(this,k(a))};var kk=S.key,ld=Object.getOwnPropertyDescriptor(S,'length');function own(st){var a=[],n=ld.get.call(st);for(var i=0;i<n;i++){var x=kk.call(st,i);if(x&&x.indexOf(P)===0)a.push(x.slice(P.length));else if(K[x])a.push(x)}return a}S.key=function(i){return own(this)[i]===undefined?null:own(this)[i]};Object.defineProperty(S,'length',{configurable:true,get:function(){return own(this).length}});S.clear=function(){var n=ld.get.call(this);for(var i=n-1;i>=0;i--){var x=kk.call(this,i);if(x&&x.indexOf(P)===0)r.call(this,x)}};})();</script>`;
     html = /<meta charset[^>]*>/i.test(html)
       ? html.replace(/<meta charset[^>]*>/i, (m) => m + shim)
       : html.replace(/<head>/i, (m) => m + shim);
@@ -2535,7 +2544,7 @@ app.post('/api/admin/demos/:tenantId/reset-data', requireAdmin, requireDemoKey, 
     const { rows: cityRows } = await client.query('SELECT city FROM clients WHERE tenant_id = $1 AND city IS NOT NULL LIMIT 1', [req.params.tenantId]);
     await wipeDemoData(client, req.params.tenantId);
     await seedDemoTenant(client, req.params.tenantId, { city: cityRows[0]?.city || undefined });
-    await client.query("UPDATE tenants SET plan = 'business' WHERE id = $1", [req.params.tenantId]);
+    await client.query("UPDATE tenants SET plan = 'business' WHERE id = $1 AND is_demo = true", [req.params.tenantId]);
     await client.query('COMMIT');
     broadcastToTenant(req.params.tenantId, { type: 'demo_reset' });
     res.json({ success: true });
