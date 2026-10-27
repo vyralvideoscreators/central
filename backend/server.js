@@ -17,20 +17,6 @@ const jwt        = require('jsonwebtoken');
 const Stripe     = require('stripe');
 const crypto     = require('crypto');
 
-// ── Modo "solo demos" (servicio central-demo) ─────────────────
-// En este modo el servidor no puede tener ninguna clave de servicios externos:
-// si encuentra una, no arranca. Todas las cuentas se tratan como demo.
-const DEMO_ONLY = process.env.DEMO_ONLY === 'true';
-if (DEMO_ONLY) {
-  const FORBIDDEN_ENV = /^(STRIPE_|WHATSAPP_|INSTAGRAM_|META_|RESEND_|TWILIO_|CLOVER_|DEFAULT_TENANT_)/;
-  const found = Object.keys(process.env).filter(k => FORBIDDEN_ENV.test(k) && process.env[k]);
-  if (found.length) {
-    console.error('⛔ DEMO_ONLY: este servicio no puede tener claves externas. Quita: ' + found.join(', '));
-    process.exit(1);
-  }
-  console.log('🧪 Servidor en modo SOLO DEMOS: sin pagos, sin mensajería, sin correo');
-}
-
 const app = express();
 app.use(cors());
 // El webhook de Stripe necesita el body sin procesar para validar la firma
@@ -39,11 +25,6 @@ app.use((req, res, next) => {
   if (req.originalUrl === '/api/billing/webhook') return next();
   express.json({ limit: '20mb' })(req, res, next);
 });
-
-if (DEMO_ONLY) {
-  const DEMO_ONLY_CLOSED = /^\/(webhook|auth\/|api\/billing\/webhook|api\/tenant\/(register|forgot-password|reset-password)|privacy)/i;
-  app.use((req, res, next) => (DEMO_ONLY_CLOSED.test(req.path) ? res.status(404).json({ error: 'No disponible en el servidor de demos' }) : next()));
-}
 
 // Límite de intentos de login por IP: 10 cada 15 min (frena fuerza bruta sobre claves)
 app.set('trust proxy', 1);
@@ -68,7 +49,7 @@ const GRAPH_API_VERSION = 'v21.0';
 const GRAPH_BASE       = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 const JWT_SECRET       = process.env.JWT_SECRET || 'central_jwt_dev_secret_cambiar_en_prod';
 
-const stripe           = (!DEMO_ONLY && process.env.STRIPE_SECRET_KEY) ? Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' }) : null;
+const stripe           = process.env.STRIPE_SECRET_KEY ? Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' }) : null;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
 const STRIPE_PRICE_PRO      = process.env.STRIPE_PRICE_PRO || '';
 const STRIPE_PRICE_BUSINESS = process.env.STRIPE_PRICE_BUSINESS || '';
@@ -735,7 +716,7 @@ async function requireAuth(req, res, next) {
       if (rows[0].expires_at && new Date(rows[0].expires_at) <= new Date()) {
         return res.status(403).json({ error: 'demo_expired', message: 'El período de demo ha finalizado. Contacta a Magic Design para activar tu cuenta.' });
       }
-      decoded.isDemo = DEMO_ONLY || !!rows[0].is_demo;
+      decoded.isDemo = !!rows[0].is_demo;
     } catch (err) {
       return res.status(500).json({ error: 'Error validando la cuenta' });
     }
@@ -1849,16 +1830,6 @@ const path = require('path');
 const fs   = require('fs');
 const SPA_FILE = path.join(__dirname, 'central-mvp-v63 (1) - copia.html');
 
-if (DEMO_ONLY) {
-  app.get('/central-registro.html', (req, res) => {
-    let html;
-    try { html = fs.readFileSync(path.join(__dirname, 'central-registro.html'), 'utf8'); }
-    catch { return res.status(500).send('Error'); }
-    const css = '<style>#panelReg,#mobileTabs{display:none!important}.main-wrap{grid-template-columns:1fr!important;max-width:440px!important}#panelLogin>div:last-child{display:none!important}</style>';
-    res.type('html').send(html.replace('</head>', css + '</head>').replace('Accede a tu panel de negocios', 'Accede a tu demo de CENTRAL'));
-  });
-}
-
 // Lista blanca: solo páginas públicas e imágenes. Nunca .js, .json, .toml ni el SPA.
 const PUBLIC_STATIC = /^\/[\w.-]+\.(html|png|jpe?g|svg|ico|webp|css)$/i;
 app.use((req, res, next) => {
@@ -1902,7 +1873,6 @@ app.get('/app', async (req, res) => {
         [decoded.tenantId]
       );
       tenant = rows[0];
-      if (tenant && DEMO_ONLY) tenant.is_demo = true;
     } catch { return res.status(503).send('Servicio no disponible, intenta en un momento'); }
     if (!tenant || !tenant.active) return res.type('html').send(APP_LOGOUT);
     if (tenant.expires_at && new Date(tenant.expires_at) <= new Date()) {
@@ -1960,7 +1930,7 @@ function buildExpiredPage(businessName) {
 // Health check & rutas raíz
 // ══════════════════════════════════════════════════════════════
 app.get('/', (req, res) => res.redirect('/central-registro.html'));
-app.get('/health', (req, res) => res.json({ status:'ok', db:dbReady, mode: DEMO_ONLY ? 'demo' : 'production', timestamp:new Date().toISOString() }));
+app.get('/health', (req, res) => res.json({ status:'ok', db:dbReady, timestamp:new Date().toISOString() }));
 app.get('/status', (req, res) => res.json({
   status:    'ok',
   service:   'CENTRAL Backend',
@@ -2217,11 +2187,11 @@ app.get('/api/admin/stats', requireAdmin, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   try {
     const [totals, byPlan, newThisWeek, convos, msgs] = await Promise.all([
-      pool.query(`SELECT COUNT(*) total, COUNT(*) FILTER (WHERE active) activos, COUNT(*) FILTER (WHERE NOT active) suspendidos FROM tenants`),
-      pool.query(`SELECT plan, COUNT(*) count FROM tenants GROUP BY plan`),
-      pool.query(`SELECT COUNT(*) count FROM tenants WHERE created_at >= NOW() - INTERVAL '7 days'`),
-      pool.query(`SELECT COUNT(*) count FROM conversations`),
-      pool.query(`SELECT COUNT(*) count FROM messages`),
+      pool.query(`SELECT COUNT(*) total, COUNT(*) FILTER (WHERE active) activos, COUNT(*) FILTER (WHERE NOT active) suspendidos FROM tenants WHERE is_demo IS NOT TRUE`),
+      pool.query(`SELECT plan, COUNT(*) count FROM tenants WHERE is_demo IS NOT TRUE GROUP BY plan`),
+      pool.query(`SELECT COUNT(*) count FROM tenants WHERE is_demo IS NOT TRUE AND created_at >= NOW() - INTERVAL '7 days'`),
+      pool.query(`SELECT COUNT(*) count FROM conversations c JOIN tenants t ON t.id = c.tenant_id WHERE t.is_demo IS NOT TRUE`),
+      pool.query(`SELECT COUNT(*) count FROM messages m JOIN tenants t ON t.id = m.tenant_id WHERE t.is_demo IS NOT TRUE`),
     ]);
     const planMap = {};
     byPlan.rows.forEach(r => { planMap[r.plan] = parseInt(r.count); });
@@ -2244,13 +2214,13 @@ app.get('/api/admin/tenants', requireAdmin, async (req, res) => {
   const { search = '', plan = '', status = '', page = 1, limit = 20 } = req.query;
   const offset = (parseInt(page) - 1) * parseInt(limit);
   try {
-    const conditions = [];
+    const conditions = ['is_demo IS NOT TRUE'];
     const params     = [];
     if (search) { params.push(`%${search}%`); conditions.push(`(business_name ILIKE $${params.length} OR email ILIKE $${params.length})`); }
     if (plan)   { params.push(plan);   conditions.push(`plan = $${params.length}`); }
     if (status === 'active')    conditions.push(`active = true`);
     if (status === 'suspended') conditions.push(`active = false`);
-    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+    const where = 'WHERE ' + conditions.join(' AND ');
 
     const countRes = await pool.query(`SELECT COUNT(*) count FROM tenants ${where}`, params);
     params.push(parseInt(limit), offset);
@@ -2387,10 +2357,6 @@ app.delete('/api/admin/tenants/:tenantId', requireAdmin, async (req, res) => {
 // ADMIN — Demos (cuentas de prueba con datos ficticios y caducidad)
 // Requieren sesión de superadmin + la clave DEMO_CREATION_KEY (header X-Demo-Key)
 // ══════════════════════════════════════════════════════════════
-app.get('/api/admin/config', requireAdmin, (req, res) => {
-  res.json({ demoOnly: DEMO_ONLY, demoAdminUrl: DEMO_ONLY ? null : (process.env.DEMO_ADMIN_URL || null) });
-});
-
 const { seedDemoTenant, wipeDemoData } = require('./demo-seed');
 const DEMO_CREATION_KEY = process.env.DEMO_CREATION_KEY || '';
 
@@ -2465,9 +2431,6 @@ app.get('/api/admin/demos', requireAdmin, async (req, res) => {
 });
 
 app.post('/api/admin/demos', requireAdmin, requireDemoKey, async (req, res) => {
-  if (!DEMO_ONLY && process.env.DEMO_ADMIN_URL) {
-    return res.status(409).json({ error: 'Las demos se crean en el servidor de demos: ' + process.env.DEMO_ADMIN_URL });
-  }
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   const b = req.body || {};
   const email = String(b.email || '').trim().toLowerCase();
@@ -2573,7 +2536,8 @@ app.post('/api/admin/demos/:tenantId/resend', requireAdmin, requireDemoKey, asyn
 
 // Vuelve a dejar la demo con los datos de ejemplo iniciales y en plan Business
 app.post('/api/admin/demos/:tenantId/reset-data', requireAdmin, requireDemoKey, async (req, res) => {
-  const client = await pool.connect();
+  const client = await pool.connect().catch(() => null);
+  if (!client) return res.status(503).json({ error: 'Base de datos no disponible' });
   try {
     await client.query('BEGIN');
     const { rows } = await client.query('SELECT id FROM tenants WHERE id = $1 AND is_demo = true FOR UPDATE', [req.params.tenantId]);
@@ -2594,17 +2558,28 @@ app.post('/api/admin/demos/:tenantId/reset-data', requireAdmin, requireDemoKey, 
   }
 });
 
-// Convierte una demo en cuenta real: quita la caducidad (los datos de ejemplo se conservan)
+// Convierte una demo en cuenta real: borra todos los datos de ejemplo, quita la
+// caducidad y la deja en el plan Basic (el cliente decide después si sube de plan)
 app.post('/api/admin/demos/:tenantId/convert', requireAdmin, async (req, res) => {
+  const client = await pool.connect().catch(() => null);
+  if (!client) return res.status(503).json({ error: 'Base de datos no disponible' });
   try {
-    const { rows } = await pool.query(
-      `UPDATE tenants SET is_demo = false, expires_at = NULL WHERE id = $1 AND is_demo = true RETURNING id`,
+    await client.query('BEGIN');
+    const { rows } = await client.query('SELECT id FROM tenants WHERE id = $1 AND is_demo = true FOR UPDATE', [req.params.tenantId]);
+    if (!rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Demo no encontrada' }); }
+    await wipeDemoData(client, req.params.tenantId);
+    await client.query(
+      `UPDATE tenants SET is_demo = false, expires_at = NULL, plan = 'basic' WHERE id = $1 AND is_demo = true`,
       [req.params.tenantId]
     );
-    if (!rows[0]) return res.status(404).json({ error: 'Demo no encontrada' });
+    await client.query('COMMIT');
+    closeTenantSockets(req.params.tenantId);
     res.json({ success: true });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 

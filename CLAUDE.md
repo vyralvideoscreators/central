@@ -33,24 +33,16 @@ backend/                              ← LO QUE SE DESPLIEGA EN RAILWAY
   central-admin.html                  ← Panel superadmin (Dashboard, Negocios, Demos)
   demo-seed.js                        ← Datos ficticios de las cuentas demo
   nixpacks.toml, .env.example, package.json
-central-mvp-v63 (1) - copia.html      ← Copia ANTIGUA de la raíz, NO se despliega — no editar
 index.html, solicitud.html, …         ← Sitio público (solicitud por Formspree)
 AGENTES.md                            ← Guía de uso de agentes Claude
 ```
 
-**Edita siempre la copia de `backend/`.** La raíz tiene versiones antiguas de algunos HTML.
+**La app, el login y el panel admin existen solo en `backend/`.** La raíz contiene únicamente la web pública; no crear copias de los HTML de la app fuera de `backend/`.
 
 ## Demos para prospectos
 
-**Las demos viven en un servicio aparte: `central-demo`** (Railway, mismo proyecto `diligent-wonder`).
-- URL: https://central-demo-production-93a7.up.railway.app — panel: `/central-admin.html` (mismas credenciales de admin).
-- Despliega desde la rama **`demo`** del repo `central`, carpeta `/backend`. Los cambios en `main` NO llegan a las demos hasta promoverlos: `git checkout demo && git merge main && git push origin demo` (probar antes).
-- `DEMO_ONLY=true`: el servidor **no arranca** si tiene cualquier variable `STRIPE_*`, `WHATSAPP_*`, `INSTAGRAM_*`, `META_*`, `RESEND_*`, `TWILIO_*`, `CLOVER_*` o `DEFAULT_TENANT_*`. Nunca añadas claves externas a ese servicio.
-- Base de datos propia `central_demo` (dentro del mismo Postgres) con el usuario `central_demo_user`, que no puede conectarse a la base de producción `railway` (CONNECT revocado a PUBLIC; CENTRAL y Kisses usan el superusuario `postgres`). Creada con `backend/scripts/setup-demo-db.js`.
-- En producción, `DEMO_ADMIN_URL` hace que el panel enlace al gestor de demos y bloquea crear demos allí. `backend/scripts/migrate-demos.js` mueve demos antiguas de producción a `central_demo`.
-- Coste: dentro de los 5 USD incluidos del plan Hobby; alerta de consumo por correo a 5 USD (sin límite duro).
-
-Funcionamiento (igual en ambos servidores):
+**Un solo servidor y un solo panel** (decisión de Carlos, 27-oct-2026): las demos viven en `central-backend` y su base `railway`, separadas por `tenant_id` como cualquier negocio. Se probó un servicio aparte (`central-demo`) y se eliminó por desorden: no volver a crear servicios, ramas ni carpetas duplicadas para las demos.
+- Panel: https://central-backend-production.up.railway.app/central-admin.html → Demos.
 - Se crean desde `central-admin.html` → Demos (sesión superadmin + `DEMO_CREATION_KEY`).
 - `tenants.is_demo = true`, `expires_at` → login, API y `/app` rechazan la cuenta al caducar.
 - En demos, los envíos a WhatsApp/Instagram se simulan (`simulateIfDemo`): nunca salen a Meta.
@@ -61,6 +53,7 @@ Funcionamiento (igual en ambos servidores):
   - Las demos no pueden conectar WhatsApp/Instagram, descargar media de Meta, recibir correos de recuperación ni cambiar su correo de acceso. Límite de 1 MB por petición y de filas por tabla.
   - `/app` inyecta para demos un aislador de `localStorage` (claves con prefijo `central_demo_<tenantId>__`) y quita del HTML las conversaciones de ejemplo originales de la app.
 - **Datos de ejemplo:** `demo-seed.js` es 100 % inventado. `node backend/test/demo-data.test.js` comprueba que no coincide con datos originales; ejecútalo si tocas el seed. Panel admin → "Reiniciar datos" vuelve a sembrar una demo.
+- **Las demos no se mezclan con lo real:** las métricas y la lista "Negocios" del panel excluyen `is_demo`. "Hacer real" borra todos los datos de ejemplo (`wipeDemoData`) y deja la cuenta vacía en plan `basic`.
 
 ## Seguridad del servidor
 

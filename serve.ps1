@@ -9,7 +9,7 @@ while ($listener.IsListening) {
   $req = $ctx.Request
   $res = $ctx.Response
   $path = $req.Url.LocalPath -replace '/', '\'
-  if ($path -eq '\') { $path = '\central-mvp-v63 (1) - copia.html' }
+  if ($path -eq '\') { $path = '\index.html' }
   $file = Join-Path $root $path
   if (Test-Path $file -PathType Leaf) {
     $bytes = [System.IO.File]::ReadAllBytes($file)
