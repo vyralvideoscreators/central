@@ -52,7 +52,15 @@ app.use(['/api/tenant/login', '/api/admin/login'], loginRateLimit);
 const PORT             = process.env.PORT || 3000;
 const GRAPH_API_VERSION = 'v21.0';
 const GRAPH_BASE       = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
-const JWT_SECRET       = process.env.JWT_SECRET || 'central_jwt_dev_secret_cambiar_en_prod';
+const DEV_JWT_SECRET   = 'central_jwt_dev_secret_cambiar_en_prod';
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET === DEV_JWT_SECRET) {
+  if (process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT) {
+    console.error('❌ Falta JWT_SECRET (o tiene el valor de ejemplo). El servidor no arranca sin una clave propia.');
+    process.exit(1);
+  }
+  console.warn('⚠️  JWT_SECRET no configurado — usando una clave de desarrollo (solo en local)');
+}
+const JWT_SECRET       = process.env.JWT_SECRET || DEV_JWT_SECRET;
 
 const stripe           = process.env.STRIPE_SECRET_KEY ? Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' }) : null;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
@@ -65,8 +73,8 @@ const RESEND_FROM           = process.env.RESEND_FROM || 'CENTRAL <onboarding@re
 const DEFAULT_PHONE_ID  = process.env.WHATSAPP_PHONE_NUMBER_ID;
 const DEFAULT_WA_TOKEN  = process.env.WHATSAPP_TOKEN;
 const DEFAULT_IG_TOKEN  = process.env.INSTAGRAM_ACCESS_TOKEN;
-const DEFAULT_IG_ACCT   = process.env.INSTAGRAM_ACCOUNT_ID || '17841426682340000';
-const VERIFY_TOKEN      = process.env.WEBHOOK_VERIFY_TOKEN || 'central_webhook_secreto_123';
+const DEFAULT_IG_ACCT   = process.env.INSTAGRAM_ACCOUNT_ID || null;
+const VERIFY_TOKEN      = process.env.WEBHOOK_VERIFY_TOKEN || '';
 // Clave secreta de la app de Meta: firma (X-Hub-Signature-256) de cada llamada al webhook.
 // INSTAGRAM_APP_SECRET es opcional, para cuando Instagram usa una app distinta.
 const META_APP_SECRET      = process.env.META_APP_SECRET || '';
@@ -919,7 +927,7 @@ async function sendMediaMessage(waId, mediaId, waType, caption, filename, phoneI
 // ══════════════════════════════════════════════════════════════
 app.get('/webhook', (req, res) => {
   const { 'hub.mode': mode, 'hub.verify_token': token, 'hub.challenge': challenge } = req.query;
-  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+  if (VERIFY_TOKEN && mode === 'subscribe' && token === VERIFY_TOKEN) {
     console.log('✅ Webhook verificado por Meta');
     return res.status(200).send(challenge);
   }
