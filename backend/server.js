@@ -21,9 +21,14 @@ const app = express();
 app.use(cors());
 // El webhook de Stripe necesita el body sin procesar para validar la firma
 // (ver /api/billing/webhook) — se excluye acá del parser JSON global.
+// Para el webhook de Meta se guarda el body original: hace falta para validar su firma.
+const jsonParser = express.json({
+  limit: '20mb',
+  verify: (req, _res, buf) => { if (req.originalUrl.startsWith('/webhook')) req.rawBody = buf; },
+});
 app.use((req, res, next) => {
   if (req.originalUrl === '/api/billing/webhook') return next();
-  express.json({ limit: '20mb' })(req, res, next);
+  jsonParser(req, res, next);
 });
 
 // Límite de intentos de login por IP: 10 cada 15 min (frena fuerza bruta sobre claves)
@@ -62,6 +67,11 @@ const DEFAULT_WA_TOKEN  = process.env.WHATSAPP_TOKEN;
 const DEFAULT_IG_TOKEN  = process.env.INSTAGRAM_ACCESS_TOKEN;
 const DEFAULT_IG_ACCT   = process.env.INSTAGRAM_ACCOUNT_ID || '17841426682340000';
 const VERIFY_TOKEN      = process.env.WEBHOOK_VERIFY_TOKEN || 'central_webhook_secreto_123';
+// Clave secreta de la app de Meta: firma (X-Hub-Signature-256) de cada llamada al webhook.
+// INSTAGRAM_APP_SECRET es opcional, para cuando Instagram usa una app distinta.
+const META_APP_SECRET      = process.env.META_APP_SECRET || '';
+const INSTAGRAM_APP_SECRET = process.env.INSTAGRAM_APP_SECRET || '';
+const IS_PROD = process.env.NODE_ENV === 'production' || !!process.env.RAILWAY_ENVIRONMENT;
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
@@ -632,55 +642,54 @@ function closeTenantSockets(tenantId) {
   tenantClients.delete(String(tenantId));
 }
 
-// Fallback: broadcast a todos cuando no hay multi-tenant en DB
-function broadcastAll(data) {
-  const payload = JSON.stringify(data);
-  wss.clients.forEach(ws => { if (ws.readyState === 1) ws.send(payload); });
-}
-
+// Un socket solo recibe datos después de autenticarse, y solo los de su negocio.
 wss.on('connection', (ws) => {
   let tenantId = null;
 
+  function rejectSocket(message) {
+    try { ws.send(JSON.stringify({ type: 'auth_error', message })); } catch {}
+    try { ws.close(); } catch {}
+  }
+
   ws.on('message', async (raw) => {
+    let msg;
+    try { msg = JSON.parse(raw.toString()); } catch { return; }
+    if (msg.type === 'ping') return;
+    if (msg.type !== 'auth' || tenantId) return;
+    let decoded;
     try {
-      const msg = JSON.parse(raw.toString());
-      if (msg.type === 'ping') return;
-      if (msg.type === 'auth') {
-        try {
-          const decoded = jwt.verify(msg.token, JWT_SECRET);
-          if (!decoded.tenantId) throw new Error('sin tenant');
-          if (dbReady) {
-            const { rows } = await pool.query('SELECT active, expires_at FROM tenants WHERE id = $1', [decoded.tenantId]);
-            const t = rows[0];
-            if (!t || !t.active || (t.expires_at && new Date(t.expires_at) <= new Date())) {
-              ws.send(JSON.stringify({ type: 'auth_error', message: 'Cuenta no disponible' }));
-              return ws.close();
-            }
-          }
-          tenantId = String(decoded.tenantId);
-          if (!tenantClients.has(tenantId)) tenantClients.set(tenantId, new Set());
-          tenantClients.get(tenantId).add(ws);
-          const convos = await dbGetConversations(tenantId);
-          ws.send(JSON.stringify({ type: 'init', conversations: convos }));
-          console.log(`🔌 Tenant ${tenantId} conectado via WebSocket`);
-        } catch {
-          ws.send(JSON.stringify({ type: 'auth_error', message: 'Token inválido' }));
-          // Aun así permitir conexión en modo sin DB (legado)
-          ws.send(JSON.stringify({ type: 'init', conversations: [] }));
+      decoded = jwt.verify(msg.token, JWT_SECRET);
+      if (!decoded.tenantId) throw new Error('sin tenant');
+    } catch {
+      return rejectSocket('Token inválido');
+    }
+    try {
+      if (dbReady) {
+        const { rows } = await pool.query('SELECT active, expires_at FROM tenants WHERE id = $1', [decoded.tenantId]);
+        const t = rows[0];
+        if (!t || !t.active || (t.expires_at && new Date(t.expires_at) <= new Date())) {
+          return rejectSocket('Cuenta no disponible');
         }
       }
-    } catch {}
+      if (ws.readyState !== 1) return;
+      tenantId = String(decoded.tenantId);
+      if (!tenantClients.has(tenantId)) tenantClients.set(tenantId, new Set());
+      tenantClients.get(tenantId).add(ws);
+      const convos = await dbGetConversations(tenantId);
+      ws.send(JSON.stringify({ type: 'init', conversations: convos }));
+      console.log(`🔌 Tenant ${tenantId} conectado via WebSocket`);
+    } catch (err) {
+      console.error('WebSocket auth:', err.message);
+    }
   });
 
-  // Compatibilidad: si en 3s no autenticó, enviar init vacío
-  const fallbackTimer = setTimeout(() => {
-    if (!tenantId && ws.readyState === 1) {
-      ws.send(JSON.stringify({ type: 'init', conversations: [] }));
-    }
-  }, 3000);
+  // Si no se autentica en 10 s, se cierra
+  const authTimer = setTimeout(() => {
+    if (!tenantId) rejectSocket('Autenticación requerida');
+  }, 10000);
 
   ws.on('close', () => {
-    clearTimeout(fallbackTimer);
+    clearTimeout(authTimer);
     if (tenantId && tenantClients.has(tenantId)) {
       tenantClients.get(tenantId).delete(ws);
     }
@@ -922,19 +931,16 @@ async function handleInstagramWebhook(body) {
 
     // Identificar tenant por INSTAGRAM_ACCOUNT_ID del entry
     const igAccountId = entry.id; // Meta envía el ID de la cuenta IG en entry.id
-    let tenantId = null;
-    let igToken  = DEFAULT_IG_TOKEN;
-    let igAcct   = DEFAULT_IG_ACCT;
-
-    if (senderId === igAcct) return; // eco propio
+    if (senderId === igAccountId) return; // eco propio
 
     const tenant = await dbGetTenantByIgAccountId(igAccountId);
-    if (tenant) {
-      tenantId = tenant.id;
-      igToken  = tenant.instagram_access_token;
-      igAcct   = tenant.instagram_account_id;
-      if (senderId === igAcct) return;
+    if (!tenant) {
+      console.warn(`⚠️  Instagram: cuenta ${igAccountId} sin negocio asociado — mensaje descartado`);
+      return;
     }
+    const tenantId = tenant.id;
+    const igToken  = tenant.instagram_access_token;
+    if (senderId === tenant.instagram_account_id) return;
 
     const msgData = messaging.message;
     if (!msgData) return;
@@ -962,9 +968,7 @@ async function handleInstagramWebhook(body) {
     await dbSaveMessage(newMessage, convoKey, tenantId);
     console.log(`📸 Instagram DM de ${senderName}: ${newMessage.text}`);
 
-    const broadcastData = { type:'new_message', waId:convoKey, name:senderName, platform:'ig', message:newMessage };
-    if (tenantId) broadcastToTenant(tenantId, broadcastData);
-    else broadcastAll(broadcastData);
+    broadcastToTenant(tenantId, { type:'new_message', waId:convoKey, name:senderName, platform:'ig', message:newMessage });
   } catch (err) {
     console.error('Error procesando webhook Instagram:', err.message);
   }
@@ -973,7 +977,28 @@ async function handleInstagramWebhook(body) {
 // ══════════════════════════════════════════════════════════════
 // WEBHOOK — WhatsApp Business
 // ══════════════════════════════════════════════════════════════
+// Comprueba que la llamada la firmó Meta (HMAC-SHA256 del body con la clave secreta de la app)
+function hasValidMetaSignature(req) {
+  const header = String(req.headers['x-hub-signature-256'] || '');
+  if (!header || !req.rawBody) return false;
+  const given = Buffer.from(header);
+  return [META_APP_SECRET, INSTAGRAM_APP_SECRET].filter(Boolean).some(secret => {
+    const expected = Buffer.from('sha256=' + crypto.createHmac('sha256', secret).update(req.rawBody).digest('hex'));
+    return given.length === expected.length && crypto.timingSafeEqual(given, expected);
+  });
+}
+
 app.post('/webhook', async (req, res) => {
+  if (!META_APP_SECRET && !INSTAGRAM_APP_SECRET) {
+    if (IS_PROD) {
+      console.error('❌ Webhook rechazado: falta META_APP_SECRET en las variables de entorno');
+      return res.sendStatus(503);
+    }
+    console.warn('⚠️  META_APP_SECRET no configurada — webhook sin validar firma (solo en local)');
+  } else if (!hasValidMetaSignature(req)) {
+    console.warn('❌ Webhook con firma inválida o ausente — rechazado');
+    return res.sendStatus(401);
+  }
   res.sendStatus(200);
 
   try {
@@ -992,25 +1017,20 @@ app.post('/webhook', async (req, res) => {
 
     // Identificar tenant por phone_number_id
     const phoneNumberId = value?.metadata?.phone_number_id;
-    let tenantId  = null;
-    let waToken   = DEFAULT_WA_TOKEN;
-    let phoneId   = DEFAULT_PHONE_ID;
-
     const tenant = phoneNumberId ? await dbGetTenantByPhoneId(phoneNumberId) : null;
-    if (tenant) {
-      tenantId = tenant.id;
-      waToken  = tenant.whatsapp_token;
-      phoneId  = tenant.whatsapp_phone_number_id;
+    if (!tenant) {
+      console.warn(`⚠️  WhatsApp: phone_number_id ${phoneNumberId || '(vacío)'} sin negocio asociado — descartado`);
+      return;
     }
+    const tenantId = tenant.id;
+    const waToken  = tenant.whatsapp_token;
 
     const messages = value?.messages;
     if (!messages || messages.length === 0) {
       const statuses = value?.statuses;
       if (statuses?.length > 0) {
         statuses.forEach(st => {
-          const data = { type:'message_status', messageId:st.id, status:st.status, waId:st.recipient_id };
-          if (tenantId) broadcastToTenant(tenantId, data);
-          else broadcastAll(data);
+          broadcastToTenant(tenantId, { type:'message_status', messageId:st.id, status:st.status, waId:st.recipient_id });
         });
       }
       return;
@@ -1044,9 +1064,7 @@ app.post('/webhook', async (req, res) => {
       await dbSaveMessage(newMessage, waId, tenantId);
       console.log(`📩 Mensaje de ${contactName} (${waId}): ${newMessage.type}`);
 
-      const broadcastData = { type:'new_message', waId, name:contactName, message:newMessage };
-      if (tenantId) broadcastToTenant(tenantId, broadcastData);
-      else broadcastAll(broadcastData);
+      broadcastToTenant(tenantId, { type:'new_message', waId, name:contactName, message:newMessage });
     }
   } catch (err) {
     console.error('Error procesando webhook WhatsApp:', err);
