@@ -245,6 +245,25 @@ async function initDB() {
       console.error('⚠️  Migración demo:', err.message);
     }
 
+    // Recuperación de clave (en bases creadas antes de que existieran estas columnas)
+    try {
+      await pool.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS reset_token TEXT`);
+      await pool.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMP`);
+    } catch (err) {
+      console.error('⚠️  Migración reset_token:', err.message);
+    }
+
+    // Respuesta automática fuera de horario (apagada por defecto)
+    try {
+      await pool.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS auto_reply_enabled BOOLEAN DEFAULT false`);
+      await pool.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS off_hours_message TEXT`);
+      await pool.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS business_hours JSONB`);
+      await pool.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS timezone TEXT`);
+      await pool.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS last_auto_reply_at TIMESTAMPTZ`);
+    } catch (err) {
+      console.error('⚠️  Migración respuesta automática:', err.message);
+    }
+
     try {
       await seedDefaultTenant();
     } catch (err) {
@@ -753,6 +772,7 @@ async function requireAuth(req, res, next) {
 // bloqueada para demos hasta que se añada aquí de forma explícita.
 const DEMO_ALLOWED_ROUTES = new Set([
   'GET /api/tenant/profile', 'PUT /api/tenant/profile',
+  'GET /api/tenant/auto-reply', 'PUT /api/tenant/auto-reply',
   'GET /api/conversations', 'GET /api/conversations/:waId',
   'GET /api/orders', 'POST /api/orders', 'PATCH /api/orders/:id',
   'GET /api/reports',
@@ -832,6 +852,100 @@ async function getTenantCredentials(tenantId) {
     instagram_access_token:   DEFAULT_IG_TOKEN,
     instagram_account_id:     DEFAULT_IG_ACCT,
   };
+}
+
+// ── Envío de texto por WhatsApp / Instagram (devuelven el id del mensaje) ──
+async function sendWaText(creds, waId, text) {
+  const response = await axios.post(
+    `${GRAPH_BASE}/${creds.whatsapp_phone_number_id}/messages`,
+    { messaging_product:'whatsapp', to:waId, type:'text', text:{ body:text } },
+    { headers: { Authorization:`Bearer ${creds.whatsapp_token}`, 'Content-Type':'application/json' } }
+  );
+  return response.data.messages?.[0]?.id || 'local_' + Date.now();
+}
+
+async function sendIgText(creds, igId, text) {
+  const response = await axios.post(
+    `https://graph.instagram.com/${GRAPH_API_VERSION}/me/messages`,
+    { recipient:{ id: igId }, message:{ text } },
+    { headers: { Authorization:`Bearer ${creds.instagram_access_token}`, 'Content-Type':'application/json' } }
+  );
+  return response.data.message_id || 'ig_out_' + Date.now();
+}
+
+// ══════════════════════════════════════════════════════════════
+// RESPUESTA AUTOMÁTICA FUERA DE HORARIO (la envía el servidor)
+// ══════════════════════════════════════════════════════════════
+const SCHEDULE_DAYS = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+const DEFAULT_SCHEDULE = [
+  { day:'Lunes',     open:'09:00', close:'19:00', active:true },
+  { day:'Martes',    open:'09:00', close:'19:00', active:true },
+  { day:'Miércoles', open:'09:00', close:'19:00', active:true },
+  { day:'Jueves',    open:'09:00', close:'19:00', active:true },
+  { day:'Viernes',   open:'09:00', close:'20:00', active:true },
+  { day:'Sábado',    open:'10:00', close:'17:00', active:true },
+  { day:'Domingo',   open:'10:00', close:'14:00', active:false },
+];
+const DEFAULT_OFF_HOURS_MESSAGE = '¡Hola! 🌙 Gracias por escribirnos. Estamos fuera de horario pero te responderemos a primera hora mañana. Nuestro horario es Lun-Sáb 9am-7pm.';
+const DEFAULT_TIMEZONE = 'America/Caracas';
+
+function isValidTimezone(tz) {
+  if (typeof tz !== 'string' || !tz || tz.length > 64) return false;
+  try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return true; } catch { return false; }
+}
+
+function isValidSchedule(schedule) {
+  const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+  return Array.isArray(schedule) && schedule.length === 7 && schedule.every((d, i) =>
+    d && d.day === SCHEDULE_DAYS[i] && HHMM.test(d.open) && HHMM.test(d.close) && typeof d.active === 'boolean');
+}
+
+// ¿Está abierto el negocio ahora mismo, en su zona horaria?
+function isWithinBusinessHours(schedule, timezone, now = new Date()) {
+  const tz = isValidTimezone(timezone) ? timezone : DEFAULT_TIMEZONE;
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(now).map(p => [p.type, p.value]));
+  const dayIdx = { Mon:0, Tue:1, Wed:2, Thu:3, Fri:4, Sat:5, Sun:6 }[parts.weekday];
+  const days = isValidSchedule(schedule) ? schedule : DEFAULT_SCHEDULE;
+  const today = days[dayIdx];
+  if (!today || !today.active) return false;
+  const toMins = (hhmm) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
+  const nowMins = (parseInt(parts.hour, 10) % 24) * 60 + parseInt(parts.minute, 10);
+  return nowMins >= toMins(today.open) && nowMins < toMins(today.close);
+}
+
+// Se llama después de guardar un mensaje entrante. Envía como máximo una respuesta
+// por conversación y por día (día del negocio), aunque lleguen varios mensajes a la vez.
+async function maybeSendAutoReply(tenant, convoKey, platform, igSenderId = null) {
+  if (!dbReady || !tenant || !tenant.auto_reply_enabled || tenant.is_demo) return;
+  if (isWithinBusinessHours(tenant.business_hours, tenant.timezone)) return;
+  const tz = isValidTimezone(tenant.timezone) ? tenant.timezone : DEFAULT_TIMEZONE;
+
+  const { rows } = await pool.query(`
+    UPDATE conversations SET last_auto_reply_at = NOW()
+    WHERE wa_id = $1 AND tenant_id = $2
+      AND (last_auto_reply_at IS NULL
+           OR (last_auto_reply_at AT TIME ZONE $3)::date < (NOW() AT TIME ZONE $3)::date)
+    RETURNING wa_id
+  `, [convoKey, tenant.id, tz]);
+  if (!rows[0]) return; // ya se respondió hoy
+
+  const text = (tenant.off_hours_message || DEFAULT_OFF_HOURS_MESSAGE).slice(0, 1000);
+  try {
+    const id = platform === 'ig'
+      ? await sendIgText(tenant, igSenderId, text)
+      : await sendWaText(tenant, convoKey, text);
+    const sentMessage = { id, role: 'out', type: 'text', text, time: new Date().toISOString() };
+    await dbSaveMessage(sentMessage, convoKey, tenant.id);
+    broadcastToTenant(tenant.id, { type: 'message_sent', waId: convoKey, platform, auto: true, message: sentMessage });
+    console.log(`🌙 Respuesta automática enviada a ${convoKey} (tenant ${tenant.id})`);
+  } catch (err) {
+    // Si falló el envío, se libera la marca para reintentar con el próximo mensaje
+    await pool.query('UPDATE conversations SET last_auto_reply_at = NULL WHERE wa_id = $1 AND tenant_id = $2',
+      [convoKey, tenant.id]).catch(() => {});
+    console.error('Respuesta automática no enviada:', err.response?.data || err.message);
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -987,6 +1101,7 @@ async function handleInstagramWebhook(body) {
     console.log(`📸 Instagram DM de ${senderName}: ${newMessage.text}`);
 
     broadcastToTenant(tenantId, { type:'new_message', waId:convoKey, name:senderName, platform:'ig', message:newMessage });
+    maybeSendAutoReply(tenant, convoKey, 'ig', senderId).catch(err => console.error('Respuesta automática IG:', err.message));
   } catch (err) {
     console.error('Error procesando webhook Instagram:', err.message);
   }
@@ -1083,6 +1198,7 @@ app.post('/webhook', async (req, res) => {
       console.log(`📩 Mensaje de ${contactName} (${waId}): ${newMessage.type}`);
 
       broadcastToTenant(tenantId, { type:'new_message', waId, name:contactName, message:newMessage });
+      maybeSendAutoReply(tenant, waId, 'wa').catch(err => console.error('Respuesta automática WA:', err.message));
     }
   } catch (err) {
     console.error('Error procesando webhook WhatsApp:', err);
@@ -1346,6 +1462,60 @@ app.get('/api/tenant/test-whatsapp', requireAuth, async (req, res) => {
   } catch (err) {
     const msg = err.response?.data?.error?.message || 'Credenciales inválidas o token expirado';
     res.json({ success: false, error: msg });
+  }
+});
+
+// ── Respuesta automática fuera de horario: configuración del negocio ──
+app.get('/api/tenant/auto-reply', requireAuth, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  try {
+    const { rows } = await pool.query(
+      'SELECT auto_reply_enabled, off_hours_message, business_hours, timezone FROM tenants WHERE id = $1',
+      [req.tenant.tenantId]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Tenant no encontrado' });
+    const t = rows[0];
+    res.json({
+      enabled:    !!t.auto_reply_enabled,
+      message:    t.off_hours_message || DEFAULT_OFF_HOURS_MESSAGE,
+      schedule:   isValidSchedule(t.business_hours) ? t.business_hours : DEFAULT_SCHEDULE,
+      timezone:   t.timezone || null,
+      configured: t.business_hours !== null || t.off_hours_message !== null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Error al leer la configuración' });
+  }
+});
+
+app.put('/api/tenant/auto-reply', requireAuth, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  const b = req.body || {};
+  const sets = [], values = [];
+  if (b.enabled !== undefined) {
+    if (typeof b.enabled !== 'boolean') return res.status(400).json({ error: 'enabled debe ser true o false' });
+    values.push(b.enabled); sets.push(`auto_reply_enabled = $${values.length}`);
+  }
+  if (b.message !== undefined) {
+    const msg = typeof b.message === 'string' ? b.message.trim() : '';
+    if (!msg || msg.length > 1000) return res.status(400).json({ error: 'El mensaje debe tener entre 1 y 1000 caracteres' });
+    values.push(msg); sets.push(`off_hours_message = $${values.length}`);
+  }
+  if (b.schedule !== undefined) {
+    if (!isValidSchedule(b.schedule)) return res.status(400).json({ error: 'Horario inválido' });
+    const clean = b.schedule.map(d => ({ day: d.day, open: d.open, close: d.close, active: d.active }));
+    values.push(JSON.stringify(clean)); sets.push(`business_hours = $${values.length}`);
+  }
+  if (b.timezone !== undefined) {
+    if (!isValidTimezone(b.timezone)) return res.status(400).json({ error: 'Zona horaria inválida' });
+    values.push(b.timezone); sets.push(`timezone = $${values.length}`);
+  }
+  if (!sets.length) return res.status(400).json({ error: 'No hay campos válidos para actualizar' });
+  values.push(req.tenant.tenantId);
+  try {
+    await pool.query(`UPDATE tenants SET ${sets.join(', ')} WHERE id = $${values.length}`, values);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Error al guardar la configuración' });
   }
 });
 
@@ -1733,14 +1903,8 @@ app.post('/api/send', requireAuth, simulateIfDemo('text'), async (req, res) => {
       return res.status(500).json({ error: 'WhatsApp no configurado para este tenant' });
     }
 
-    const response = await axios.post(
-      `${GRAPH_BASE}/${creds.whatsapp_phone_number_id}/messages`,
-      { messaging_product:'whatsapp', to:waId, type:'text', text:{ body:text } },
-      { headers: { Authorization:`Bearer ${creds.whatsapp_token}`, 'Content-Type':'application/json' } }
-    );
-
     const sentMessage = {
-      id:   response.data.messages?.[0]?.id || 'local_' + Date.now(),
+      id:   await sendWaText(creds, waId, text),
       role: 'out', type: 'text', text, time: new Date().toISOString(),
     };
     await dbGetOrCreateConvo(waId, null, req.tenant.tenantId, 'wa');
@@ -1838,16 +2002,11 @@ app.post('/api/send-instagram', requireAuth, simulateIfDemo('ig'), async (req, r
     const creds = await getTenantCredentials(req.tenant.tenantId);
     if (!creds.instagram_access_token) return res.status(500).json({ error: 'Instagram no configurado' });
 
-    const response = await axios.post(
-      `https://graph.instagram.com/${GRAPH_API_VERSION}/me/messages`,
-      { recipient:{ id: igId }, message:{ text } },
-      { headers: { Authorization:`Bearer ${creds.instagram_access_token}`, 'Content-Type':'application/json' } }
-    );
-
+    const messageId = await sendIgText(creds, igId, text);
     const convoKey = `ig_${igId}`;
     await dbGetOrCreateConvo(convoKey, igId, req.tenant.tenantId, 'ig', igId);
     const sentMessage = {
-      id:   response.data.message_id || 'ig_out_' + Date.now(),
+      id:   messageId,
       role: 'out', type: 'text', text, time: new Date().toISOString(),
     };
     await dbSaveMessage(sentMessage, convoKey, req.tenant.tenantId);
