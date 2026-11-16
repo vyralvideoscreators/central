@@ -877,13 +877,13 @@ async function renderHtmlToImage(htmlContent, width = 380) {
 // HELPERS — Media (Meta Graph API)
 // ══════════════════════════════════════════════════════════════
 
-async function downloadMediaFromMeta(mediaId, token) {
+async function downloadMediaFromMeta(mediaId, token, tenantId) {
   const t = token || DEFAULT_WA_TOKEN;
   const urlRes = await axios.get(`${GRAPH_BASE}/${mediaId}`, { headers: { Authorization: `Bearer ${t}` } });
   const { url, mime_type, file_size } = urlRes.data;
   const fileRes = await axios.get(url, { headers: { Authorization: `Bearer ${t}` }, responseType: 'arraybuffer' });
   const buffer = Buffer.from(fileRes.data);
-  mediaCache[mediaId] = { buffer, mimeType: mime_type, size: file_size };
+  mediaCache[mediaId] = { buffer, mimeType: mime_type, size: file_size, tenantId: String(tenantId) };
   return mediaCache[mediaId];
 }
 
@@ -1065,7 +1065,7 @@ app.post('/webhook', async (req, res) => {
         newMessage.caption  = info.caption || '';
         newMessage.filename = info.filename || null;
         newMessage.mediaUrl = `/api/media/${info.id}`;
-        try { await downloadMediaFromMeta(info.id, waToken); } catch {}
+        try { await downloadMediaFromMeta(info.id, waToken, tenantId); } catch {}
       } else {
         newMessage.type = 'text';
         newMessage.text = `[Tipo no soportado: ${msg.type}]`;
@@ -1664,11 +1664,19 @@ app.delete('/api/catalog/:id', requireAuth, async (req, res) => {
 
 app.get('/api/media/:mediaId', requireAuth, async (req, res) => {
   const { mediaId } = req.params;
+  const tenantId = String(req.tenant.tenantId);
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   try {
+    // Solo se entregan archivos que pertenecen a un mensaje de este negocio
+    const { rows } = await pool.query(
+      'SELECT 1 FROM messages WHERE media_id = $1 AND tenant_id = $2 LIMIT 1',
+      [mediaId, tenantId]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Archivo no encontrado o expirado' });
     let cached = mediaCache[mediaId];
-    if (!cached) {
-      const creds = await getTenantCredentials(req.tenant.tenantId);
-      cached = await downloadMediaFromMeta(mediaId, creds.whatsapp_token);
+    if (!cached || cached.tenantId !== tenantId) {
+      const creds = await getTenantCredentials(tenantId);
+      cached = await downloadMediaFromMeta(mediaId, creds.whatsapp_token, tenantId);
     }
     res.set('Content-Type', cached.mimeType);
     res.send(cached.buffer);
@@ -1755,7 +1763,7 @@ app.post('/api/send-media', requireAuth, upload.single('file'), simulateIfDemo('
     const waType  = whatsappTypeFromMime(file.mimetype);
     const result  = await sendMediaMessage(waId, mediaId, waType, caption, file.originalname, creds.whatsapp_phone_number_id, creds.whatsapp_token);
 
-    mediaCache[mediaId] = { buffer: file.buffer, mimeType: file.mimetype, size: file.size };
+    mediaCache[mediaId] = { buffer: file.buffer, mimeType: file.mimetype, size: file.size, tenantId: String(req.tenant.tenantId) };
 
     const sentMessage = {
       id: result.messages?.[0]?.id || 'local_' + Date.now(),
@@ -1791,7 +1799,7 @@ app.post('/api/send-ticket', requireAuth, simulateIfDemo('ticket'), async (req, 
     const mediaId     = await uploadMediaToMeta(imageBuffer, 'image/png', `ticket_${Date.now()}.png`, creds.whatsapp_phone_number_id, creds.whatsapp_token);
     const result      = await sendMediaMessage(waId, mediaId, 'image', caption||'', null, creds.whatsapp_phone_number_id, creds.whatsapp_token);
 
-    mediaCache[mediaId] = { buffer: imageBuffer, mimeType:'image/png', size: imageBuffer.length };
+    mediaCache[mediaId] = { buffer: imageBuffer, mimeType:'image/png', size: imageBuffer.length, tenantId: String(req.tenant.tenantId) };
 
     const sentMessage = {
       id: result.messages?.[0]?.id || 'local_' + Date.now(),
