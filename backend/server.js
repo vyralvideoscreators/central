@@ -1389,9 +1389,12 @@ app.post('/api/tenant/forgot-password', async (req, res) => {
       const token   = crypto.randomBytes(32).toString('hex');
       const expires = new Date(Date.now() + 60 * 60 * 1000); // 1 hora
       await pool.query('UPDATE tenants SET reset_token=$1, reset_token_expires=$2 WHERE id=$3', [token, expires, rows[0].id]);
-      const resetUrl = `${process.env.APP_URL || 'https://central-backend-production.up.railway.app'}/reset-password.html?token=${token}`;
+      const resetUrl = `${APP_URL.replace(/\/$/, '')}/reset-password.html?token=${token}`;
       if (process.env.RESEND_API_KEY) {
-        await sendResetEmail(email, resetUrl);
+        // Si Resend falla se registra en el log, pero la respuesta es la misma: no se
+        // revela si el correo existe ni se deja el formulario cargando.
+        try { await sendResetEmail(email, resetUrl); }
+        catch (err) { console.error('[EMAIL] Recuperación no enviada:', err.message); }
       } else {
         console.log(`[RESET] Token para ${email}: ${resetUrl}`);
       }
