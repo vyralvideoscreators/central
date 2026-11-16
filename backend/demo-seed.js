@@ -109,6 +109,7 @@ async function wipeDemoData(client, tenantId) {
   await client.query('DELETE FROM orders WHERE tenant_id = $1', [tenantId]);
   await client.query('DELETE FROM clients WHERE tenant_id = $1', [tenantId]);
   await client.query('DELETE FROM catalog_products WHERE tenant_id = $1', [tenantId]);
+  await client.query('UPDATE tenants SET order_seq = 0 WHERE id = $1 AND is_demo = true', [tenantId]);
 }
 
 async function seedDemoTenant(client, tenantId, { city = 'Ciudad Demo' } = {}) {
@@ -167,6 +168,19 @@ async function seedDemoTenant(client, tenantId, { city = 'Ciudad Demo' } = {}) {
       );
     }
   }
+
+  // Numeración propia del negocio: #0001… en orden de fecha, y el contador al día
+  await client.query(`
+    WITH n AS (
+      SELECT id, ROW_NUMBER() OVER (ORDER BY created_at, order_number) AS rn
+      FROM orders WHERE tenant_id = $1
+    )
+    UPDATE orders o SET tenant_order_number = n.rn FROM n WHERE o.id = n.id AND o.tenant_id = $1
+  `, [tenantId]);
+  await client.query(
+    'UPDATE tenants SET order_seq = (SELECT COUNT(*) FROM orders WHERE tenant_id = $1) WHERE id = $1',
+    [tenantId]
+  );
 
   for (const cv of CONVOS) {
     const c = cv.lead || { ...clientByKey[cv.c], id: cv.c };

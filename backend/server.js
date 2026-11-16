@@ -264,6 +264,52 @@ async function initDB() {
       console.error('⚠️  Migración respuesta automática:', err.message);
     }
 
+    // Correos en minúsculas + índice único sin distinguir mayúsculas. Si dos cuentas
+    // chocaran al pasarlas a minúsculas, no se tocan y el índice no se crea (queda en el log).
+    try {
+      await pool.query(`
+        UPDATE tenants t SET email = lower(trim(t.email))
+        WHERE t.email <> lower(trim(t.email))
+          AND NOT EXISTS (SELECT 1 FROM tenants o WHERE o.id <> t.id AND lower(trim(o.email)) = lower(trim(t.email)))
+      `);
+      await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS tenants_email_lower_uniq ON tenants (lower(email))`);
+    } catch (err) {
+      console.error('⚠️  Migración correos en minúsculas:', err.message);
+    }
+
+    // Numeración de pedidos propia de cada negocio (#0001, #0002…). Idempotente: solo
+    // numera los pedidos que aún no tienen número, siguiendo el orden de creación.
+    {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS order_seq INTEGER NOT NULL DEFAULT 0`);
+        await client.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS tenant_order_number INTEGER`);
+        await client.query(`
+          WITH base AS (
+            SELECT tenant_id, COALESCE(MAX(tenant_order_number), 0) AS mx FROM orders GROUP BY tenant_id
+          ), n AS (
+            SELECT o.id, b.mx + ROW_NUMBER() OVER (PARTITION BY o.tenant_id ORDER BY o.created_at, o.order_number) AS rn
+            FROM orders o JOIN base b ON b.tenant_id = o.tenant_id
+            WHERE o.tenant_order_number IS NULL
+          )
+          UPDATE orders o SET tenant_order_number = n.rn FROM n WHERE o.id = n.id
+        `);
+        await client.query(`
+          UPDATE tenants t SET order_seq = s.mx
+          FROM (SELECT tenant_id, MAX(tenant_order_number) AS mx FROM orders GROUP BY tenant_id) s
+          WHERE t.id = s.tenant_id AND t.order_seq < s.mx
+        `);
+        await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS orders_tenant_order_number_uniq ON orders (tenant_id, tenant_order_number)`);
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        console.error('⚠️  Migración numeración de pedidos:', err.message);
+      } finally {
+        client.release();
+      }
+    }
+
     try {
       await seedDefaultTenant();
     } catch (err) {
@@ -276,11 +322,11 @@ async function initDB() {
 }
 
 async function seedDefaultTenant() {
-  const email    = process.env.DEFAULT_TENANT_EMAIL;
+  const email    = process.env.DEFAULT_TENANT_EMAIL ? normEmail(process.env.DEFAULT_TENANT_EMAIL) : '';
   const password = process.env.DEFAULT_TENANT_PASSWORD;
   if (!email || !password) return;
 
-  const { rows } = await pool.query('SELECT id FROM tenants WHERE email = $1', [email]);
+  const { rows } = await pool.query('SELECT id FROM tenants WHERE lower(email) = $1', [email]);
   if (rows.length > 0) {
     // Actualizar credenciales de WhatsApp/Instagram si cambiaron
     await pool.query(`
@@ -289,7 +335,7 @@ async function seedDefaultTenant() {
         whatsapp_token           = COALESCE($2, whatsapp_token),
         instagram_access_token   = COALESCE($3, instagram_access_token),
         instagram_account_id     = COALESCE($4, instagram_account_id)
-      WHERE email = $5
+      WHERE lower(email) = $5
     `, [DEFAULT_PHONE_ID || null, DEFAULT_WA_TOKEN || null, DEFAULT_IG_TOKEN || null, DEFAULT_IG_ACCT || null, email]);
     return;
   }
@@ -302,6 +348,9 @@ async function seedDefaultTenant() {
   `, ['Mi Negocio', email, hash, DEFAULT_PHONE_ID || null, DEFAULT_WA_TOKEN || null, DEFAULT_IG_TOKEN || null, DEFAULT_IG_ACCT || null]);
   console.log(`✅ Tenant por defecto creado: ${email}`);
 }
+
+// Los correos se guardan y comparan siempre en minúsculas y sin espacios
+function normEmail(e) { return String(e ?? '').trim().toLowerCase(); }
 
 // ── DB helpers ────────────────────────────────────────────────
 
@@ -386,7 +435,7 @@ async function dbGetTenantByIgAccountId(igAccountId) {
 function mapOrderRow(r) {
   return {
     id:                  r.id,
-    orderNumber:         '#' + String(r.order_number).padStart(4, '0'),
+    orderNumber:         '#' + String(r.tenant_order_number ?? r.order_number).padStart(4, '0'),
     clientId:            r.client_id,
     clientName:          r.client_name,
     platform:            r.platform,
@@ -433,18 +482,26 @@ async function dbCreateOrder(tenantId, data) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    // Siguiente número del negocio. El UPDATE bloquea la fila del tenant, así dos pedidos
+    // simultáneos nunca reciben el mismo número.
+    const { rows: seqRows } = await client.query(`
+      UPDATE tenants SET order_seq = GREATEST(order_seq,
+        COALESCE((SELECT MAX(tenant_order_number) FROM orders WHERE tenant_id = $1), 0)) + 1
+      WHERE id = $1 RETURNING order_seq
+    `, [tenantId]);
+    if (!seqRows[0]) throw new Error('Tenant no encontrado');
     const { rows } = await client.query(`
       INSERT INTO orders (tenant_id, client_id, client_name, platform, product_summary,
         total_price, pay_status, delivery_status, pay_method_label, delivery_method_label,
-        address, notes, shipping)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+        address, notes, shipping, tenant_order_number)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
       RETURNING *
     `, [
       tenantId, data.clientId || null, data.clientName || null, data.platform || null,
       data.productSummary || null, data.totalPrice || 0, data.payStatus || 'pend',
       data.deliveryStatus || 'to_deliver', data.payMethodLabel || null,
       data.deliveryMethodLabel || null, data.address || null, data.notes || null,
-      data.shipping || 0,
+      data.shipping || 0, seqRows[0].order_seq,
     ]);
     const order = rows[0];
 
@@ -1210,7 +1267,8 @@ app.post('/webhook', async (req, res) => {
 // ══════════════════════════════════════════════════════════════
 
 app.post('/api/tenant/register', async (req, res) => {
-  const { businessName, fullName, email, password, country, whatsappNumber, plan } = req.body;
+  const { businessName, fullName, password, country, whatsappNumber, plan } = req.body;
+  const email = normEmail(req.body.email);
   if (!businessName || !email || !password) {
     return res.status(400).json({ error: 'Faltan campos obligatorios', field: 'businessName' });
   }
@@ -1248,12 +1306,13 @@ app.post('/api/tenant/register', async (req, res) => {
 });
 
 app.post('/api/tenant/login', async (req, res) => {
-  const { email, password } = req.body;
+  const { password } = req.body;
+  const email = normEmail(req.body.email);
   if (!email || !password) return res.status(400).json({ error: 'Completa todos los campos' });
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
 
   try {
-    const { rows } = await pool.query('SELECT * FROM tenants WHERE email = $1', [email]);
+    const { rows } = await pool.query('SELECT * FROM tenants WHERE lower(email) = $1', [email]);
     const tenant = rows[0];
     if (!tenant) return res.status(401).json({ error: 'Correo o contraseña incorrectos' });
     if (!tenant.active) return res.status(403).json({ error: 'Tu cuenta ha sido suspendida. Contacta soporte.' });
@@ -1320,11 +1379,11 @@ async function sendWelcomeEmail(to, businessName) {
 
 // ── Forgot password ──
 app.post('/api/tenant/forgot-password', async (req, res) => {
-  const { email } = req.body;
+  const email = normEmail(req.body?.email);
   if (!email) return res.status(400).json({ error: 'Correo requerido' });
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   try {
-    const { rows } = await pool.query('SELECT id, is_demo FROM tenants WHERE email = $1 AND active = true', [email]);
+    const { rows } = await pool.query('SELECT id, is_demo FROM tenants WHERE lower(email) = $1 AND active = true', [email]);
     // Siempre responder OK para no revelar si el correo existe
     if (rows[0] && !rows[0].is_demo) {
       const token   = crypto.randomBytes(32).toString('hex');
@@ -1401,8 +1460,13 @@ app.put('/api/tenant/profile', requireAuth, async (req, res) => {
   const sets = [];
   const values = [];
   let i = 1;
-  for (const [key, val] of Object.entries(req.body || {})) {
+  for (const [key, raw] of Object.entries(req.body || {})) {
     if (!allowed.includes(key)) continue;
+    let val = raw;
+    if (key === 'email') {
+      val = normEmail(raw);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) return res.status(400).json({ error: 'Correo electrónico inválido' });
+    }
     sets.push(`${key} = $${i++}`);
     values.push(val);
   }
@@ -2507,8 +2571,13 @@ app.put('/api/admin/tenants/:tenantId', requireAdmin, async (req, res) => {
   const sets = [];
   const values = [];
   let i = 1;
-  for (const [key, val] of Object.entries(req.body || {})) {
+  for (const [key, raw] of Object.entries(req.body || {})) {
     if (!allowed.includes(key)) continue;
+    let val = raw;
+    if (key === 'email') {
+      val = normEmail(raw);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) return res.status(400).json({ error: 'Correo electrónico inválido' });
+    }
     sets.push(`${key} = $${i++}`);
     values.push(val);
   }
