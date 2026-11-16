@@ -3932,7 +3932,12 @@ if (window.__DEMO_MODE__) DEMO_CONVO_KEYS.forEach(k => { delete convos[k]; });
 function saveRealConvos() {
   const real = {};
   Object.entries(convos).forEach(([k, c]) => {
-    if (c.isReal) real[k] = c;
+    if (!c.isReal) return;
+    // Las URLs blob: dejan de valer al recargar: no se guardan (el archivo se vuelve a pedir al servidor)
+    real[k] = Object.assign({}, c, {
+      messages: (c.messages || []).map(m => (m.localUrl && String(m.localUrl).startsWith('blob:'))
+        ? Object.assign({}, m, { localUrl: undefined }) : m),
+    });
   });
   try { localStorage.setItem('central_real_convos', JSON.stringify(real)); } catch(e) {}
 }
@@ -4246,33 +4251,30 @@ function loadChat(key) {
       const bubble = document.createElement('div');
       bubble.className = 'msg-bubble';
       if (m.type === 'image') {
-        const src = m.localUrl || (m.mediaUrl ? BACKEND_URL + m.mediaUrl : '');
         const img = document.createElement('img');
         img.className = 'msg-media-img';
-        img.src = src;
         img.alt = m.caption || 'imagen';
-        img.onclick = () => window.open(src, '_blank');
+        attachMessageMedia(img, m);
+        img.onclick = () => { if (img.src) window.open(img.src, '_blank'); };
         bubble.appendChild(img);
         if (m.caption) { const cap = document.createElement('div'); cap.style.cssText = 'font-size:11.5px;color:var(--text3);margin-top:4px;'; cap.textContent = m.caption; bubble.appendChild(cap); }
       } else if (m.type === 'audio') {
-        const src = m.localUrl || (m.mediaUrl ? BACKEND_URL + m.mediaUrl : '');
         const audio = document.createElement('audio');
         audio.className = 'msg-media-audio';
         audio.controls = true;
-        audio.src = src;
+        attachMessageMedia(audio, m);
         bubble.appendChild(audio);
       } else if (m.type === 'video') {
-        const src = m.localUrl || (m.mediaUrl ? BACKEND_URL + m.mediaUrl : '');
         const video = document.createElement('video');
         video.className = 'msg-media-img';
         video.controls = true;
-        video.src = src;
+        attachMessageMedia(video, m);
         bubble.appendChild(video);
       } else if (m.type === 'document') {
-        const src = m.localUrl || (m.mediaUrl ? BACKEND_URL + m.mediaUrl : '#');
         const link = document.createElement('a');
         link.className = 'msg-media-doc';
-        link.href = src;
+        link.href = '#';
+        attachMessageMedia(link, m);
         link.target = '_blank';
         link.download = m.filename || 'archivo';
         link.innerHTML = `<span style="font-size:20px">📄</span><span>${escHtml(m.filename || 'Documento')}</span>`;
@@ -4443,6 +4445,11 @@ async function sendFile(input) {
       const data = await res.json();
       if (!res.ok || !data.success) {
         showToast('⚠ Error enviando archivo: ' + (data.error || 'desconocido'));
+      } else if (data.message && data.message.mediaUrl) {
+        // Guardar la ruta del servidor: al recargar, la URL local (blob:) ya no sirve
+        msgObj.mediaUrl = data.message.mediaUrl;
+        msgObj.mediaId = data.message.mediaId;
+        saveRealConvos();
       }
     } catch (err) {
       showToast('⚠ No se pudo enviar el archivo al backend');
@@ -7215,17 +7222,7 @@ const settingsPanels = {
   respuestas: () => renderQrSettingsHtml(),
 
   horario: () => {
-    const saved = JSON.parse(localStorage.getItem('central_schedule') || 'null');
-    const defaults = [
-      {day:'Lunes',     open:'09:00', close:'19:00', active:true},
-      {day:'Martes',    open:'09:00', close:'19:00', active:true},
-      {day:'Miércoles', open:'09:00', close:'19:00', active:true},
-      {day:'Jueves',    open:'09:00', close:'19:00', active:true},
-      {day:'Viernes',   open:'09:00', close:'20:00', active:true},
-      {day:'Sábado',    open:'10:00', close:'17:00', active:true},
-      {day:'Domingo',   open:'10:00', close:'14:00', active:false},
-    ];
-    const schedule = saved || defaults;
+    const schedule = _getSchedule();
     return `
     <div class="sc-title">Horario de atención</div>
     <div class="sc-sub">Define cuándo estás disponible para recibir y responder pedidos</div>
@@ -7257,10 +7254,10 @@ const settingsPanels = {
           <div class="s-row-label">Respuesta automática</div>
           <div class="s-row-desc">Se envía cuando escriben fuera de tu horario</div>
         </div>
-        <div class="s-row-action"><div class="s-toggle ${localStorage.getItem('central_autoreply') !== 'off' ? 'on' : ''}" onclick="this.classList.toggle('on'); localStorage.setItem('central_autoreply', this.classList.contains('on') ? 'on' : 'off'); showToast(this.classList.contains('on') ? 'Respuesta automática activada' : 'Respuesta automática desactivada')"></div></div>
+        <div class="s-row-action"><div class="s-toggle ${autoReplyCfg.enabled ? 'on' : ''}" onclick="toggleAutoReply(this)"></div></div>
       </div>
       <div style="padding:0 20px 16px;">
-        <textarea id="offHoursMsg" class="s-input" style="width:100%;resize:none;height:70px;margin-bottom:8px;" readonly>${localStorage.getItem('central_off_hours_msg') || '¡Hola! 🌙 Gracias por escribirnos. Estamos fuera de horario pero te responderemos a primera hora mañana. Nuestro horario es Lun-Sáb 9am-7pm.'}</textarea>
+        <textarea id="offHoursMsg" class="s-input" style="width:100%;resize:none;height:70px;margin-bottom:8px;" readonly>${escHtml(autoReplyCfg.message)}</textarea>
         <div style="display:flex;justify-content:flex-end;gap:8px;">
           <button id="offHoursEditBtn" class="s-btn-sm" onclick="startEditOffHours()">✏️ Editar</button>
           <button id="offHoursSaveBtn" class="s-btn-sm s-btn-accent" style="display:none" onclick="saveOffHoursMsg()">Guardar</button>
@@ -10034,6 +10031,7 @@ loadRealConversations().then(() => {
   }
 });
 loadRealCatalog();
+loadAutoReplyConfig();
 
 // ══ CUSTOM CURSOR TOUR ══════════════════════════════════════
 let tourActive = false;
@@ -10181,7 +10179,7 @@ function renderInboxList() {
   const sorted = Object.entries(convos).sort((a, b) => (b[1].ts || 0) - (a[1].ts || 0));
   sorted.forEach(([key, c]) => {
     const lastMsg = c.messages.length ? c.messages[c.messages.length - 1] : null;
-    const preview = lastMsg ? lastMsg.text : '';
+    const preview = messagePreview(lastMsg);
     const time = lastMsg ? lastMsg.time : '';
     const platform = c.platform || 'wa';
     const isActive = key === currentConvo;
@@ -10337,6 +10335,60 @@ async function loadRealCatalog() {
   }
 }
 
+// Convierte un mensaje del backend al formato del chat, conservando fotos, audios,
+// videos y documentos (antes todo se convertía a texto y los archivos salían vacíos).
+function mapServerMessage(m) {
+  const type = ['image', 'audio', 'video', 'document'].includes(m.type) ? m.type : 'text';
+  const out = {
+    id: m.id, role: m.role, type, text: m.text || '',
+    time: new Date(m.time).toLocaleTimeString('es-VE', { hour:'2-digit', minute:'2-digit' }),
+  };
+  if (type !== 'text') {
+    out.mediaId = m.mediaId || null;
+    out.mediaUrl = m.mediaUrl || null;
+    out.mimeType = m.mimeType || null;
+    out.caption = m.caption || '';
+    out.filename = m.filename || null;
+  }
+  return out;
+}
+
+// Texto corto para la bandeja cuando el último mensaje es un archivo
+function messagePreview(m) {
+  if (!m) return '';
+  if (m.type === 'image') return m.caption || '📷 Foto';
+  if (m.type === 'audio') return '🎤 Audio';
+  if (m.type === 'video') return m.caption || '🎥 Video';
+  if (m.type === 'document') return '📄 ' + (m.filename || 'Documento');
+  if (m.type === 'ticket') return '🧾 Ticket';
+  if (m.type === 'product') return '🛍️ ' + (m.pname || 'Producto');
+  return m.text || '';
+}
+
+// /api/media exige el token, y un <img src> no puede enviarlo: se descarga con fetch
+// y se muestra como blob. Se guarda en caché para no descargar dos veces lo mismo.
+const _mediaBlobCache = new Map();
+function loadAuthedMedia(mediaUrl) {
+  if (!_mediaBlobCache.has(mediaUrl)) {
+    const p = fetch(BACKEND_URL + mediaUrl, { headers: apiAuthHeader() })
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
+      .then(blob => URL.createObjectURL(blob))
+      .catch(err => { _mediaBlobCache.delete(mediaUrl); throw err; });
+    _mediaBlobCache.set(mediaUrl, p);
+  }
+  return _mediaBlobCache.get(mediaUrl);
+}
+
+// Asigna el archivo de un mensaje a un elemento (img/audio/video → src, a → href)
+function attachMessageMedia(el, m) {
+  const attr = el.tagName === 'A' ? 'href' : 'src';
+  if (m.localUrl) { el[attr] = m.localUrl; return; }
+  if (!m.mediaUrl) return;
+  loadAuthedMedia(m.mediaUrl)
+    .then(url => { el[attr] = url; })
+    .catch(() => { el.title = 'Archivo no disponible'; if (el.tagName === 'IMG') el.alt = 'Archivo no disponible'; });
+}
+
 // ─────────────────────────────────────────────────────────────
 // CARGA INICIAL — conversaciones reales desde backend
 // ─────────────────────────────────────────────────────────────
@@ -10373,12 +10425,7 @@ async function loadRealConversations() {
         online: isIg ? 'Instagram DM' : 'WhatsApp real',
         orderNum: '', orderProd: '', orderProdName: '', orderProdDetail: '', orderPrice: '',
         quickReplies: ['¡Hola! ¿En qué te puedo ayudar?', 'Gracias por escribirnos 😊'],
-        messages: rc.messages.map(m => ({
-          role: m.role,
-          type: 'text',
-          text: m.text,
-          time: new Date(m.time).toLocaleTimeString('es-VE', { hour:'2-digit', minute:'2-digit' }),
-        })),
+        messages: rc.messages.map(mapServerMessage),
         isReal: true,
         waId: rc.waId,
         igSenderId: isIg ? rc.igSenderId || key.replace('ig_','') : null,
@@ -10400,6 +10447,8 @@ async function loadRealConversations() {
 // ─────────────────────────────────────────────────────────────
 (function initRealtimeConnection() {
   let ws;
+  let pingInterval = null;
+  let stopReconnect = false;
 
   function connect() {
     try {
@@ -10413,6 +10462,11 @@ async function loadRealConversations() {
       console.log('🔌 Conectado al backend real en tiempo real');
       const token = getJwt();
       if (token) ws.send(JSON.stringify({ type: 'auth', token }));
+      // Railway cierra las conexiones inactivas: un ping cada 25 s la mantiene viva
+      if (pingInterval) clearInterval(pingInterval);
+      pingInterval = setInterval(() => {
+        if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'ping' }));
+      }, 25000);
     };
 
     ws.onmessage = (event) => {
@@ -10444,33 +10498,36 @@ async function loadRealConversations() {
             convos[waId].igSenderId = waId.replace('ig_','');
           }
 
-          const m = data.message;
-          convos[waId].messages.push({
-            role: 'in', type: 'text', text: m.text,
-            time: new Date(m.time).toLocaleTimeString('es-VE', {hour:'2-digit',minute:'2-digit'}),
-          });
+          const m = mapServerMessage(Object.assign({}, data.message, { role: 'in' }));
+          convos[waId].messages.push(m);
 
           if (currentConvo !== waId) convos[waId].unread = true;
           saveRealConvos();
           bumpConvoToTop(waId);
           if (currentConvo === waId) {
             loadChat(waId);
-            if (m.role === 'in' && m.text) checkKeywordTriggers(m.text);
+            if (m.type === 'text' && m.text) checkKeywordTriggers(m.text);
           } else {
             showToast(`📩 Nuevo mensaje de ${name}`);
           }
-
-          // Auto-reply fuera de horario — solo en mensajes entrantes
-          if (data.message.role === 'in') {
-            const autoReplyEnabled = localStorage.getItem('central_autoreply') !== 'off';
-            if (autoReplyEnabled && !isWithinBusinessHours()) {
-              sendOffHoursAutoReply(waId, name);
-            }
-          }
+          // La respuesta fuera de horario la envía el servidor y llega como message_sent (auto)
         }
 
         if (data.type === 'message_sent') {
-          console.log('✓ Mensaje confirmado por backend:', data.waId);
+          // Los envíos hechos desde esta pantalla ya se pintaron al momento; aquí solo se
+          // añaden los que generó el servidor (respuesta automática fuera de horario).
+          if (data.auto && convos[data.waId]) {
+            convos[data.waId].messages.push(mapServerMessage(data.message));
+            saveRealConvos();
+            bumpConvoToTop(data.waId);
+            if (currentConvo === data.waId) loadChat(data.waId);
+          }
+        }
+
+        if (data.type === 'auth_error') {
+          // Sesión inválida o cuenta no disponible: /app decide (login o aviso de demo vencida)
+          stopReconnect = true;
+          location.replace('/app');
         }
 
       } catch (err) {
@@ -10479,6 +10536,8 @@ async function loadRealConversations() {
     };
 
     ws.onclose = () => {
+      if (pingInterval) { clearInterval(pingInterval); pingInterval = null; }
+      if (stopReconnect) return;
       console.log('🔌 Desconectado del backend real — reintentando en 5s...');
       setTimeout(connect, 5000);
     };
@@ -10734,25 +10793,95 @@ function _noSubSelect(el, item, key) {
 }
 
 // ── CRUD Respuestas Rápidas ────────────────────────────────────
-// ── Horario de atención ──────────────────────────────────────
-function _getSchedule() {
-  const defaults = [
-    {day:'Lunes',     open:'09:00', close:'19:00', active:true},
-    {day:'Martes',    open:'09:00', close:'19:00', active:true},
-    {day:'Miércoles', open:'09:00', close:'19:00', active:true},
-    {day:'Jueves',    open:'09:00', close:'19:00', active:true},
-    {day:'Viernes',   open:'09:00', close:'20:00', active:true},
-    {day:'Sábado',    open:'10:00', close:'17:00', active:true},
-    {day:'Domingo',   open:'10:00', close:'14:00', active:false},
-  ];
-  return JSON.parse(localStorage.getItem('central_schedule') || 'null') || defaults;
+// ── Horario de atención y respuesta automática ───────────────
+// Se guardan en el servidor, que es quien envía la respuesta fuera de horario
+// (funciona aunque no haya ninguna pestaña de CENTRAL abierta).
+const DEFAULT_SCHEDULE = [
+  {day:'Lunes',     open:'09:00', close:'19:00', active:true},
+  {day:'Martes',    open:'09:00', close:'19:00', active:true},
+  {day:'Miércoles', open:'09:00', close:'19:00', active:true},
+  {day:'Jueves',    open:'09:00', close:'19:00', active:true},
+  {day:'Viernes',   open:'09:00', close:'20:00', active:true},
+  {day:'Sábado',    open:'10:00', close:'17:00', active:true},
+  {day:'Domingo',   open:'10:00', close:'14:00', active:false},
+];
+const DEFAULT_OFF_HOURS_MSG = '¡Hola! 🌙 Gracias por escribirnos. Estamos fuera de horario pero te responderemos a primera hora mañana. Nuestro horario es Lun-Sáb 9am-7pm.';
+
+function _browserTimezone() {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || null; } catch (e) { return null; }
 }
 
-function saveScheduleField(idx, field, value) {
+var autoReplyCfg = {
+  enabled: false,
+  message: DEFAULT_OFF_HOURS_MSG,
+  schedule: DEFAULT_SCHEDULE.map(d => ({ ...d })),
+};
+
+function _getSchedule() { return autoReplyCfg.schedule; }
+
+async function saveAutoReplyConfig(fields) {
+  const body = Object.assign({}, fields);
+  const tz = _browserTimezone();
+  if (tz) body.timezone = tz;
+  try {
+    const res = await fetch(BACKEND_URL + '/api/tenant/auto-reply', {
+      method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      showToast('⚠ No se pudo guardar: ' + (data.error || data.message || 'error'));
+      return false;
+    }
+    return true;
+  } catch (e) {
+    showToast('⚠ Sin conexión: no se pudo guardar');
+    return false;
+  }
+}
+
+async function loadAutoReplyConfig() {
+  try {
+    const res = await fetch(BACKEND_URL + '/api/tenant/auto-reply', { headers: apiAuthHeader() });
+    if (!res.ok) return;
+    const cfg = await res.json();
+    autoReplyCfg = { enabled: !!cfg.enabled, message: cfg.message || DEFAULT_OFF_HOURS_MSG, schedule: cfg.schedule || DEFAULT_SCHEDULE };
+    // Primera vez: subir el horario y el mensaje que el dueño tenía guardados en este navegador.
+    // La respuesta automática queda apagada hasta que la active él mismo.
+    if (!cfg.configured) {
+      const pending = {};
+      try {
+        const ls = JSON.parse(localStorage.getItem('central_schedule') || 'null');
+        if (Array.isArray(ls) && ls.length === 7) pending.schedule = ls;
+      } catch (e) {}
+      const lm = (localStorage.getItem('central_off_hours_msg') || '').trim();
+      if (lm) pending.message = lm;
+      if (Object.keys(pending).length && await saveAutoReplyConfig(pending)) {
+        if (pending.schedule) autoReplyCfg.schedule = pending.schedule;
+        if (pending.message) autoReplyCfg.message = pending.message;
+      }
+    } else if (!cfg.timezone) {
+      saveAutoReplyConfig({});
+    }
+  } catch (e) {
+    console.warn('No se pudo cargar la respuesta automática:', e.message);
+  }
+}
+
+async function toggleAutoReply(toggleEl) {
+  const enabled = !toggleEl.classList.contains('on');
+  toggleEl.classList.toggle('on', enabled);
+  if (await saveAutoReplyConfig({ enabled })) {
+    autoReplyCfg.enabled = enabled;
+    showToast(enabled ? 'Respuesta automática activada' : 'Respuesta automática desactivada');
+  } else {
+    toggleEl.classList.toggle('on', !enabled);
+  }
+}
+
+async function saveScheduleField(idx, field, value) {
   const s = _getSchedule();
   s[idx][field] = value;
-  localStorage.setItem('central_schedule', JSON.stringify(s));
-  showToast('Horario guardado');
+  if (await saveAutoReplyConfig({ schedule: s })) showToast('Horario guardado');
 }
 
 function toggleScheduleDay(idx, toggleEl) {
@@ -10760,7 +10889,7 @@ function toggleScheduleDay(idx, toggleEl) {
   toggleEl.classList.toggle('on');
   const active = toggleEl.classList.contains('on');
   s[idx].active = active;
-  localStorage.setItem('central_schedule', JSON.stringify(s));
+  saveAutoReplyConfig({ schedule: s });
   const timesDiv = document.getElementById('schedTimes_' + idx);
   if (timesDiv) {
     if (active) {
@@ -10909,64 +11038,6 @@ function sendPaymentTemplate() {
 
 // ── Horario de atención — lógica de auto-respuesta ───────────
 
-function isWithinBusinessHours() {
-  const schedule = _getSchedule();
-  const now = new Date();
-  const days = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
-  const todayName = days[now.getDay()];
-  const dayConfig = schedule.find(d => d.day === todayName);
-  if (!dayConfig || !dayConfig.active) return false;
-
-  // Convertir "HH:MM" a minutos desde medianoche
-  function toMins(hhmm) {
-    const [h, m] = (hhmm || '').split(':').map(Number);
-    return (isNaN(h) ? 0 : h) * 60 + (isNaN(m) ? 0 : m);
-  }
-  const nowMins = now.getHours() * 60 + now.getMinutes();
-  return nowMins >= toMins(dayConfig.open) && nowMins < toMins(dayConfig.close);
-}
-
-// Rastrea qué conversaciones ya recibieron el auto-reply hoy (clave: waId+fecha)
-const _offHoursSentToday = new Set(
-  JSON.parse(sessionStorage.getItem('central_offhours_sent') || '[]')
-);
-
-async function sendOffHoursAutoReply(waId, name) {
-  const today = new Date().toISOString().slice(0, 10);
-  const key = waId + '_' + today;
-  if (_offHoursSentToday.has(key)) return; // ya se envió hoy
-  _offHoursSentToday.add(key);
-  try { sessionStorage.setItem('central_offhours_sent', JSON.stringify([..._offHoursSentToday])); } catch(e) {}
-
-  const msg = localStorage.getItem('central_off_hours_msg') ||
-    '¡Hola! 🌙 Gracias por escribirnos. Estamos fuera de horario pero te responderemos a primera hora mañana. Nuestro horario es Lun-Sáb 9am-7pm.';
-
-  const now = new Date();
-  const timeStr = now.toLocaleTimeString('es-VE', { hour:'2-digit', minute:'2-digit' });
-
-  // Agregar a la UI del chat
-  const c = convos[waId];
-  if (c) {
-    c.messages.push({ role:'out', type:'text', text: msg, time: timeStr });
-    if (currentConvo === waId) loadChat(waId);
-  }
-
-  // Enviar por WhatsApp real si corresponde
-  if (usingRealBackend && waId) {
-    try {
-      await fetch(BACKEND_URL + '/api/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ waId, text: msg }),
-      });
-    } catch(err) {
-      console.warn('Error enviando auto-reply fuera de horario:', err);
-    }
-  }
-
-  console.log(`🌙 Auto-reply fuera de horario enviado a ${name}`);
-}
-
 // ── Mi equipo ─────────────────────────────────────────────────
 function _getTeam() {
   const saved = JSON.parse(localStorage.getItem('central_team') || 'null');
@@ -11112,12 +11183,17 @@ function saveOffHoursMsg() {
   const editBtn = document.getElementById('offHoursEditBtn');
   const saveBtn = document.getElementById('offHoursSaveBtn');
   if (!ta) return;
-  localStorage.setItem('central_off_hours_msg', ta.value);
+  const value = ta.value.trim();
+  if (!value) { showToast('El mensaje no puede estar vacío'); return; }
+  saveAutoReplyConfig({ message: value }).then(ok => {
+    if (!ok) return;
+    autoReplyCfg.message = value;
+    showToast('Mensaje guardado');
+  });
   ta.setAttribute('readonly', '');
   ta.style.borderColor = '';
   editBtn.style.display = '';
   saveBtn.style.display = 'none';
-  showToast('Mensaje guardado');
 }
 
 let _qrEditingIndex = null;
