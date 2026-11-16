@@ -1312,7 +1312,7 @@ app.post('/api/tenant/login', async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
 
   try {
-    const { rows } = await pool.query('SELECT * FROM tenants WHERE lower(email) = $1', [email]);
+    const { rows } = await pool.query('SELECT * FROM tenants WHERE lower(email) = $1 ORDER BY created_at LIMIT 1', [email]);
     const tenant = rows[0];
     if (!tenant) return res.status(401).json({ error: 'Correo o contraseña incorrectos' });
     if (!tenant.active) return res.status(403).json({ error: 'Tu cuenta ha sido suspendida. Contacta soporte.' });

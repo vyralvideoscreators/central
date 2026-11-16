@@ -10819,7 +10819,13 @@ var autoReplyCfg = {
 
 function _getSchedule() { return autoReplyCfg.schedule; }
 
-async function saveAutoReplyConfig(fields) {
+function _isValidLocalSchedule(s) {
+  const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+  return Array.isArray(s) && s.length === 7 && s.every((d, i) => d && d.day === DEFAULT_SCHEDULE[i].day &&
+    HHMM.test(d.open) && HHMM.test(d.close) && typeof d.active === 'boolean');
+}
+
+async function saveAutoReplyConfig(fields, silent) {
   const body = Object.assign({}, fields);
   const tz = _browserTimezone();
   if (tz) body.timezone = tz;
@@ -10829,12 +10835,12 @@ async function saveAutoReplyConfig(fields) {
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      showToast('⚠ No se pudo guardar: ' + (data.error || data.message || 'error'));
+      if (!silent) showToast('⚠ No se pudo guardar: ' + (data.error || data.message || 'error'));
       return false;
     }
     return true;
   } catch (e) {
-    showToast('⚠ Sin conexión: no se pudo guardar');
+    if (!silent) showToast('⚠ Sin conexión: no se pudo guardar');
     return false;
   }
 }
@@ -10851,16 +10857,17 @@ async function loadAutoReplyConfig() {
       const pending = {};
       try {
         const ls = JSON.parse(localStorage.getItem('central_schedule') || 'null');
-        if (Array.isArray(ls) && ls.length === 7) pending.schedule = ls;
+        if (_isValidLocalSchedule(ls)) pending.schedule = ls;
       } catch (e) {}
       const lm = (localStorage.getItem('central_off_hours_msg') || '').trim();
-      if (lm) pending.message = lm;
-      if (Object.keys(pending).length && await saveAutoReplyConfig(pending)) {
+      if (lm && lm.length <= 1000) pending.message = lm;
+      // Silencioso: si algo no se pudiera subir, no molestar con un aviso en cada carga
+      if (Object.keys(pending).length && await saveAutoReplyConfig(pending, true)) {
         if (pending.schedule) autoReplyCfg.schedule = pending.schedule;
         if (pending.message) autoReplyCfg.message = pending.message;
       }
     } else if (!cfg.timezone) {
-      saveAutoReplyConfig({});
+      saveAutoReplyConfig({}, true);
     }
   } catch (e) {
     console.warn('No se pudo cargar la respuesta automática:', e.message);
