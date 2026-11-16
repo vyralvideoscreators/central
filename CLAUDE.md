@@ -4,7 +4,7 @@
 
 **CENTRAL** es una web app de gestión de pedidos, clientes y mensajería para pequeños negocios en Latinoamérica.
 - **Frontend**: SPA de un solo archivo HTML (`central-mvp-v63 (1) - copia.html`, ~600 KB, vanilla JS/CSS)
-- **Backend**: Node.js/Express (`backend/server.js`, ~2100 líneas, v5.0)
+- **Backend**: Node.js/Express (`backend/server.js`, ~2900 líneas, v5.0)
 - **Base de datos**: PostgreSQL multi-tenant en Railway
 - **Deploy**: Railway (push a `main` = auto-deploy a producción)
 
@@ -59,6 +59,11 @@ AGENTES.md                            ← Guía de uso de agentes Claude
 
 - Estáticos por lista blanca (`PUBLIC_STATIC` en server.js): solo .html públicos e imágenes. Nunca .js/.json.
 - Rate limit en `/api/tenant/login` y `/api/admin/login`.
+- `POST /webhook` exige la firma de Meta (`X-Hub-Signature-256`, clave `META_APP_SECRET`; opcional `INSTAGRAM_APP_SECRET`). Sin la variable, en producción rechaza todo. Un mensaje de un número/cuenta sin negocio asociado se descarta (no hay reenvío a todos).
+- El WebSocket solo envía datos tras `{type:'auth'}` con JWT válido; sin autenticar se cierra a los 10 s.
+- En producción el servidor no arranca sin `JWT_SECRET`. `WEBHOOK_VERIFY_TOKEN` no tiene valor por defecto.
+- SPA: todo dato de clientes/contactos/productos que vaya a `innerHTML` pasa por `escHtml()` (y `escJsAttr()` dentro de `onclick`). Mantenerlo en código nuevo.
+- `/api/media/:id` solo entrega archivos de mensajes del propio tenant; el SPA los descarga con `fetch` + token (`loadAuthedMedia`).
 
 ## Convenciones de código
 
@@ -66,7 +71,7 @@ AGENTES.md                            ← Guía de uso de agentes Claude
 - Todas las funciones de BD siguen el patrón `dbNombreFuncion(tenantId, data)`
 - Los endpoints usan `requireAuth` middleware que inyecta `req.tenant.tenantId`
 - **Siempre filtrar por `tenant_id`** — es multi-tenant; una query sin filtro expone datos de otros negocios
-- El body de POST/PATCH usa **camelCase** (`clientName`, `payStatus`, `deliveryStatus`)
+- El body de POST usa **camelCase** (`clientName`, `payStatus`, `deliveryStatus`). Excepción: `PATCH /api/orders/:id` recibe **snake_case** (`delivery_status`, `pay_status`…), que es lo que envía el SPA
 - Las funciones `db*` de pedidos, clientes y catálogo devuelven **camelCase** a la API (la BD es snake_case)
 - Variables de entorno: todas documentadas en `backend/.env.example`
 
@@ -108,7 +113,14 @@ AGENTES.md                            ← Guía de uso de agentes Claude
 | Catálogo | `catalog` | `loadRealCatalog()` | `GET/POST /api/catalog`, `PATCH/DELETE /api/catalog/:id` |
 | Clientes | `clientsDB` | `loadRealClients()` | `GET/POST /api/clients`, `PATCH/DELETE /api/clients/:id` |
 | Informes | `getInfData(period)` | calculado en el navegador a partir de `orders` | (`GET /api/reports` existe pero el SPA no lo usa) |
-| Ajustes | `businessProfile` | al cargar tenant | `GET/PATCH /api/tenant/profile` |
+| Ajustes | `businessProfile` | al cargar tenant | `GET/PUT /api/tenant/profile` |
+| Horario + respuesta automática | `autoReplyCfg` | `loadAutoReplyConfig()` | `GET/PUT /api/tenant/auto-reply` |
+
+**Respuesta automática fuera de horario:** la envía el **servidor** (`maybeSendAutoReply` en el webhook), una vez por conversación y día en la zona horaria del negocio (`tenants.timezone`). Apagada por defecto (`auto_reply_enabled`). Llega al SPA como `message_sent` con `auto: true`.
+
+**Pedidos:** el número visible (`#0001`) es `orders.tenant_order_number`, propio de cada negocio (contador `tenants.order_seq`). `order_number` (BIGSERIAL global) queda solo como respaldo.
+
+**Correos de acceso:** siempre en minúsculas (`normEmail`), comparados con `lower(email)`; índice único `tenants_email_lower_uniq`.
 
 ## Agentes disponibles
 
@@ -132,3 +144,5 @@ Ver `backend/.env.example` para la lista completa. Las críticas:
 - `RESEND_API_KEY` + `RESEND_FROM` — email transaccional
 - `WHATSAPP_PHONE_NUMBER_ID` + `WHATSAPP_TOKEN` — WhatsApp Business
 - `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` — billing SaaS
+- `META_APP_SECRET` — firma del webhook de Meta (sin ella no entran mensajes de WhatsApp/Instagram)
+- `WEBHOOK_VERIFY_TOKEN` — verificación del webhook en Meta
