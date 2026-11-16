@@ -853,6 +853,16 @@ async function renderHtmlToImage(htmlContent, width = 380) {
   const browser = await getBrowser();
   const page = await browser.newPage();
   try {
+    // El HTML del ticket viene del navegador: sin JavaScript y sin peticiones salvo las
+    // fuentes de Google, para que un ticket manipulado no pueda hacer llamadas desde el servidor.
+    await page.setJavaScriptEnabled(false);
+    await page.setRequestInterception(true);
+    page.on('request', (r) => {
+      const url = r.url();
+      if (url.startsWith('data:') || url === 'about:blank' ||
+          /^https:\/\/fonts\.(googleapis|gstatic)\.com\//.test(url)) return r.continue();
+      r.abort();
+    });
     await page.setViewport({ width, height: 100, deviceScaleFactor: 2 });
     await page.setContent(`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,'Segoe UI',Arial,sans-serif;}body{background:#fff;padding:20px;width:${width-40}px;}</style></head><body>${htmlContent}</body></html>`, { waitUntil: 'networkidle0' });
     const body = await page.$('body');
@@ -1094,7 +1104,7 @@ app.post('/api/tenant/register', async (req, res) => {
       INSERT INTO tenants (business_name, full_name, email, password_hash, plan, country, whatsapp_number)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING id, business_name, full_name, email, plan, country, created_at
-    `, [businessName, fullName || null, email, hash, plan || 'basic', country || null, whatsappNumber || null]);
+    `, [businessName, fullName || null, email, hash, ['basic', 'pro', 'business'].includes(plan) ? plan : 'basic', country || null, whatsappNumber || null]);
     const tenant = rows[0];
     const token  = jwt.sign({ tenantId: tenant.id, email: tenant.email }, JWT_SECRET, { expiresIn: '30d' });
     if (process.env.RESEND_API_KEY) {

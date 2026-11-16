@@ -3957,6 +3957,14 @@ const WS_URL = location.origin.replace(/^http/, 'ws') + '/ws';
 
 let usingRealBackend = false;
 
+// Escapa texto antes de meterlo en innerHTML: nombres, mensajes, productos, etc. pueden venir
+// de clientes externos (WhatsApp/Instagram) y no deben poder ejecutar código en la app.
+function escHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
+}
+// Para pasar un dato como argumento dentro de un atributo onclick="fn(...)"
+function escJsAttr(s) { return escHtml(JSON.stringify(String(s ?? ''))); }
+
 function getJwt() { return localStorage.getItem('central_jwt') || ''; }
 function apiHeaders(extra) {
   const h = { 'Content-Type': 'application/json' };
@@ -4224,7 +4232,7 @@ function loadChat(key) {
       av.style.background = c.avatarGrad;
       av.textContent = c.initials;
       const card = document.createElement('div');
-      card.innerHTML = `<div class="product-card-bubble"><div class="pcb-img">${m.emoji}</div><div class="pcb-info"><div class="pcb-name">${m.pname}</div><div class="pcb-price">${m.pprice}</div></div></div>`;
+      card.innerHTML = `<div class="product-card-bubble"><div class="pcb-img">${escHtml(m.emoji)}</div><div class="pcb-info"><div class="pcb-name">${escHtml(m.pname)}</div><div class="pcb-price">${escHtml(m.pprice)}</div></div></div>`;
       wrap.appendChild(av);
       wrap.appendChild(card);
       list.appendChild(wrap);
@@ -4267,7 +4275,7 @@ function loadChat(key) {
         link.href = src;
         link.target = '_blank';
         link.download = m.filename || 'archivo';
-        link.innerHTML = `<span style="font-size:20px">📄</span><span>${m.filename || 'Documento'}</span>`;
+        link.innerHTML = `<span style="font-size:20px">📄</span><span>${escHtml(m.filename || 'Documento')}</span>`;
         bubble.appendChild(link);
         if (m.caption) { const cap = document.createElement('div'); cap.style.cssText = 'font-size:11.5px;color:var(--text3);margin-top:4px;'; cap.textContent = m.caption; bubble.appendChild(cap); }
       } else {
@@ -4325,7 +4333,7 @@ async function sendMsg() {
   const wrap = document.createElement('div');
   wrap.className = 'msg out';
   wrap.innerHTML = `
-    <div class="msg-bubble" style="background:var(--accent);color:#fff;border-bottom-right-radius:4px;">${text}</div>
+    <div class="msg-bubble" style="background:var(--accent);color:#fff;border-bottom-right-radius:4px;">${escHtml(text)}</div>
     <div class="msg-av" style="background:linear-gradient(135deg,#6c63ff,#a855f7);align-self:flex-end;">Tú</div>
   `;
   list.appendChild(wrap);
@@ -4410,7 +4418,7 @@ async function sendFile(input) {
     link.className = 'msg-media-doc';
     link.href = localUrl;
     link.download = file.name;
-    link.innerHTML = `<span style="font-size:20px">📄</span><span>${file.name}</span>`;
+    link.innerHTML = `<span style="font-size:20px">📄</span><span>${escHtml(file.name)}</span>`;
     bubble.appendChild(link);
   }
 
@@ -4520,22 +4528,22 @@ function openOrderDetail(orderId) {
       const talla = tallaEntry ? tallaEntry.replace('Talla ','') : '—';
       const color = colorEntry || '—';
       return `<div class="odm-product-row">
-        <div class="odm-prod-icon">${item.emoji}</div>
+        <div class="odm-prod-icon">${escHtml(item.emoji)}</div>
         <div style="flex:1;min-width:0;">
-          <div class="odm-prod-name">${item.name}</div>
-          <div class="odm-prod-detail">Talla: ${talla} · Color: ${color} · x${item.qty}</div>
+          <div class="odm-prod-name">${escHtml(item.name)}</div>
+          <div class="odm-prod-detail">Talla: ${escHtml(talla)} · Color: ${escHtml(color)} · x${item.qty}</div>
           <div class="odm-prod-detail">Canal: ${o.platform === 'wa' ? 'WhatsApp' : 'Instagram'}</div>
         </div>
         <div class="odm-prod-price">${precio}</div>
       </div>`;
     }).join('<div style="height:1px;background:var(--border);margin:6px 0;"></div>');
   } else {
-    const detailLine = ex.productDetail ? `<div class="odm-prod-detail">${ex.productDetail}</div>` : '';
+    const detailLine = ex.productDetail ? `<div class="odm-prod-detail">${escHtml(ex.productDetail)}</div>` : '';
     prodsEl.innerHTML = `
       <div class="odm-product-row">
-        <div class="odm-prod-icon">${ex.emoji}</div>
+        <div class="odm-prod-icon">${escHtml(ex.emoji)}</div>
         <div style="flex:1;min-width:0;">
-          <div class="odm-prod-name">${o.product}</div>
+          <div class="odm-prod-name">${escHtml(o.product)}</div>
           ${detailLine}
           <div class="odm-prod-detail">Canal: ${o.platform === 'wa' ? 'WhatsApp' : 'Instagram'}</div>
         </div>
@@ -4727,13 +4735,13 @@ function renderOrders() {
     }
     row.innerHTML = `
       <div class="or-id" style="display:flex;align-items:center;gap:6px;">
-        <span style="font-size:16px;">${ex.emoji}</span>
+        <span style="font-size:16px;">${escHtml(ex.emoji)}</span>
         <span>${o.id}</span>
       </div>
       <div style="width:1px;height:28px;background:var(--border2);flex-shrink:0;margin:0 4px;"></div>
       <div class="or-client">
-        <div class="or-client-name">${o.client}</div>
-        <div class="or-client-prod">${o.product}</div>
+        <div class="or-client-name">${escHtml(o.client)}</div>
+        <div class="or-client-prod">${escHtml(o.product)}</div>
       </div>
       <div class="or-platform">${platDot} ${platName}</div>
       <div class="or-price">${o.price}</div>
@@ -4865,8 +4873,8 @@ function buildAddressDrop(client) {
     item.style.cssText = 'display:flex;align-items:flex-start;gap:8px;padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--border);transition:background 0.15s;';
     item.innerHTML = `
       <div style="flex:1;">
-        <div style="font-size:10.5px;font-weight:700;color:var(--text3);margin-bottom:2px;">${addr.label}</div>
-        <div style="font-size:13px;color:var(--text);font-weight:500;">${addr.value}</div>
+        <div style="font-size:10.5px;font-weight:700;color:var(--text3);margin-bottom:2px;">${escHtml(addr.label)}</div>
+        <div style="font-size:13px;color:var(--text);font-weight:500;">${escHtml(addr.value)}</div>
       </div>
       ${i === 0 ? '<span style="font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:5px;background:var(--accent-glow);color:var(--accent2);flex-shrink:0;">Principal</span>' : ''}
     `;
@@ -5000,10 +5008,10 @@ function renderClientDropList(query) {
     const item = document.createElement('div');
     item.className = 'cli-drop-item';
     item.innerHTML = `
-      <div class="cli-drop-av" style="background:${c.grad}">${initials}</div>
+      <div class="cli-drop-av" style="background:${c.grad}">${escHtml(initials)}</div>
       <div style="flex:1;min-width:0;">
-        <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.name}</div>
-        ${contact ? `<div style="font-size:11px;color:var(--text2);">${contact}</div>` : ''}
+        <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(c.name)}</div>
+        ${contact ? `<div style="font-size:11px;color:var(--text2);">${escHtml(contact)}</div>` : ''}
       </div>
       <span style="width:7px;height:7px;border-radius:50%;background:${platColor};display:inline-block;flex-shrink:0;"></span>
     `;
@@ -5126,13 +5134,13 @@ function saveOrder() {
       const precio = item.linePrice > 0 ? '$' + item.linePrice.toFixed(2) : (item.price || '—');
       return `
         <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;">
-          <span style="font-size:16px;flex-shrink:0;">${item.emoji}</span>
+          <span style="font-size:16px;flex-shrink:0;">${escHtml(item.emoji)}</span>
           <div style="flex:1;min-width:0;">
-            <div style="font-size:12.5px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${item.name}</div>
+            <div style="font-size:12.5px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(item.name)}</div>
             <div style="font-size:10.5px;color:var(--text3);margin-top:2px;display:flex;gap:6px;flex-wrap:wrap;">
-              <span>Talla: <b style="color:var(--text2)">${talla}</b></span>
+              <span>Talla: <b style="color:var(--text2)">${escHtml(talla)}</b></span>
               <span>·</span>
-              <span>Color: <b style="color:var(--text2)">${color}</b></span>
+              <span>Color: <b style="color:var(--text2)">${escHtml(color)}</b></span>
               <span>·</span>
               <span>Cant: <b style="color:var(--text2)">${item.qty}</b></span>
             </div>
@@ -5249,20 +5257,20 @@ function confirmOrder() {
         <div class="ticket-header-icon">${businessProfile.logo ? `<img src="${businessProfile.logo}" style="width:32px;height:32px;border-radius:8px;object-fit:cover;">` : '🧾'}</div>
         <div>
           <div class="ticket-header-title">Resguardo de Compra</div>
-          <div class="ticket-header-sub">${businessProfile.businessName} · ${dateStr}</div>
+          <div class="ticket-header-sub">${escHtml(businessProfile.businessName)} · ${dateStr}</div>
         </div>
       </div>
       <div class="ticket-body">
         <div class="ticket-id">${d.id} · ${timeStr}</div>
-        <div class="ticket-row"><span class="ticket-row-label">Cliente</span><span class="ticket-row-value">${d.client}</span></div>
+        <div class="ticket-row"><span class="ticket-row-label">Cliente</span><span class="ticket-row-value">${escHtml(d.client)}</span></div>
         <div class="ticket-divider"></div>
         ${buildTicketItemsHtml(d.items)}
-        ${d.notes ? `<div class="ticket-row"><span class="ticket-row-label">Notas</span><span class="ticket-row-value" style="font-style:italic;">${d.notes}</span></div>` : ''}
+        ${d.notes ? `<div class="ticket-row"><span class="ticket-row-label">Notas</span><span class="ticket-row-value" style="font-style:italic;">${escHtml(d.notes)}</span></div>` : ''}
         <div class="ticket-divider"></div>
-        <div class="ticket-row"><span class="ticket-row-label">Pago</span><span class="ticket-row-value">${payLabel}</span></div>
-        <div class="ticket-row"><span class="ticket-row-label">Entrega</span><span class="ticket-row-value">${delLabel}</span></div>
-        <div class="ticket-row"><span class="ticket-row-label">Dirección</span><span class="ticket-row-value">${d.address || '—'}</span></div>
-        ${shippingVisible ? `<div class="ticket-row"><span class="ticket-row-label">Envío</span><span class="ticket-row-value">${shippingVal}</span></div>` : ''}
+        <div class="ticket-row"><span class="ticket-row-label">Pago</span><span class="ticket-row-value">${escHtml(payLabel)}</span></div>
+        <div class="ticket-row"><span class="ticket-row-label">Entrega</span><span class="ticket-row-value">${escHtml(delLabel)}</span></div>
+        <div class="ticket-row"><span class="ticket-row-label">Dirección</span><span class="ticket-row-value">${escHtml(d.address || '—')}</span></div>
+        ${shippingVisible ? `<div class="ticket-row"><span class="ticket-row-label">Envío</span><span class="ticket-row-value">${escHtml(shippingVal)}</span></div>` : ''}
         <div class="ticket-total"><span>Total</span><span class="ticket-total-val">${total}</span></div>
       </div>
       <div class="ticket-footer">Gracias por tu compra 🙌<br>Te avisamos cuando tu pedido esté en camino</div>
@@ -5415,7 +5423,7 @@ function showConvoHistory(key) {
         <span class="op-history-card-id">${o.id}</span>
         <span class="op-history-card-time">${o.time}</span>
       </div>
-      <div class="op-history-card-product">${ex.emoji || '📦'} ${o.product}</div>
+      <div class="op-history-card-product">${ex.emoji || '📦'} ${escHtml(o.product)}</div>
       <div class="op-history-card-bottom">
         <span class="op-history-card-price">${o.price}</span>
         <span style="font-size:11px;color:var(--text3);">${payIcons[o.pay] || ''} ${deliveryLabels[o.delivery] || o.delivery}</span>
@@ -5711,16 +5719,16 @@ function renderCatalog() {
     section.innerHTML = `
       <div class="cat-section-header">
         <div class="cat-section-title">
-          <span class="cat-section-emoji">${cat.emoji}</span>
-          ${cat.name}
+          <span class="cat-section-emoji">${escHtml(cat.emoji)}</span>
+          ${escHtml(cat.name)}
           <span class="cat-section-count">${cat.products.length} artículo${cat.products.length !== 1 ? 's' : ''}</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <div class="add-product-btn" onclick="openCatProductModal('${cat.key}')">
+          <div class="add-product-btn" onclick="openCatProductModal(${escJsAttr(cat.key)})">
             <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
             Agregar artículo
           </div>
-          <div class="add-product-btn" style="color:var(--red);border-color:rgba(255,107,107,0.3);" onclick="deleteCategory('${cat.key}','${cat.name}')">
+          <div class="add-product-btn" style="color:var(--red);border-color:rgba(255,107,107,0.3);" onclick="deleteCategory(${escJsAttr(cat.key)},${escJsAttr(cat.name)})">
             <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>
             Eliminar
           </div>
@@ -5764,12 +5772,12 @@ function renderCatalog() {
       }
 
       // ── Standard product card ──
-      const colorDots = p.colors.map(c => `<div class="pc-color" style="background:${c.hex}" title="${c.name}"></div>`).join('');
-      const sizePills = p.sizes.map(s => `<span class="pc-size">${s}</span>`).join('');
+      const colorDots = p.colors.map(c => `<div class="pc-color" style="background:${escHtml(c.hex)}" title="${escHtml(c.name)}"></div>`).join('');
+      const sizePills = p.sizes.map(s => `<span class="pc-size">${escHtml(s)}</span>`).join('');
       card.innerHTML = `
-        <div class="pc-img">${p.emoji}</div>
+        <div class="pc-img">${escHtml(p.emoji)}</div>
         <div class="pc-body">
-          <div class="pc-name">${p.name}</div>
+          <div class="pc-name">${escHtml(p.name)}</div>
           <div class="pc-price">${p.price}</div>
           <div class="pc-colors">${colorDots}</div>
           <div class="pc-sizes">${sizePills}</div>
@@ -5951,7 +5959,7 @@ function renderSizeTags() {
   const el = document.getElementById('cpSizeTags');
   el.innerHTML = editingSizes.map((s, i) => `
     <div class="size-tag">
-      ${s}
+      ${escHtml(s)}
       <span class="size-tag-del" onclick="removeSize(${i})">×</span>
     </div>
   `).join('');
@@ -5976,8 +5984,8 @@ function renderColorSwatches() {
   const el = document.getElementById('cpColorSwatches');
   el.innerHTML = editingColors.map((c, i) => `
     <div class="color-swatch-item">
-      <div class="cs-dot" style="background:${c.hex}"></div>
-      ${c.name}
+      <div class="cs-dot" style="background:${escHtml(c.hex)}"></div>
+      ${escHtml(c.name)}
       <span class="cs-del" onclick="removeColor(${i})">×</span>
     </div>
   `).join('');
@@ -6155,12 +6163,12 @@ function buildProductDrop() {
     if (cat.products.length === 0) return;
     const group = document.createElement('div');
     group.className = 'psd-cat-group';
-    group.innerHTML = `<div class="psd-cat-header"><span>${cat.emoji}</span>${cat.name}</div>`;
+    group.innerHTML = `<div class="psd-cat-header"><span>${escHtml(cat.emoji)}</span>${escHtml(cat.name)}</div>`;
     cat.products.forEach(p => {
       const item = document.createElement('div');
       item.className = 'psd-item' + (selProduct && selProduct.product.id === p.id ? ' selected' : '');
       const label = p.isVarios ? (p.name !== 'Artículo libre' ? p.name : '✏️ Artículo libre') : p.name;
-      item.innerHTML = `<span class="psd-item-emoji">${p.emoji}</span><span class="psd-item-name">${label}</span><span class="psd-item-price">${p.price}</span>`;
+      item.innerHTML = `<span class="psd-item-emoji">${escHtml(p.emoji)}</span><span class="psd-item-name">${escHtml(label)}</span><span class="psd-item-price">${p.price}</span>`;
       item.onclick = () => selectProduct(cat.key, p);
       group.appendChild(item);
     });
@@ -6237,8 +6245,8 @@ function buildColorDrop(product) {
     const item = document.createElement('div');
     item.className = 'psd-color-item' + (selColor && selColor.name === c.name ? ' selected' : '');
     item.innerHTML = `
-      <div class="psd-color-swatch" style="background:${c.hex}"></div>
-      <span class="psd-color-name">${c.name}</span>
+      <div class="psd-color-swatch" style="background:${escHtml(c.hex)}"></div>
+      <span class="psd-color-name">${escHtml(c.name)}</span>
       ${selColor && selColor.name === c.name ? '<svg class="psd-color-check" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>' : ''}
     `;
     item.onclick = () => selectColor(c);
@@ -6476,11 +6484,11 @@ function xBuildProducts(n) {
     if (!cat.products.length) return;
     const grp = document.createElement('div');
     grp.className = 'psd-cat-group';
-    grp.innerHTML = `<div class="psd-cat-header"><span>${cat.emoji}</span>${cat.name}</div>`;
+    grp.innerHTML = `<div class="psd-cat-header"><span>${escHtml(cat.emoji)}</span>${escHtml(cat.name)}</div>`;
     cat.products.forEach(p => {
       const item = document.createElement('div');
       item.className = 'psd-item';
-      item.innerHTML = `<span class="psd-item-emoji">${p.emoji}</span><span class="psd-item-name">${p.name}</span><span class="psd-item-price">${p.price}</span>`;
+      item.innerHTML = `<span class="psd-item-emoji">${escHtml(p.emoji)}</span><span class="psd-item-name">${escHtml(p.name)}</span><span class="psd-item-price">${p.price}</span>`;
       item.onclick = () => xSelectProduct(n, cat.key, p);
       grp.appendChild(item);
     });
@@ -6571,7 +6579,7 @@ function xBuildColors(n, product) {
   product.colors.forEach(c => {
     const item = document.createElement('div');
     item.className = 'psd-color-item' + (state.color && state.color.name === c.name ? ' selected' : '');
-    item.innerHTML = `<div class="psd-color-swatch" style="background:${c.hex}"></div><span class="psd-color-name">${c.name}</span>${state.color && state.color.name === c.name ? '<svg class="psd-color-check" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>' : ''}`;
+    item.innerHTML = `<div class="psd-color-swatch" style="background:${escHtml(c.hex)}"></div><span class="psd-color-name">${escHtml(c.name)}</span>${state.color && state.color.name === c.name ? '<svg class="psd-color-check" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>' : ''}`;
     item.onclick = () => xSelectColor(n, c);
     inner.appendChild(item);
   });
@@ -6631,10 +6639,10 @@ function renderOrderItemsList() {
   list.style.display = 'flex';
   list.innerHTML = orderItems.map((item, i) => `
     <div style="display:flex;align-items:center;gap:9px;padding:8px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;">
-      <span style="font-size:16px;flex-shrink:0;">${item.emoji}</span>
+      <span style="font-size:16px;flex-shrink:0;">${escHtml(item.emoji)}</span>
       <div style="flex:1;min-width:0;">
-        <div style="font-size:12.5px;font-weight:600;">${item.name}</div>
-        <div style="font-size:11px;color:var(--text2);">${item.detail || '—'} · x${item.qty}</div>
+        <div style="font-size:12.5px;font-weight:600;">${escHtml(item.name)}</div>
+        <div style="font-size:11px;color:var(--text2);">${escHtml(item.detail || '—')} · x${item.qty}</div>
       </div>
       <div style="font-size:13px;font-weight:700;color:var(--green);flex-shrink:0;">${item.linePrice > 0 ? '$'+item.linePrice.toFixed(2) : item.price}</div>
       <div onclick="removeOrderItem(${i})" style="width:20px;height:20px;border-radius:6px;background:var(--surface3);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text3);font-size:14px;flex-shrink:0;" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--text3)'">×</div>
@@ -6911,7 +6919,7 @@ const settingsPanels = {
           <div class="s-row-label">Nombre del negocio</div>
           <div class="s-row-desc">Visible para tus clientes</div>
         </div>
-        <div class="s-row-action"><input class="s-input" id="s-input-business" value="${businessProfile.businessName}" type="text"></div>
+        <div class="s-row-action"><input class="s-input" id="s-input-business" value="${escHtml(businessProfile.businessName)}" type="text"></div>
       </div>
       <div class="s-row">
         <div class="s-row-icon" style="background:var(--surface3)">📍</div>
@@ -6919,7 +6927,7 @@ const settingsPanels = {
           <div class="s-row-label">Ciudad / Zona</div>
           <div class="s-row-desc">Ubicación principal de tu comercio</div>
         </div>
-        <div class="s-row-action"><input class="s-input" id="s-input-city" value="${businessProfile.city}, ${businessProfile.country}" type="text"></div>
+        <div class="s-row-action"><input class="s-input" id="s-input-city" value="${escHtml(businessProfile.city)}, ${escHtml(businessProfile.country)}" type="text"></div>
       </div>
       <div class="s-row">
         <div class="s-row-icon" style="background:var(--surface3)">📱</div>
@@ -6927,7 +6935,7 @@ const settingsPanels = {
           <div class="s-row-label">Teléfono principal</div>
           <div class="s-row-desc">Número de WhatsApp Business</div>
         </div>
-        <div class="s-row-action"><input class="s-input" id="s-input-phone" value="${businessProfile.phone}" type="text"></div>
+        <div class="s-row-action"><input class="s-input" id="s-input-phone" value="${escHtml(businessProfile.phone)}" type="text"></div>
       </div>
       <div class="s-row">
         <div class="s-row-icon" style="background:var(--surface3)">✉️</div>
@@ -6935,7 +6943,7 @@ const settingsPanels = {
           <div class="s-row-label">Correo electrónico</div>
           <div class="s-row-desc">Para notificaciones y soporte</div>
         </div>
-        <div class="s-row-action"><input class="s-input" id="s-input-email" value="${businessProfile.email}" type="text"></div>
+        <div class="s-row-action"><input class="s-input" id="s-input-email" value="${escHtml(businessProfile.email)}" type="text"></div>
       </div>
     </div>
 
@@ -7088,7 +7096,7 @@ const settingsPanels = {
             <div class="s-row-icon" style="background:var(--surface3)">${m.icon}</div>
             <div class="s-row-info">
               <div class="s-row-label">${m.name}</div>
-              <div class="s-row-desc" id="pmdesc_${m.id}">${m.on ? summary(m) : m.desc}</div>
+              <div class="s-row-desc" id="pmdesc_${m.id}">${escHtml(m.on ? summary(m) : m.desc)}</div>
             </div>
             <div class="s-row-action" style="display:flex;align-items:center;gap:10px;">
               <button class="btn-ghost" id="pmedit_${m.id}" style="font-size:11px;${m.on ? '' : 'display:none'}" onclick="openPayEdit('${m.id}')">Editar</button>
@@ -7099,7 +7107,7 @@ const settingsPanels = {
             ${m.fields.map(f => `
               <div style="margin-top:10px;">
                 <div style="font-size:11px;color:var(--text3);margin-bottom:4px;">${f.label}</div>
-                <input class="s-input" id="pminput_${m.id}_${f.key}" value="${m.data[f.key] || ''}" placeholder="${f.placeholder}" style="width:100%;">
+                <input class="s-input" id="pminput_${m.id}_${f.key}" value="${escHtml(m.data[f.key] || '')}" placeholder="${f.placeholder}" style="width:100%;">
               </div>
             `).join('')}
             <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
@@ -7292,21 +7300,21 @@ const settingsPanels = {
         ${Array.from({length:5}, (_,i) => {
           const m = team[i];
           if (!m) return `<div class="team-slot" title="Slot disponible">+</div>`;
-          if (m.isOwner) return `<div class="team-slot owner" title="${m.name}">${m.initials}</div>`;
-          return `<div class="team-slot filled" style="background:${GRADS[i]||GRADS[1]}" title="${m.name}">${m.initials}</div>`;
+          if (m.isOwner) return `<div class="team-slot owner" title="${escHtml(m.name)}">${escHtml(m.initials)}</div>`;
+          return `<div class="team-slot filled" style="background:${GRADS[i]||GRADS[1]}" title="${escHtml(m.name)}">${escHtml(m.initials)}</div>`;
         }).join('')}
         <span style="font-size:11px;color:var(--text3);margin-left:4px;">${5-total} slot${5-total!==1?'s':''} disponible${5-total!==1?'s':''}</span>
       </div>
 
       ${team.map((m, i) => `
         <div class="s-row" style="flex-wrap:wrap;" id="teamRow_${m.id}">
-          <div class="team-av" style="background:${m.isOwner ? GRADS[0] : GRADS[i]||GRADS[1]}">${m.initials}</div>
+          <div class="team-av" style="background:${m.isOwner ? GRADS[0] : GRADS[i]||GRADS[1]}">${escHtml(m.initials)}</div>
           <div class="s-row-info">
             <div class="s-row-label" style="display:flex;align-items:center;gap:7px;">
-              ${m.name}
+              ${escHtml(m.name)}
               <span class="role-badge ${roleBadgeClass(m.role)}">${m.role}</span>
             </div>
-            <div class="s-row-desc">${m.email}</div>
+            <div class="s-row-desc">${escHtml(m.email)}</div>
           </div>
           <div class="s-row-action" style="display:flex;gap:7px;">
             ${m.isOwner
@@ -7785,15 +7793,15 @@ function renderClients() {
         c.isVip    ? `<span class="cc-tag vip">⭐ VIP</span>` : '',
         c.isNew    ? `<span class="cc-tag new">Nuevo</span>` : '',
         c.orders.length > 1 ? `<span class="cc-tag recurrent">Recurrente</span>` : '',
-      ].filter(Boolean).join('') || `<span class="cc-tag">${c.pay || '—'}</span>`;
+      ].filter(Boolean).join('') || `<span class="cc-tag">${escHtml(c.pay || '—')}</span>`;
 
       row.innerHTML = `
-        <div><div class="cr-avatar" style="background:${c.grad}">${initials}</div></div>
+        <div><div class="cr-avatar" style="background:${c.grad}">${escHtml(initials)}</div></div>
         <div class="cr-info">
-          <div class="cr-name">${c.name}</div>
-          <div class="cr-contact">${contact}</div>
+          <div class="cr-name">${escHtml(c.name)}</div>
+          <div class="cr-contact">${escHtml(contact)}</div>
         </div>
-        <div class="cr-city">${location}</div>
+        <div class="cr-city">${escHtml(location)}</div>
         <div class="cr-channel">
           <span style="width:7px;height:7px;border-radius:50%;background:${platColor};display:inline-block;flex-shrink:0;"></span>
           <span style="font-size:11.5px;color:var(--text2);">${platLabel}</span>
@@ -7946,7 +7954,7 @@ function populateProfileModal(client) {
       histEl.innerHTML += `
         <div class="pm-order-row">
           <div class="pm-order-id">${o.id}</div>
-          <div class="pm-order-prod">${o.product}</div>
+          <div class="pm-order-prod">${escHtml(o.product)}</div>
           <div class="pm-order-price">${o.price}</div>
           <div class="pm-order-status">${delBadge}</div>
         </div>
@@ -8086,7 +8094,7 @@ function noRenderClientList(q) {
   f.forEach(c => {
     const initials = c.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
     const item = document.createElement('div'); item.className = 'cli-drop-item';
-    item.innerHTML = `<div class="cli-drop-av" style="background:${c.grad}">${initials}</div><div style="flex:1;min-width:0;"><div style="font-weight:600;">${c.name}</div>${c.phone?`<div style="font-size:11px;color:var(--text2);">${c.phone}</div>`:''}</div>`;
+    item.innerHTML = `<div class="cli-drop-av" style="background:${c.grad}">${escHtml(initials)}</div><div style="flex:1;min-width:0;"><div style="font-weight:600;">${escHtml(c.name)}</div>${c.phone?`<div style="font-size:11px;color:var(--text2);">${escHtml(c.phone)}</div>`:''}</div>`;
     item.onclick = () => { document.getElementById('noClient').value = c.name; document.getElementById('noClientName').textContent = c.name; document.getElementById('noClientName').style.color = 'var(--text)'; document.getElementById('noClientAv').textContent = initials; document.getElementById('noClientAv').style.background = c.grad; document.getElementById('noClientFreeRow').style.display = 'none'; document.getElementById('noClientDrop').style.display = 'none'; document.getElementById('noClientArrow').style.transform = ''; if (c.address) document.getElementById('noAddress').value = c.address; };
     list.appendChild(item);
   });
@@ -8102,8 +8110,8 @@ function nosBuildProducts() {
   catalog.forEach(cat => {
     if (!cat.products.length) return;
     const grp = document.createElement('div'); grp.className = 'psd-cat-group';
-    grp.innerHTML = `<div class="psd-cat-header"><span>${cat.emoji}</span>${cat.name}</div>`;
-    cat.products.forEach(p => { const item = document.createElement('div'); item.className = 'psd-item'; item.innerHTML = `<span class="psd-item-emoji">${p.emoji}</span><span class="psd-item-name">${p.name}</span><span class="psd-item-price">${p.price}</span>`; item.onclick = () => nosSelectProduct(cat.key, p); grp.appendChild(item); });
+    grp.innerHTML = `<div class="psd-cat-header"><span>${escHtml(cat.emoji)}</span>${escHtml(cat.name)}</div>`;
+    cat.products.forEach(p => { const item = document.createElement('div'); item.className = 'psd-item'; item.innerHTML = `<span class="psd-item-emoji">${escHtml(p.emoji)}</span><span class="psd-item-name">${escHtml(p.name)}</span><span class="psd-item-price">${p.price}</span>`; item.onclick = () => nosSelectProduct(cat.key, p); grp.appendChild(item); });
     inner.appendChild(grp);
   });
 }
@@ -8137,7 +8145,7 @@ function nosSelectSize(size) {
   inner2.appendChild(grid);
   document.getElementById('nos3-trigger').classList.remove('disabled'); document.getElementById('nos3-text').textContent = 'Seleccionar color';
   const inner3 = document.getElementById('nos3-inner'); inner3.innerHTML = '';
-  if (nosState.product.colors && nosState.product.colors.length) { nosState.product.colors.forEach(c => { const item = document.createElement('div'); item.className = 'psd-color-item'; item.innerHTML = `<div class="psd-color-swatch" style="background:${c.hex}"></div><span class="psd-color-name">${c.name}</span>`; item.onclick = () => nosSelectColor(c); inner3.appendChild(item); }); } else { inner3.innerHTML = '<div style="padding:10px 12px;font-size:12px;color:var(--text3);">Sin colores</div>'; }
+  if (nosState.product.colors && nosState.product.colors.length) { nosState.product.colors.forEach(c => { const item = document.createElement('div'); item.className = 'psd-color-item'; item.innerHTML = `<div class="psd-color-swatch" style="background:${escHtml(c.hex)}"></div><span class="psd-color-name">${escHtml(c.name)}</span>`; item.onclick = () => nosSelectColor(c); inner3.appendChild(item); }); } else { inner3.innerHTML = '<div style="padding:10px 12px;font-size:12px;color:var(--text3);">Sin colores</div>'; }
   document.querySelectorAll('.prod-seg-drop').forEach(d => d.classList.remove('open')); document.querySelectorAll('.prod-seg-trigger').forEach(t => t.classList.remove('open'));
   document.getElementById('nos3-drop').classList.add('open'); document.getElementById('nos3-trigger').classList.add('open');
   nosUpdateSummary();
@@ -8209,7 +8217,7 @@ function nosRenderItems() {
   const list = document.getElementById('nosItemsList');
   if (!nosItems.length) { list.style.display = 'none'; list.innerHTML = ''; return; }
   list.style.display = 'flex';
-  list.innerHTML = nosItems.map((item,i) => `<div style="display:flex;align-items:center;gap:9px;padding:8px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;"><span style="font-size:16px;">${item.emoji}</span><div style="flex:1;min-width:0;"><div style="font-size:12.5px;font-weight:600;">${item.name}</div><div style="font-size:11px;color:var(--text2);">${item.detail||'—'} · x${item.qty}</div></div><div style="font-size:13px;font-weight:700;color:var(--green);">${item.linePrice>0?'$'+item.linePrice.toFixed(2):item.price}</div><div onclick="nosItems.splice(${i},1);nosRenderItems();nosRecalcTotal()" style="cursor:pointer;color:var(--text3);font-size:16px;" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--text3)'">×</div></div>`).join('');
+  list.innerHTML = nosItems.map((item,i) => `<div style="display:flex;align-items:center;gap:9px;padding:8px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;"><span style="font-size:16px;">${escHtml(item.emoji)}</span><div style="flex:1;min-width:0;"><div style="font-size:12.5px;font-weight:600;">${escHtml(item.name)}</div><div style="font-size:11px;color:var(--text2);">${escHtml(item.detail||'—')} · x${item.qty}</div></div><div style="font-size:13px;font-weight:700;color:var(--green);">${item.linePrice>0?'$'+item.linePrice.toFixed(2):item.price}</div><div onclick="nosItems.splice(${i},1);nosRenderItems();nosRecalcTotal()" style="cursor:pointer;color:var(--text3);font-size:16px;" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--text3)'">×</div></div>`).join('');
 }
 
 function nosAddExtraSelector() {
@@ -8227,7 +8235,7 @@ function nosAddExtraSelector() {
 
 function noxBuildProducts(n) {
   const inner = document.getElementById(`nox1i-${n}`); inner.innerHTML = '';
-  catalog.forEach(cat => { if (!cat.products.length) return; const grp = document.createElement('div'); grp.className = 'psd-cat-group'; grp.innerHTML = `<div class="psd-cat-header"><span>${cat.emoji}</span>${cat.name}</div>`; cat.products.forEach(p => { const item = document.createElement('div'); item.className = 'psd-item'; item.innerHTML = `<span class="psd-item-emoji">${p.emoji}</span><span class="psd-item-name">${p.name}</span><span class="psd-item-price">${p.price}</span>`; item.onclick = () => noxSelectProduct(n, p); grp.appendChild(item); }); inner.appendChild(grp); });
+  catalog.forEach(cat => { if (!cat.products.length) return; const grp = document.createElement('div'); grp.className = 'psd-cat-group'; grp.innerHTML = `<div class="psd-cat-header"><span>${escHtml(cat.emoji)}</span>${escHtml(cat.name)}</div>`; cat.products.forEach(p => { const item = document.createElement('div'); item.className = 'psd-item'; item.innerHTML = `<span class="psd-item-emoji">${escHtml(p.emoji)}</span><span class="psd-item-name">${escHtml(p.name)}</span><span class="psd-item-price">${p.price}</span>`; item.onclick = () => noxSelectProduct(n, p); grp.appendChild(item); }); inner.appendChild(grp); });
 }
 
 function noxToggle(n, seg) {
@@ -8254,7 +8262,7 @@ function noxSelectSize(n, size) {
   document.getElementById(`nox2txt-${n}`).textContent = size; document.getElementById(`nox2txt-${n}`).classList.add('selected');
   document.getElementById(`nox3t-${n}`).classList.remove('disabled'); document.getElementById(`nox3txt-${n}`).textContent = 'Seleccionar color';
   const inner = document.getElementById(`nox3i-${n}`); inner.innerHTML = '';
-  if (s.product.colors && s.product.colors.length) { s.product.colors.forEach(c => { const item = document.createElement('div'); item.className = 'psd-color-item'; item.innerHTML = `<div class="psd-color-swatch" style="background:${c.hex}"></div><span class="psd-color-name">${c.name}</span>`; item.onclick = () => noxSelectColor(n, c); inner.appendChild(item); }); }
+  if (s.product.colors && s.product.colors.length) { s.product.colors.forEach(c => { const item = document.createElement('div'); item.className = 'psd-color-item'; item.innerHTML = `<div class="psd-color-swatch" style="background:${escHtml(c.hex)}"></div><span class="psd-color-name">${escHtml(c.name)}</span>`; item.onclick = () => noxSelectColor(n, c); inner.appendChild(item); }); }
   document.querySelectorAll('.prod-seg-drop').forEach(d => d.classList.remove('open')); document.querySelectorAll('.prod-seg-trigger').forEach(t => t.classList.remove('open'));
   document.getElementById(`nox3d-${n}`).classList.add('open'); document.getElementById(`nox3t-${n}`).classList.add('open');
   noxUpdateSummary(n);
@@ -8738,7 +8746,7 @@ function renderInforme(tab) {
           <thead><tr><th>#Pedido</th><th>Cliente</th><th>Destino</th><th>Estado</th><th>Costo</th></tr></thead>
           <tbody>
             ${d.encomiendaRows.length > 0
-              ? d.encomiendaRows.map(r=>`<tr><td class="bold">${r.id}</td><td>${r.cliente}</td><td>${r.destino}</td><td><span style="font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:5px;background:${r.estado==='Entregado'?'var(--green-dim)':'var(--yellow-dim)'};color:${r.estado==='Entregado'?'var(--green)':'var(--yellow)'};">${r.estado}</span></td><td class="green">${r.costo}</td></tr>`).join('')
+              ? d.encomiendaRows.map(r=>`<tr><td class="bold">${r.id}</td><td>${escHtml(r.cliente)}</td><td>${escHtml(r.destino)}</td><td><span style="font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:5px;background:${r.estado==='Entregado'?'var(--green-dim)':'var(--yellow-dim)'};color:${r.estado==='Entregado'?'var(--green)':'var(--yellow)'};">${r.estado}</span></td><td class="green">${r.costo}</td></tr>`).join('')
               : '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:20px;">Sin encomiendas registradas.</td></tr>'}
           </tbody>
         </table>
@@ -8763,7 +8771,7 @@ function renderInforme(tab) {
               const spent = c.orders.reduce((s,oid)=>{ const o=orders.find(o=>o.id===oid); return s+(o?parseFloat((o.price+'').replace(/[^0-9.]/g,''))||0:0); },0);
               const platColor = c.channel==='wa'?'var(--wa)':'var(--ig)';
               const platLabel = c.channel==='wa'?'WhatsApp':'Instagram';
-              return `<tr><td class="bold">${c.name}${c.isVip?' ⭐':''}</td><td>${c.phone||'—'}</td><td>${c.ig||'—'}</td><td>${c.city||'—'}</td><td><span style="font-size:10px;font-weight:700;color:${platColor};">● ${platLabel}</span></td><td>${c.orders.length}</td><td class="green">${spent>0?'$'+spent:'—'}</td></tr>`;
+              return `<tr><td class="bold">${escHtml(c.name)}${c.isVip?' ⭐':''}</td><td>${escHtml(c.phone||'—')}</td><td>${escHtml(c.ig||'—')}</td><td>${escHtml(c.city||'—')}</td><td><span style="font-size:10px;font-weight:700;color:${platColor};">● ${platLabel}</span></td><td>${c.orders.length}</td><td class="green">${spent>0?'$'+spent:'—'}</td></tr>`;
             }).join('')}
           </tbody>
         </table>
@@ -8781,8 +8789,8 @@ function renderInforme(tab) {
     }
     body.innerHTML = `
       <div class="inf-kpi-row">
-        <div class="inf-kpi"><div class="inf-kpi-label">🏆 Más vendido</div><div class="inf-kpi-val" style="font-size:16px;">${d.topProducts[0][0]}</div><div class="inf-kpi-sub inf-kpi-up">${d.topProducts[0][1]} uds</div></div>
-        <div class="inf-kpi"><div class="inf-kpi-label">💰 Mayor ingreso</div><div class="inf-kpi-val" style="font-size:16px;">${d.topProducts[0][0]}</div><div class="inf-kpi-sub inf-kpi-up">${d.topProducts[0][2]}</div></div>
+        <div class="inf-kpi"><div class="inf-kpi-label">🏆 Más vendido</div><div class="inf-kpi-val" style="font-size:16px;">${escHtml(d.topProducts[0][0])}</div><div class="inf-kpi-sub inf-kpi-up">${d.topProducts[0][1]} uds</div></div>
+        <div class="inf-kpi"><div class="inf-kpi-label">💰 Mayor ingreso</div><div class="inf-kpi-val" style="font-size:16px;">${escHtml(d.topProducts[0][0])}</div><div class="inf-kpi-sub inf-kpi-up">${d.topProducts[0][2]}</div></div>
         <div class="inf-kpi"><div class="inf-kpi-label">📦 Artículos activos</div><div class="inf-kpi-val">${catalog.reduce((s,c)=>s+c.products.length,0)}</div><div class="inf-kpi-sub inf-kpi-neutral">En catálogo</div></div>
         <div class="inf-kpi"><div class="inf-kpi-label">🗂️ Categorías</div><div class="inf-kpi-val">${catalog.length}</div><div class="inf-kpi-sub inf-kpi-neutral">Activas</div></div>
       </div>
@@ -9005,7 +9013,7 @@ function txnRowHTML(t) {
     <div class="txn-row">
       <div class="txn-icon ${iconCls[t.estado]}">${icons[t.estado]}</div>
       <div class="txn-info">
-        <div class="txn-client">${t.cliente} <span style="font-size:10.5px;color:var(--accent2);font-weight:600;">${t.pedido}</span></div>
+        <div class="txn-client">${escHtml(t.cliente)} <span style="font-size:10.5px;color:var(--accent2);font-weight:600;">${t.pedido}</span></div>
         <div class="txn-detail">${t.metodo} · Ref: ${t.ref}</div>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
@@ -9661,10 +9669,10 @@ function buildTicketItemsHtml(items) {
     const precio = item.linePrice > 0 ? '$' + item.linePrice.toFixed(2) : (item.price || '—');
     return `
       <div class="ticket-row" style="align-items:flex-start;padding:4px 0;">
-        <span class="ticket-row-label" style="padding-top:1px;">${item.emoji}</span>
+        <span class="ticket-row-label" style="padding-top:1px;">${escHtml(item.emoji)}</span>
         <span class="ticket-row-value" style="display:flex;flex-direction:column;gap:1px;">
-          <span style="font-weight:700;">${item.name}</span>
-          <span style="font-size:10px;color:#999;">Talla: ${talla} &nbsp;·&nbsp; Color: ${color} &nbsp;·&nbsp; x${item.qty} &nbsp;·&nbsp; <span style="color:var(--green,#22d3a0);font-weight:700;">${precio}</span></span>
+          <span style="font-weight:700;">${escHtml(item.name)}</span>
+          <span style="font-size:10px;color:#999;">Talla: ${escHtml(talla)} &nbsp;·&nbsp; Color: ${escHtml(color)} &nbsp;·&nbsp; x${item.qty} &nbsp;·&nbsp; <span style="color:var(--green,#22d3a0);font-weight:700;">${precio}</span></span>
         </span>
       </div>`;
   }).join('<div style="border-top:1px dashed rgba(255,255,255,0.06);margin:3px 0;"></div>');
@@ -9705,19 +9713,19 @@ function sendPresupuesto() {
       <div class="ticket-header-icon">${businessProfile.logo ? `<img src="${businessProfile.logo}" style="width:32px;height:32px;border-radius:8px;object-fit:cover;">` : '📋'}</div>
       <div>
         <div class="ticket-header-title" style="color:var(--yellow);">Presupuesto</div>
-        <div class="ticket-header-sub">${businessProfile.businessName} · ${dateStr}</div>
+        <div class="ticket-header-sub">${escHtml(businessProfile.businessName)} · ${dateStr}</div>
       </div>
     </div>
     <div class="ticket-body">
       <div class="ticket-id" style="color:var(--yellow);">PRES-${timeStr.replace(':','')} · ${timeStr}</div>
-      <div class="ticket-row"><span class="ticket-row-label">Cliente</span><span class="ticket-row-value">${d.client}</span></div>
+      <div class="ticket-row"><span class="ticket-row-label">Cliente</span><span class="ticket-row-value">${escHtml(d.client)}</span></div>
       <div class="ticket-divider"></div>
       ${buildTicketItemsHtml(d.items)}
       <div class="ticket-divider"></div>
-      <div class="ticket-row"><span class="ticket-row-label">Método de pago</span><span class="ticket-row-value">${payLabel}</span></div>
-      <div class="ticket-row"><span class="ticket-row-label">Entrega</span><span class="ticket-row-value">${delLabel}</span></div>
-      <div class="ticket-row"><span class="ticket-row-label">Dirección</span><span class="ticket-row-value">${d.address || document.getElementById('mAddress')?.value || '—'}</span></div>
-      ${shippingVisible && shippingVal ? `<div class="ticket-row"><span class="ticket-row-label">Envío</span><span class="ticket-row-value">${shippingVal}</span></div>` : ''}
+      <div class="ticket-row"><span class="ticket-row-label">Método de pago</span><span class="ticket-row-value">${escHtml(payLabel)}</span></div>
+      <div class="ticket-row"><span class="ticket-row-label">Entrega</span><span class="ticket-row-value">${escHtml(delLabel)}</span></div>
+      <div class="ticket-row"><span class="ticket-row-label">Dirección</span><span class="ticket-row-value">${escHtml(d.address || document.getElementById('mAddress')?.value || '—')}</span></div>
+      ${shippingVisible && shippingVal ? `<div class="ticket-row"><span class="ticket-row-label">Envío</span><span class="ticket-row-value">${escHtml(shippingVal)}</span></div>` : ''}
       <div class="ticket-total"><span>Total estimado</span><span class="ticket-total-val">${total}</span></div>
     </div>
     <div class="ticket-footer" style="border-top:1px dashed var(--yellow);color:var(--yellow);opacity:0.8;">
@@ -10186,11 +10194,11 @@ function renderInboxList() {
     div.innerHTML = `
       <div class="convo-row1">
         <span class="platform-dot ${platform}"></span>
-        <span class="convo-name">${c.name}</span>
-        <span class="convo-time">${time}</span>
+        <span class="convo-name">${escHtml(c.name)}</span>
+        <span class="convo-time">${escHtml(time)}</span>
         ${c.unread ? '<span class="unread-dot"></span>' : ''}
       </div>
-      <div class="convo-preview">${preview}</div>
+      <div class="convo-preview">${escHtml(preview)}</div>
     `;
     list.appendChild(div);
   });
@@ -11174,12 +11182,12 @@ function renderQrSettingsHtml() {
         ${globalQuickReplies.map((r, i) => `
           <div class="qr-item" style="flex-direction:column;align-items:flex-start;gap:5px;">
             <div style="display:flex;align-items:center;gap:8px;width:100%;">
-              <div class="qr-shortcut">${r.shortcut}</div>
-              <div class="qr-text" style="flex:1;">${r.text}</div>
+              <div class="qr-shortcut">${escHtml(r.shortcut)}</div>
+              <div class="qr-text" style="flex:1;">${escHtml(r.text)}</div>
               <span class="qr-edit" onclick="openQrModal(${i})" title="Editar">✏️</span>
               <span class="qr-del" onclick="deleteQuickReply(${i})" title="Eliminar">×</span>
             </div>
-            ${r.keywords.length ? `<div class="qr-keywords">🔑 ${r.keywords.join(', ')}</div>` : ''}
+            ${r.keywords.length ? `<div class="qr-keywords">🔑 ${escHtml(r.keywords.join(', '))}</div>` : ''}
           </div>
         `).join('')}
       </div>
