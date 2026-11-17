@@ -607,7 +607,7 @@
     background: var(--surface2); border: 1px solid var(--green);
     border-radius: 12px; padding: 11px 16px;
     color: var(--green); font-size: 12.5px; font-weight: 600;
-    z-index: 200; align-items: center; gap: 8px;
+    z-index: 1000; align-items: center; gap: 8px; /* por encima de cualquier modal */
     box-shadow: 0 8px 30px rgba(0,0,0,0.4);
     animation: tIn 0.3s ease;
   }
@@ -3660,7 +3660,7 @@
           <div id="odmProducts"></div>
           <div style="margin-top:10px;">
             <div class="odm-total-row"><span>Subtotal</span><span id="odmSubtotal">—</span></div>
-            <div class="odm-total-row"><span>Envío</span><span>$3.00</span></div>
+            <div class="odm-total-row" id="odmShippingRow" style="display:none;"><span>Envío</span><span id="odmShippingVal">—</span></div>
             <div class="odm-total-row grand"><span>Total</span><span class="odm-total-val" id="odmTotal">—</span></div>
           </div>
         </div>
@@ -3687,6 +3687,10 @@
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:13px;height:13px"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z"/></svg>
         Marcar pago
       </button>
+      <button class="btn-ghost" onclick="openOrderEdit()">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:13px;height:13px"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"/></svg>
+        Editar
+      </button>
       <button class="btn-ghost" onclick="printOrder()" style="color:var(--green);border-color:rgba(34,211,160,0.3);">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:13px;height:13px"><path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m10.5 0a48.536 48.536 0 00-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18 10.5h.008v.008H18V10.5zm-3 0h.008v.008H15V10.5z"/></svg>
         Imprimir
@@ -3694,6 +3698,70 @@
       <button class="btn-ghost" onclick="closeOrderDetail()">Cerrar</button>
     </div>
 
+  </div>
+</div>
+
+<!-- EDITAR PEDIDO -->
+<div class="modal-overlay" id="orderEditModal" onclick="if(event.target===this)closeOrderEdit()" style="z-index:450;">
+  <div class="modal" style="width:600px;max-width:96vw;max-height:90vh;overflow-y:auto;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+      <div class="modal-title">✦ Editar pedido <span id="oeTitleId" style="color:var(--accent2);"></span></div>
+      <div onclick="closeOrderEdit()" style="width:30px;height:30px;border-radius:8px;background:var(--surface3);border:1px solid var(--border);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text2);">
+        <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="width:14px;height:14px"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+      </div>
+    </div>
+    <div class="modal-sub">Los cambios se guardan en el pedido; el ticket ya enviado al cliente no cambia.</div>
+
+    <div class="form-row">
+      <div class="form-field">
+        <div class="form-label">Cliente</div>
+        <select class="form-input" id="oeClient" onchange="onOrderEditClientChange()"></select>
+      </div>
+      <div class="form-field" id="oeClientNameField">
+        <div class="form-label">Nombre en el pedido</div>
+        <input class="form-input" id="oeClientName" type="text" placeholder="Nombre del cliente">
+      </div>
+    </div>
+
+    <div class="form-label" style="margin-top:4px;">Artículos</div>
+    <div id="oeItems" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;"></div>
+    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+      <select class="form-input" id="oeAddProduct" style="flex:1;min-width:200px;" onchange="addOrderEditItemFromCatalog(this)"></select>
+      <button class="btn-ghost" style="font-size:12px;" onclick="addOrderEditItem()">+ Artículo libre</button>
+    </div>
+
+    <div class="form-row">
+      <div class="form-field">
+        <div class="form-label">Método de pago</div>
+        <input class="form-input" id="oePay" list="oePayList" type="text" placeholder="Ej: Zelle">
+        <datalist id="oePayList"></datalist>
+      </div>
+      <div class="form-field">
+        <div class="form-label">Tipo de entrega</div>
+        <input class="form-input" id="oeDelivery" list="oeDeliveryList" type="text" placeholder="Ej: Motorizado">
+        <datalist id="oeDeliveryList"></datalist>
+      </div>
+    </div>
+    <div class="form-field"><div class="form-label">Dirección de entrega</div><input class="form-input" id="oeAddress" type="text" placeholder="Dirección completa..."></div>
+    <div class="form-field"><div class="form-label">Notas</div><input class="form-input" id="oeNotes" type="text" placeholder="Instrucciones especiales..."></div>
+    <div class="form-row">
+      <div class="form-field">
+        <div class="form-label">Costo de envío ($)</div>
+        <input class="form-input" id="oeShipping" type="number" min="0" step="0.01" oninput="recalcOrderEditTotal()">
+      </div>
+      <div class="form-field">
+        <div class="form-label">Total ($) <span id="oeTotalHint" style="text-transform:none;letter-spacing:0;font-weight:500;"></span></div>
+        <input class="form-input" id="oeTotal" type="number" min="0" step="0.01" oninput="this.dataset.manual='1';recalcOrderEditTotal()">
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn-ghost" onclick="closeOrderEdit()">Cancelar</button>
+      <button class="btn-primary" id="oeSaveBtn" onclick="saveOrderEdit()">
+        <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="width:13px;height:13px"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+        Guardar cambios
+      </button>
+    </div>
   </div>
 </div>
 
@@ -4568,6 +4636,202 @@ function patchOrder(orderId, fields) {
     headers: apiHeaders(),
     body: JSON.stringify(fields),
   }).catch(err => console.warn('No se pudo actualizar el pedido en el servidor:', err.message));
+}
+
+// ─── EDITAR PEDIDO (cliente, artículos, pago, entrega, dirección, notas, envío, total) ───
+let _oeItems = [];
+const _round2 = n => Math.round((Number(n) || 0) * 100) / 100;
+
+function openOrderEdit() {
+  const o = orders.find(x => x.id === currentDetailId);
+  if (!o) return;
+  if (!orderRealIds[o.id]) { showToast('⚠ Este pedido no está guardado en el servidor'); return; }
+  const ex = orderExtras[o.id] || {};
+  document.getElementById('oeTitleId').textContent = o.id;
+
+  // Cliente: una ficha (vincula el pedido) o solo un nombre
+  const sel = document.getElementById('oeClient');
+  const fichas = clientsDB.filter(c => isServerId(c.id)).slice().sort((a, b) => a.name.localeCompare(b.name, 'es'));
+  sel.innerHTML = '<option value="">— Sin ficha (solo el nombre) —</option>' +
+    fichas.map(c => `<option value="${escHtml(c.id)}">${escHtml(c.name)}${c.phone ? ' · ' + escHtml(c.phone) : ''}</option>`).join('');
+  sel.value = o.clientId && fichas.some(c => c.id === o.clientId) ? o.clientId : '';
+  document.getElementById('oeClientName').value = o.client || '';
+  onOrderEditClientChange();
+
+  // Artículos (un pedido antiguo sin artículos se edita como una sola línea)
+  const shipping = ex.shipping ? moneyToNum(ex.shipping) : 0;
+  _oeItems = (o.items || []).map(it => ({
+    emoji: it.emoji || '📦', name: it.name || '', detail: it.detail || '', qty: Number(it.qty) || 1,
+    unitPrice: it.unitPrice !== undefined ? Number(it.unitPrice) : moneyToNum(it.price), productId: it.productId || null,
+  }));
+  if (!_oeItems.length) {
+    _oeItems = [{ emoji: ex.emoji || '📦', name: o.product || 'Producto', detail: '', qty: 1,
+      unitPrice: _round2(Math.max(0, moneyToNum(o.price) - shipping)), productId: null }];
+  }
+  renderOrderEditItems();
+
+  const add = document.getElementById('oeAddProduct');
+  add.innerHTML = '<option value="">+ Añadir del catálogo…</option>' + catalog.filter(cat => cat.key !== 'varios' && cat.products.length)
+    .map(cat => `<optgroup label="${escHtml((cat.emoji || '') + ' ' + cat.name)}">` +
+      cat.products.map(p => `<option value="${escHtml(cat.key + '|' + p.id)}">${escHtml((p.emoji || '') + ' ' + p.name + ' · ' + p.price)}</option>`).join('') +
+      '</optgroup>').join('');
+
+  // Pago y entrega: lo configurado + lo que ya se ha usado en otros pedidos
+  const used = (k) => Object.values(orderExtras).map(e => e[k]).filter(v => v && v !== '—' && v !== 'Por confirmar');
+  const dlv = _getDelivery();
+  const payOpts = new Set([...PAY_GRID_META.map(m => m.label), ...used('pay')]);
+  const dlvOpts = new Set([...Object.values(dlv).filter(m => m.enabled).flatMap(m => [m.label, ...(m.items || [])]), ...used('delivery')]);
+  document.getElementById('oePayList').innerHTML = [...payOpts].map(v => `<option value="${escHtml(v)}">`).join('');
+  document.getElementById('oeDeliveryList').innerHTML = [...dlvOpts].map(v => `<option value="${escHtml(v)}">`).join('');
+  const clean = v => (v && v !== '—') ? v : '';
+  document.getElementById('oePay').value = clean(ex.pay);
+  document.getElementById('oeDelivery').value = clean(ex.delivery);
+  document.getElementById('oeAddress').value = clean(ex.address);
+  document.getElementById('oeNotes').value = ex.notes || '';
+  document.getElementById('oeShipping').value = shipping ? shipping.toFixed(2) : '';
+
+  // Total: si el guardado no coincide con la suma, se respeta como total manual
+  const total = moneyToNum(o.price);
+  const tot = document.getElementById('oeTotal');
+  tot.value = total.toFixed(2);
+  if (Math.abs(total - orderEditComputedTotal()) > 0.009) tot.dataset.manual = '1'; else delete tot.dataset.manual;
+  recalcOrderEditTotal();
+
+  document.getElementById('orderDetailOverlay').classList.remove('visible');
+  document.getElementById('orderEditModal').classList.add('visible');
+}
+
+function closeOrderEdit(reopenDetail = true) {
+  document.getElementById('orderEditModal').classList.remove('visible');
+  if (reopenDetail && currentDetailId) {
+    openOrderDetail(currentDetailId);
+    document.getElementById('orderDetailOverlay').classList.add('visible');
+  }
+}
+
+function onOrderEditClientChange() {
+  const id = document.getElementById('oeClient').value;
+  const c = id && clientsDB.find(x => x.id === id);
+  if (c) document.getElementById('oeClientName').value = c.name;
+  document.getElementById('oeClientNameField').style.display = c ? 'none' : '';
+}
+
+function renderOrderEditItems() {
+  const box = document.getElementById('oeItems');
+  if (!_oeItems.length) {
+    box.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:6px 2px;">Sin artículos — añade al menos uno.</div>';
+  } else {
+    const inp = 'class="form-input" style="padding:7px 9px;font-size:12.5px;"';
+    box.innerHTML = _oeItems.map((it, i) => `
+      <div style="display:flex;gap:6px;align-items:center;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:6px;">
+        <input ${inp.replace('padding:7px 9px', 'padding:7px 4px;text-align:center;width:40px;flex:none')} value="${escHtml(it.emoji)}" maxlength="4" oninput="_oeItems[${i}].emoji=this.value" title="Emoji">
+        <div style="flex:2;min-width:0;display:flex;flex-direction:column;gap:4px;">
+          <input ${inp} value="${escHtml(it.name)}" placeholder="Artículo" oninput="_oeItems[${i}].name=this.value">
+          <input ${inp} value="${escHtml(it.detail)}" placeholder="Talla, color… (opcional)" oninput="_oeItems[${i}].detail=this.value">
+        </div>
+        <div style="width:64px;flex:none;"><div class="form-label" style="font-size:9px;margin-bottom:2px;">Cant.</div>
+          <input ${inp} type="number" min="1" step="1" value="${it.qty}" oninput="_oeItems[${i}].qty=parseInt(this.value,10)||0;recalcOrderEditTotal()"></div>
+        <div style="width:84px;flex:none;"><div class="form-label" style="font-size:9px;margin-bottom:2px;">Precio u.</div>
+          <input ${inp} type="number" min="0" step="0.01" value="${_round2(it.unitPrice)}" oninput="_oeItems[${i}].unitPrice=parseFloat(this.value)||0;recalcOrderEditTotal()"></div>
+        <div id="oeLine${i}" style="width:66px;flex:none;text-align:right;font-size:13px;font-weight:700;color:var(--green);"></div>
+        <div onclick="removeOrderEditItem(${i})" title="Quitar" style="width:26px;height:26px;flex:none;border-radius:7px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text3);font-size:16px;" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--text3)'">×</div>
+      </div>`).join('');
+  }
+  recalcOrderEditTotal();
+}
+
+function addOrderEditItem(item) {
+  _oeItems.push(item || { emoji: '📦', name: '', detail: '', qty: 1, unitPrice: 0, productId: null });
+  renderOrderEditItems();
+  if (!item) { const rows = document.querySelectorAll('#oeItems input[placeholder="Artículo"]'); rows[rows.length - 1]?.focus(); }
+}
+
+function addOrderEditItemFromCatalog(sel) {
+  const [catKey, prodId] = String(sel.value).split('|');
+  sel.value = '';
+  const cat = catalog.find(c => c.key === catKey);
+  const p = cat && cat.products.find(x => String(x.id) === prodId);
+  if (!p) return;
+  addOrderEditItem({ emoji: p.emoji || '📦', name: p.name, detail: '', qty: 1, unitPrice: moneyToNum(p.price), productId: isServerId(p.id) ? p.id : null });
+}
+
+function removeOrderEditItem(i) {
+  _oeItems.splice(i, 1);
+  renderOrderEditItems();
+}
+
+function orderEditComputedTotal() {
+  const items = _oeItems.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.unitPrice) || 0), 0);
+  return _round2(items + (parseFloat(document.getElementById('oeShipping').value) || 0));
+}
+
+function recalcOrderEditTotal() {
+  _oeItems.forEach((it, i) => {
+    const el = document.getElementById('oeLine' + i);
+    if (el) el.textContent = '$' + _round2((Number(it.qty) || 0) * (Number(it.unitPrice) || 0)).toFixed(2);
+  });
+  const computed = orderEditComputedTotal();
+  const tot = document.getElementById('oeTotal');
+  if (!tot.dataset.manual) tot.value = computed.toFixed(2);
+  const differs = Math.abs((parseFloat(tot.value) || 0) - computed) > 0.009;
+  document.getElementById('oeTotalHint').innerHTML = differs
+    ? `· suma: $${computed.toFixed(2)} <a href="#" onclick="event.preventDefault();delete document.getElementById('oeTotal').dataset.manual;recalcOrderEditTotal();" style="color:var(--accent2);">usar suma</a>`
+    : '';
+}
+
+let _savingOrderEdit = false;
+async function saveOrderEdit() {
+  if (_savingOrderEdit) return;
+  const o = orders.find(x => x.id === currentDetailId);
+  const realId = o && orderRealIds[o.id];
+  if (!realId) return;
+
+  const clientId = document.getElementById('oeClient').value || null;
+  const clientName = document.getElementById('oeClientName').value.trim();
+  if (!clientName) { showToast('⚠ Escribe el nombre del cliente'); return; }
+  if (!_oeItems.length) { showToast('⚠ El pedido necesita al menos un artículo'); return; }
+  for (const it of _oeItems) {
+    if (!String(it.name || '').trim()) { showToast('⚠ Cada artículo necesita un nombre'); return; }
+    if (!Number.isInteger(it.qty) || it.qty < 1) { showToast('⚠ La cantidad de "' + it.name + '" no es válida'); return; }
+    if (!(it.unitPrice >= 0)) { showToast('⚠ El precio de "' + it.name + '" no es válido'); return; }
+  }
+  const total = parseFloat(document.getElementById('oeTotal').value);
+  if (!(total >= 0)) { showToast('⚠ El total no es válido'); return; }
+  const items = _oeItems.map(it => ({
+    emoji: (it.emoji || '').trim() || '📦', name: it.name.trim(), detail: (it.detail || '').trim(), qty: it.qty,
+    unitPrice: _round2(it.unitPrice), linePrice: _round2(it.qty * it.unitPrice), productId: it.productId || null,
+  }));
+
+  _savingOrderEdit = true;
+  const btn = document.getElementById('oeSaveBtn');
+  btn.disabled = true; btn.style.opacity = '.6';
+  let saved;
+  try {
+    saved = await apiJson('PATCH', '/api/orders/' + realId, {
+      client_id: clientId,
+      client_name: clientName,
+      items,
+      product_summary: items.map(i => (i.qty > 1 ? i.qty + 'x ' : '') + i.name).join(' + '),
+      total_price: _round2(total),
+      shipping: _round2(parseFloat(document.getElementById('oeShipping').value) || 0),
+      pay_method_label: document.getElementById('oePay').value.trim() || null,
+      delivery_method_label: document.getElementById('oeDelivery').value.trim() || null,
+      address: document.getElementById('oeAddress').value.trim() || null,
+      notes: document.getElementById('oeNotes').value.trim() || null,
+    });
+  } catch (err) {
+    showToast('⚠ No se guardaron los cambios (' + err.message + ')');
+    return;
+  } finally {
+    _savingOrderEdit = false;
+    btn.disabled = false; btn.style.opacity = '';
+  }
+  storeServerOrder(saved, 'replace');
+  renderOrders();
+  if (document.getElementById('v-clientes')?.classList.contains('active')) renderClients();
+  if (convos[currentConvo] && document.getElementById('op-history').style.display === 'flex') showConvoHistory(currentConvo);
+  closeOrderEdit(true);
+  showToast(`Pedido ${saved.orderNumber} actualizado ✓`);
 }
 
 function toggleOrderDelivery() {

@@ -524,13 +524,13 @@ async function dbCreateOrder(tenantId, data) {
     ]);
     const order = rows[0];
 
-    for (const item of (data.items || [])) {
+    for (const item of cleanOrderItems(data.items || [])) {
       await client.query(`
         INSERT INTO order_items (order_id, tenant_id, product_id, emoji, name, detail, qty, unit_price, line_price)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        VALUES ($1, $2, (SELECT id FROM catalog_products WHERE id::text = $3 AND tenant_id = $2), $4, $5, $6, $7, $8, $9)
       `, [
-        order.id, tenantId, item.productId || null, item.emoji || null, item.name || null,
-        item.detail || null, item.qty || 1, item.unitPrice || 0, item.linePrice || 0,
+        order.id, tenantId, item.productId, item.emoji, item.name,
+        item.detail, item.qty, item.unitPrice, item.linePrice,
       ]);
     }
 
@@ -588,35 +588,93 @@ async function resolveOrderClient(db, tenantId, data) {
   return { clientId: rows[0].id, createdClient: mapClientRow(rows[0]) };
 }
 
+// Valida la lista de artículos de un pedido que llega por la API
+const MAX_ORDER_ITEMS = 100;
+function cleanOrderItems(items) {
+  if (!Array.isArray(items)) throw new BadRequest('items debe ser una lista');
+  if (items.length > MAX_ORDER_ITEMS) throw new BadRequest(`Máximo ${MAX_ORDER_ITEMS} artículos por pedido`);
+  const str = (v, max) => (v === undefined || v === null || v === '') ? null : String(v).slice(0, max);
+  const money = (v) => { const n = Number(v); if (!Number.isFinite(n) || n < 0 || n > 1e8) throw new BadRequest('Precio inválido'); return Math.round(n * 100) / 100; };
+  return items.map(it => {
+    if (!it || typeof it !== 'object') throw new BadRequest('Artículo inválido');
+    const name = str(it.name, 200);
+    if (!name) throw new BadRequest('Cada artículo necesita un nombre');
+    const qty = Number(it.qty ?? 1);
+    if (!Number.isInteger(qty) || qty < 1 || qty > 100000) throw new BadRequest('Cantidad inválida');
+    const unitPrice = money(it.unitPrice ?? 0);
+    return {
+      productId: UUID_RE.test(String(it.productId || '')) ? String(it.productId) : null,
+      emoji: str(it.emoji, 16), name, detail: str(it.detail, 300), qty, unitPrice,
+      linePrice: it.linePrice === undefined ? money(unitPrice * qty) : money(it.linePrice),
+    };
+  });
+}
+
+// Actualiza un pedido (campos en snake_case). Con `items` reemplaza todos sus artículos;
+// con `client_id` lo pasa a otra ficha del mismo negocio (null = sin ficha). Todo o nada.
 async function dbUpdateOrder(tenantId, orderId, fields) {
   if (!dbReady) return null;
+  if (!UUID_RE.test(String(orderId))) return null;
   const allowed = ['pay_status', 'delivery_status', 'pay_method_label', 'delivery_method_label',
     'address', 'notes', 'client_name', 'product_summary', 'total_price', 'shipping'];
-  const sets = [];
-  const values = [];
-  let i = 1;
-  for (const [key, val] of Object.entries(fields)) {
-    if (!allowed.includes(key)) continue;
-    sets.push(`${key} = $${i++}`);
-    values.push(val);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: found } = await client.query('SELECT id FROM orders WHERE id = $1 AND tenant_id = $2 FOR UPDATE', [orderId, tenantId]);
+    if (!found[0]) { await client.query('ROLLBACK'); return null; }
+
+    const sets = [];
+    const values = [];
+    for (const [key, val] of Object.entries(fields)) {
+      if (!allowed.includes(key)) continue;
+      values.push(val);
+      sets.push(`${key} = $${values.length}`);
+    }
+    if (fields.client_id !== undefined) {
+      let clientId = null;
+      if (fields.client_id !== null) {
+        const { rows } = await client.query('SELECT id FROM clients WHERE id::text = $1 AND tenant_id = $2', [String(fields.client_id), tenantId]);
+        if (!rows[0]) throw new BadRequest('Cliente no encontrado');
+        clientId = rows[0].id;
+      }
+      values.push(clientId);
+      sets.push(`client_id = $${values.length}`);
+    }
+    const items = fields.items !== undefined ? cleanOrderItems(fields.items) : null;
+    if (!sets.length && !items) throw new BadRequest('No hay campos válidos para actualizar');
+
+    sets.push('updated_at = NOW()');
+    values.push(orderId, tenantId);
+    const { rows } = await client.query(
+      `UPDATE orders SET ${sets.join(', ')} WHERE id = $${values.length - 1} AND tenant_id = $${values.length} RETURNING *`,
+      values
+    );
+    if (items) {
+      await client.query('DELETE FROM order_items WHERE order_id = $1 AND tenant_id = $2', [orderId, tenantId]);
+      for (const it of items) {
+        // Un producto del catálogo solo se enlaza si es de este negocio
+        await client.query(`
+          INSERT INTO order_items (order_id, tenant_id, product_id, emoji, name, detail, qty, unit_price, line_price)
+          VALUES ($1, $2, (SELECT id FROM catalog_products WHERE id::text = $3 AND tenant_id = $2), $4, $5, $6, $7, $8, $9)
+        `, [orderId, tenantId, it.productId, it.emoji, it.name, it.detail, it.qty, it.unitPrice, it.linePrice]);
+      }
+    }
+    const { rows: itemRows } = await client.query(
+      'SELECT id, product_id, emoji, name, detail, qty, unit_price, line_price FROM order_items WHERE order_id = $1 AND tenant_id = $2 ORDER BY ctid',
+      [orderId, tenantId]
+    );
+    await client.query('COMMIT');
+    rows[0].items = itemRows.map(it => ({
+      id: it.id, productId: it.product_id, emoji: it.emoji, name: it.name,
+      detail: it.detail, qty: it.qty, unitPrice: it.unit_price, linePrice: it.line_price,
+    }));
+    return mapOrderRow(rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
   }
-  if (sets.length === 0) return null;
-  sets.push(`updated_at = NOW()`);
-  values.push(orderId, tenantId);
-  const { rows } = await pool.query(
-    `UPDATE orders SET ${sets.join(', ')} WHERE id = $${i++} AND tenant_id = $${i} RETURNING *`,
-    values
-  );
-  if (!rows[0]) return null;
-  const { rows: itemRows } = await pool.query(
-    'SELECT id, product_id, emoji, name, detail, qty, unit_price, line_price FROM order_items WHERE order_id = $1',
-    [orderId]
-  );
-  rows[0].items = itemRows.map(it => ({
-    id: it.id, productId: it.product_id, emoji: it.emoji, name: it.name,
-    detail: it.detail, qty: it.qty, unitPrice: it.unit_price, linePrice: it.line_price,
-  }));
-  return mapOrderRow(rows[0]);
 }
 
 // ── DB helpers — Clientes ─────────────────────────────────────
@@ -918,7 +976,7 @@ async function demoGuard(req) {
     if (parseInt(len, 10) > DEMO_MAX_BODY) return tooBig;
     if (req.body && JSON.stringify(req.body).length > DEMO_MAX_BODY) return tooBig;
   }
-  if (key === 'POST /api/orders' && Array.isArray(req.body?.items) && req.body.items.length > 30) {
+  if ((key === 'POST /api/orders' || key === 'PATCH /api/orders/:id') && Array.isArray(req.body?.items) && req.body.items.length > 30) {
     return { status: 400, body: { error: 'demo_limit', message: 'En la demo un pedido admite hasta 30 artículos.' } };
   }
   const limit = DEMO_ROW_LIMITS[key];
@@ -1751,6 +1809,7 @@ app.patch('/api/orders/:id', requireAuth, async (req, res) => {
     if (!order) return res.status(404).json({ error: 'Pedido no encontrado' });
     res.json(order);
   } catch (err) {
+    if (err instanceof BadRequest) return res.status(400).json({ error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
