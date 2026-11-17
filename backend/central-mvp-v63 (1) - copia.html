@@ -4627,15 +4627,20 @@ function updateDetailDeliveryBtn(delivery) {
   btn.childNodes[btn.childNodes.length-1].textContent = ' ' + cfg.label;
 }
 
-// Persiste un cambio de estado de pedido en el backend real (no bloquea la UI)
-function patchOrder(orderId, fields) {
+// Guarda en el servidor un cambio de estado ya mostrado en pantalla. Si falla, avisa y
+// ejecuta undo() para volver a dejar la pantalla como está en el servidor.
+function patchOrder(orderId, fields, undo) {
   const realId = orderRealIds[orderId];
-  if (!realId) return;
-  fetch(BACKEND_URL + '/api/orders/' + realId, {
-    method: 'PATCH',
-    headers: apiHeaders(),
-    body: JSON.stringify(fields),
-  }).catch(err => console.warn('No se pudo actualizar el pedido en el servidor:', err.message));
+  if (!realId) {
+    showToast('⚠ El pedido ' + orderId + ' no está guardado en el servidor');
+    if (undo) undo();
+    return Promise.resolve(false);
+  }
+  return apiJson('PATCH', '/api/orders/' + realId, fields).then(() => true).catch(err => {
+    if (undo) undo();
+    showToast('⚠ No se guardó el cambio del pedido ' + orderId + ' (' + err.message + ')');
+    return false;
+  });
 }
 
 // ─── EDITAR PEDIDO (cliente, artículos, pago, entrega, dirección, notas, envío, total) ───
@@ -4838,8 +4843,13 @@ function toggleOrderDelivery() {
   const o = orders.find(o => o.id === currentDetailId);
   if (!o) return;
   const cycle = { to_deliver:'delivered', delivered:'not_delivered', not_delivered:'to_deliver' };
+  const prev = o.delivery;
   o.delivery = cycle[o.delivery];
-  patchOrder(o.id, { delivery_status: o.delivery });
+  patchOrder(o.id, { delivery_status: o.delivery }, () => {
+    o.delivery = prev;
+    if (currentDetailId === o.id) updateDetailDeliveryBtn(prev);
+    renderOrders();
+  });
   updateDetailDeliveryBtn(o.delivery);
   renderOrders();
   const labels = { to_deliver:'Por entregar', delivered:'Entregado ✓', not_delivered:'No entregado ⚠' };
@@ -4849,8 +4859,13 @@ function toggleOrderDelivery() {
 function toggleOrderPay() {
   const o = orders.find(o => o.id === currentDetailId);
   if (!o) return;
+  const prevPay = o.pay;
   o.pay = o.pay === 'ok' ? 'pend' : 'ok';
-  patchOrder(o.id, { pay_status: o.pay });
+  patchOrder(o.id, { pay_status: o.pay }, () => {
+    o.pay = prevPay;
+    if (currentDetailId === o.id && document.getElementById('orderDetailOverlay').classList.contains('visible')) openOrderDetail(o.id);
+    renderOrders();
+  });
   const payBadge = document.getElementById('odmPayBadge');
   payBadge.className = 'odm-pay-badge ' + (o.pay === 'ok' ? 'odm-pay-ok' : 'odm-pay-pend');
   payBadge.textContent = o.pay === 'ok' ? 'Cobrado ✓' : 'Pago pendiente';
@@ -4992,8 +5007,9 @@ function cycleDelivery(el, orderId) {
   const order = orders.find(o => o.id === orderId);
   if (!order) return;
   const cycle = { 'to_deliver': 'delivered', 'delivered': 'not_delivered', 'not_delivered': 'to_deliver' };
+  const prev = order.delivery;
   order.delivery = cycle[order.delivery];
-  patchOrder(order.id, { delivery_status: order.delivery });
+  patchOrder(order.id, { delivery_status: order.delivery }, () => { order.delivery = prev; renderOrders(); });
   renderOrders();
   const labels = { 'to_deliver': 'Por entregar', 'delivered': 'Entregado ✓', 'not_delivered': 'No entregado ⚠' };
   showToast(`Pedido ${orderId} → ${labels[order.delivery]}`);
@@ -6118,7 +6134,9 @@ function selectEmojiDirect(emoji, el) {
   el.classList.add('selected');
 }
 
-function saveCatProduct() {
+let _savingCatProduct = false;
+async function saveCatProduct() {
+  if (_savingCatProduct) return;
   const catKey = document.getElementById('cpCategoryKey').value;
   const editId = document.getElementById('cpEditId').value;
   const name   = document.getElementById('cpName').value.trim();
@@ -6146,51 +6164,64 @@ function saveCatProduct() {
     emoji: editingEmoji, sizes: productData.sizes, colors: productData.colors,
   };
 
+  // Primero el servidor; si falla, el formulario queda abierto para reintentar
+  _savingCatProduct = true;
+  let saved;
+  try {
+    saved = editId
+      ? await apiJson('PATCH', '/api/catalog/' + editId, apiPayload)
+      : await apiJson('POST', '/api/catalog', apiPayload);
+    if (!saved || !saved.id) throw new Error('respuesta inesperada del servidor');
+  } catch (err) {
+    showToast('⚠ No se guardó "' + name + '" (' + err.message + ')');
+    return;
+  } finally {
+    _savingCatProduct = false;
+  }
   if (editId) {
     const prod = cat.products.find(p => p.id === editId);
-    Object.assign(prod, productData);
+    if (prod) Object.assign(prod, productData);
     showToast(`"${name}" actualizado ✓`);
-    fetch(BACKEND_URL + '/api/catalog/' + prod.id, {
-      method: 'PATCH', headers: apiHeaders(), body: JSON.stringify(apiPayload),
-    }).catch(err => console.warn('No se pudo actualizar el producto en el servidor:', err.message));
   } else {
-    const newProd = { id: 'p' + Date.now(), ...productData };
-    cat.products.push(newProd);
+    cat.products.push({ id: saved.id, ...productData });
     showToast(`"${name}" agregado al catálogo ✓`);
-    fetch(BACKEND_URL + '/api/catalog', {
-      method: 'POST', headers: apiHeaders(), body: JSON.stringify(apiPayload),
-    }).then(r => r.json()).then(saved => {
-      if (saved && saved.id) newProd.id = saved.id; // id temporal → id real del servidor
-    }).catch(err => console.warn('No se pudo guardar el producto en el servidor:', err.message));
   }
   closeCatProductModal();
   renderCatalog();
 }
 
-function deleteProduct(catKey, prodId) {
+async function deleteProduct(catKey, prodId) {
   const cat = catalog.find(c => c.key === catKey);
-  const prod = cat.products.find(p => p.id === prodId);
+  const prod = cat && cat.products.find(p => p.id === prodId);
+  if (!prod) return;
+  try {
+    await apiJson('DELETE', '/api/catalog/' + prodId);
+  } catch (err) {
+    showToast('⚠ No se eliminó "' + prod.name + '" (' + err.message + ')');
+    return;
+  }
   cat.products = cat.products.filter(p => p.id !== prodId);
   showToast(`"${prod.name}" eliminado`);
   renderCatalog();
-  fetch(BACKEND_URL + '/api/catalog/' + prodId, {
-    method: 'DELETE', headers: apiHeaders(),
-  }).catch(err => console.warn('No se pudo eliminar el producto en el servidor:', err.message));
 }
 
-function deleteCategory(catKey, catName) {
+async function deleteCategory(catKey, catName) {
   const cat = catalog.find(c => c.key === catKey);
   if (cat.products.length > 0) {
     if (!confirm(`¿Eliminar la categoría "${catName}" y sus ${cat.products.length} artículo(s)? Esta acción no se puede deshacer.`)) return;
   }
-  const idsToDelete = cat.products.map(p => p.id);
+  // Se borra cada artículo en el servidor; los que fallen se quedan en la categoría
+  const results = await Promise.allSettled(cat.products.map(p => apiJson('DELETE', '/api/catalog/' + p.id)));
+  const failedIds = new Set(cat.products.filter((p, i) => results[i].status === 'rejected').map(p => p.id));
+  if (failedIds.size) {
+    cat.products = cat.products.filter(p => failedIds.has(p.id));
+    renderCatalog();
+    showToast(`⚠ No se pudieron eliminar ${failedIds.size} artículo(s) de "${catName}". Inténtalo de nuevo.`);
+    return;
+  }
   catalog = catalog.filter(c => c.key !== catKey);
   showToast(`Categoría "${catName}" eliminada`);
   renderCatalog();
-  idsToDelete.forEach(id => {
-    fetch(BACKEND_URL + '/api/catalog/' + id, { method: 'DELETE', headers: apiHeaders() })
-      .catch(err => console.warn('No se pudo eliminar un producto en el servidor:', err.message));
-  });
 }
 
 // ─── SIZES ────────────────────────────────────────────────────
@@ -8201,7 +8232,9 @@ function populateProfileModal(client) {
   document.getElementById('profileOverlay').classList.add('visible');
 }
 
-function saveClientProfile() {
+let _savingClient = false;
+async function saveClientProfile() {
+  if (_savingClient) return;
   const name = document.getElementById('pmFieldName').value.trim();
   if (!name) { document.getElementById('pmFieldName').focus(); return; }
 
@@ -8221,43 +8254,53 @@ function saveClientProfile() {
     notes:   document.getElementById('pmFieldNotes').value.trim(),
   };
 
+  // Primero el servidor; si falla, la ficha queda abierta para reintentar
+  _savingClient = true;
+  let saved;
+  try {
+    saved = existing
+      ? await apiJson('PATCH', '/api/clients/' + existing.id, Object.assign({}, data, { payMethod: data.pay, isVip: !!existing.isVip }))
+      : await apiJson('POST', '/api/clients', Object.assign({}, data, { payMethod: data.pay, convoKey: (window._pmDraftClient && window._pmDraftClient.id === currentClientId && window._pmDraftClient.convoKey) || undefined }));
+    if (!saved || !saved.id) throw new Error('respuesta inesperada del servidor');
+  } catch (err) {
+    showToast('⚠ No se guardó la ficha de ' + name + ' (' + err.message + ')');
+    return;
+  } finally {
+    _savingClient = false;
+  }
   if (existing) {
     Object.assign(existing, data);
     existing._unsaved = false;
+    // El servidor ya cambió el nombre en sus pedidos: lo mismo en pantalla
+    orders.forEach(o => { if (o.clientId === existing.id) o.client = saved.name; });
+    renderOrders();
     showToast(`Ficha de ${name} actualizada ✓`);
-    fetch(BACKEND_URL + '/api/clients/' + existing.id, {
-      method: 'PATCH', headers: apiHeaders(), body: JSON.stringify(data),
-    }).catch(err => console.warn('No se pudo actualizar el cliente en el servidor:', err.message));
   } else {
-    const temp = window._tempClient || {};
-    const draft = (window._pmDraftClient && window._pmDraftClient.id === currentClientId) ? window._pmDraftClient : {};
-    if (draft.convoKey) data.convoKey = draft.convoKey;
-    const newClient = { ...temp, ...data, id: currentClientId, _unsaved: false };
-    clientsDB.push(newClient);
+    clientsDB.push(clientFromServer(saved));
     showToast(`${name} agregado a tus clientes ✓`);
-    fetch(BACKEND_URL + '/api/clients', {
-      method: 'POST', headers: apiHeaders(), body: JSON.stringify(data),
-    }).then(r => r.json()).then(saved => {
-      if (saved && saved.id) newClient.id = saved.id; // id temporal → id real del servidor
-    }).catch(err => console.warn('No se pudo guardar el cliente en el servidor:', err.message));
   }
 
   closeProfileModal();
   if (document.getElementById('v-clientes').classList.contains('active')) renderClients();
 }
 
-function deleteClient() {
+async function deleteClient() {
   const c = clientsDB.find(c => c.id === currentClientId);
   if (!c) return;
-  clientsDB = clientsDB.filter(cl => cl.id !== currentClientId);
+  if (!c._unsaved) {
+    try {
+      await apiJson('DELETE', '/api/clients/' + c.id);
+    } catch (err) {
+      showToast('⚠ No se eliminó la ficha de ' + c.name + ' (' + err.message + ')');
+      return;
+    }
+  }
+  clientsDB = clientsDB.filter(cl => cl.id !== c.id);
+  // Sus pedidos se conservan, sin ficha (como en el servidor)
+  orders.forEach(o => { if (o.clientId === c.id) o.clientId = null; });
   closeProfileModal();
   renderClients();
   showToast(`${c.name} eliminado de clientes`);
-  if (!c._unsaved) {
-    fetch(BACKEND_URL + '/api/clients/' + c.id, {
-      method: 'DELETE', headers: apiHeaders(),
-    }).catch(err => console.warn('No se pudo eliminar el cliente en el servidor:', err.message));
-  }
 }
 
 function closeProfileModal(e) {
@@ -10198,16 +10241,13 @@ function saveProfileSettings() {
   applyBrandingGlobal();
   showToast('Perfil guardado correctamente ✓');
 
-  // Guardar también en el backend real, para que Central Admin refleje los cambios
-  fetch(BACKEND_URL + '/api/tenant/profile', {
-    method: 'PUT', headers: apiHeaders(),
-    body: JSON.stringify({
-      business_name: businessProfile.businessName,
-      email: businessProfile.email,
-      country: businessProfile.country,
-      whatsapp_number: businessProfile.phone,
-    }),
-  }).catch(err => console.warn('No se pudo sincronizar el perfil con el servidor:', err.message));
+  // Guardar también en el backend real (si falla, se avisa), para que Central Admin refleje los cambios
+  apiJson('PUT', '/api/tenant/profile', {
+    business_name: businessProfile.businessName,
+    email: businessProfile.email,
+    country: businessProfile.country,
+    whatsapp_number: businessProfile.phone,
+  }).catch(err => showToast('⚠ El perfil se guardó en este dispositivo pero no en el servidor (' + err.message + ')'));
 }
 
 function applyBrandingGlobal() {
@@ -10513,6 +10553,20 @@ function storeServerOrder(ro, mode) {
   return order;
 }
 
+// Avisa una sola vez (agrupado) de lo que no se pudo cargar al abrir la app
+const _loadErrors = new Set();
+let _loadErrorTimer = null;
+function notifyLoadError(what) {
+  _loadErrors.add(what);
+  clearTimeout(_loadErrorTimer);
+  _loadErrorTimer = setTimeout(() => {
+    const l = [..._loadErrors];
+    const what = l.length > 1 ? l.slice(0, -1).join(', ') + ' y ' + l[l.length - 1] : l[0];
+    showToast('⚠ Error al cargar ' + what + '. Revisa tu conexión y recarga la página.');
+    _loadErrors.clear();
+  }, 400);
+}
+
 async function loadRealOrders() {
   try {
     const res = await fetch(BACKEND_URL + '/api/orders', { headers: apiAuthHeader() });
@@ -10530,6 +10584,7 @@ async function loadRealOrders() {
     return true;
   } catch (err) {
     console.warn('No se pudo cargar pedidos reales:', err.message);
+    notifyLoadError('los pedidos');
     return false;
   }
 }
@@ -10620,6 +10675,7 @@ async function loadRealClients() {
     return true;
   } catch (err) {
     console.warn('No se pudo cargar clientes reales:', err.message);
+    notifyLoadError('los clientes');
     return false;
   }
 }
@@ -10652,6 +10708,7 @@ async function loadRealCatalog() {
     return true;
   } catch (err) {
     console.warn('No se pudo cargar el catálogo real:', err.message);
+    notifyLoadError('el catálogo');
     return false;
   }
 }
@@ -10759,6 +10816,7 @@ async function loadRealConversations() {
     return true;
   } catch (err) {
     console.warn('No se pudo conectar al backend real, usando datos de ejemplo:', err.message);
+    notifyLoadError('las conversaciones');
     return false;
   }
 }
@@ -11217,7 +11275,13 @@ function toggleScheduleDay(idx, toggleEl) {
   toggleEl.classList.toggle('on');
   const active = toggleEl.classList.contains('on');
   s[idx].active = active;
-  saveAutoReplyConfig({ schedule: s });
+  saveAutoReplyConfig({ schedule: s }).then(ok => {
+    if (ok) return;
+    toggleEl.classList.toggle('on', !active); // no se guardó: vuelve a como estaba
+    s[idx].active = !active;
+    const panel = document.getElementById('settingsContent');
+    if (panel && settingsPanels.horario) panel.innerHTML = settingsPanels.horario();
+  });
   const timesDiv = document.getElementById('schedTimes_' + idx);
   if (timesDiv) {
     if (active) {
@@ -11228,7 +11292,6 @@ function toggleScheduleDay(idx, toggleEl) {
       timesDiv.innerHTML = `<span class="sched-closed">Cerrado</span>`;
     }
   }
-  showToast(active ? 'Día habilitado' : 'Día deshabilitado');
 }
 
 // ── Métodos de pago ──────────────────────────────────────────
