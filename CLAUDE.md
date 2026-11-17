@@ -46,7 +46,7 @@ AGENTES.md                            ← Guía de uso de agentes Claude
 - Se crean desde `central-admin.html` → Demos (sesión superadmin + `DEMO_CREATION_KEY`).
 - `tenants.is_demo = true`, `expires_at` → login, API y `/app` rechazan la cuenta al caducar.
 - En demos, los envíos a WhatsApp/Instagram se simulan (`simulateIfDemo`): nunca salen a Meta.
-- El SPA muestra un banner con los días restantes (`window.__DEMO_MODE__`, inyectado en `/app`).
+- El SPA muestra un banner con los días restantes (`window.__DEMO_MODE__`, inyectado en `/app`). `/app` también inyecta `window.__TENANT_PLAN__` en todas las cuentas, para que el menú del plan sea correcto desde el primer instante.
 - **Aislamiento (no romper):**
   - `DEMO_ALLOWED_ROUTES` en server.js es una **lista blanca**: una demo solo puede usar esas rutas; cualquier ruta nueva queda bloqueada para demos (`demo_blocked`) hasta añadirla a propósito. No añadas rutas que llamen a servicios externos.
   - Facturación de demos con `demoBilling`: el cambio de plan (basic/pro/business) se guarda directo, **nunca** se llama a Stripe. Las demos arrancan en `business`.
@@ -112,13 +112,17 @@ AGENTES.md                            ← Guía de uso de agentes Claude
 | Pedidos | `orders` | `loadRealOrders()` | `GET/POST /api/orders`, `PATCH /api/orders/:id` |
 | Catálogo | `catalog` | `loadRealCatalog()` | `GET/POST /api/catalog`, `PATCH/DELETE /api/catalog/:id` |
 | Clientes | `clientsDB` | `loadRealClients()` | `GET/POST /api/clients`, `PATCH/DELETE /api/clients/:id` |
-| Informes | `getInfData(period)` | calculado en el navegador a partir de `orders` | (`GET /api/reports` existe pero el SPA no lo usa) |
+| Informes | `fetchInfData()` | `renderInforme(tab)` (asíncrono) | `GET /api/reports?period=&canal=&from=&to=&tz=` — lo calcula el servidor en la zona horaria del negocio |
 | Ajustes | `businessProfile` | al cargar tenant | `GET/PUT /api/tenant/profile` |
 | Horario + respuesta automática | `autoReplyCfg` | `loadAutoReplyConfig()` | `GET/PUT /api/tenant/auto-reply` |
 
 **Respuesta automática fuera de horario:** la envía el **servidor** (`maybeSendAutoReply` en el webhook), una vez por conversación y día en la zona horaria del negocio (`tenants.timezone`). Apagada por defecto (`auto_reply_enabled`). Llega al SPA como `message_sent` con `auto: true`.
 
-**Pedidos:** el número visible (`#0001`) es `orders.tenant_order_number`, propio de cada negocio (contador `tenants.order_seq`). `order_number` (BIGSERIAL global) queda solo como respaldo.
+**Pedidos:** el número visible (`#0001`) es `orders.tenant_order_number`, propio de cada negocio (contador `tenants.order_seq`). `order_number` (BIGSERIAL global) queda solo como respaldo. El SPA **primero guarda en el servidor** y usa el número que este devuelve (también en el ticket); nunca inventa números. `storeServerOrder()` es la única forma de meter un pedido del servidor en `orders`.
+- **Pedido ↔ cliente por ficha (`orders.client_id`), nunca por nombre.** `POST /api/orders` acepta `clientId` (se comprueba que sea del negocio) o, si no hay ficha, `clientConvoKey`/`clientPhone` y el servidor la crea (`createdClient` en la respuesta). `clients.convo_key` une la ficha a su chat (waId o `ig_…`). En el SPA: `findClientForConvo()`, `relinkClientOrders()`. Renombrar una ficha actualiza `client_name` de sus pedidos.
+- **Editar pedido:** `PATCH /api/orders/:id` (snake_case) acepta además `items` (reemplaza todos, validados con `cleanOrderItems`) y `client_id`; todo en una transacción. Errores de datos → `BadRequest` → 400.
+- **Guardados:** usar `apiJson()` (lanza Error con el mensaje del servidor). Altas y bajas esperan al servidor; cambios de estado son instantáneos y se deshacen si fallan (`patchOrder(id, fields, undo)`). Nada debe fallar en silencio.
+- **Tickets:** el estilo (`TICKET_CSS`) vive en server.js; el SPA manda solo el contenido. En chats de Instagram se envía `igId` y el servidor publica la imagen en `/api/ticket-image/:token` (aleatorio, caduca a los 15 min) para que Meta la descargue.
 
 **Correos de acceso:** siempre en minúsculas (`normEmail`), comparados con `lower(email)`; índice único `tenants_email_lower_uniq`.
 
