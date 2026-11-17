@@ -1052,6 +1052,37 @@ async function renderHtmlToImage(htmlContent, width = 380) {
   }
 }
 
+// Estilo del ticket (resguardo / presupuesto) con los colores de CENTRAL. Vive en el servidor:
+// el navegador solo manda el contenido, nunca CSS propio.
+const TICKET_CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Syne:wght@400;600;700;800&display=swap');
+  :root { --surface2:#16161f; --surface3:#1c1c28; --border:rgba(255,255,255,0.07); --border2:rgba(255,255,255,0.12);
+    --accent:#6c63ff; --accent2:#8b85ff; --green:#22d3a0; --text:#f0f0f8; --text2:#9090a8; --text3:#5a5a72; --yellow:#f5c842; }
+  * { box-sizing:border-box; margin:0; padding:0; font-family:'DM Sans',-apple-system,'Segoe UI',Arial,sans-serif; }
+  body { background:#0f0f17 !important; }
+  .ticket-bubble { background:#16161f; border:1px solid rgba(255,255,255,0.12); border-radius:14px; overflow:hidden; width:300px; }
+  .ticket-header { background:linear-gradient(135deg,rgba(108,99,255,0.25),rgba(168,85,247,0.15)); border-bottom:1px solid rgba(255,255,255,0.12);
+    padding:10px 14px; display:flex; align-items:center; gap:8px; }
+  .ticket-header-icon { width:28px; height:28px; border-radius:8px; background:#6c63ff; display:flex; align-items:center; justify-content:center; font-size:13px; flex-shrink:0; }
+  .ticket-header-title { font-family:'Syne',sans-serif; font-size:12px; font-weight:800; color:#f0f0f8; line-height:1.2; }
+  .ticket-header-sub { font-size:10px; color:#9090a8; margin-top:1px; }
+  .ticket-body { padding:10px 14px; display:flex; flex-direction:column; gap:7px; }
+  .ticket-row { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; font-size:11.5px; }
+  .ticket-row-label { color:#5a5a72; font-weight:500; }
+  .ticket-row-value { color:#f0f0f8; font-weight:600; text-align:right; max-width:170px; }
+  .ticket-divider { height:1px; background:rgba(255,255,255,0.07); margin:2px 0; }
+  .ticket-total { display:flex; justify-content:space-between; align-items:center; font-size:13px; font-weight:700; color:#5a5a72;
+    padding-top:4px; border-top:1px solid rgba(255,255,255,0.12); margin-top:2px; }
+  .ticket-total-val { color:#5a5a72; font-family:'Syne',sans-serif; }
+  .ticket-footer { background:#1c1c28; border-top:1px solid rgba(255,255,255,0.07); padding:8px 14px; text-align:center; font-size:10px; color:#5a5a72; line-height:1.4; }
+  .ticket-id { font-size:9.5px; font-weight:700; color:#8b85ff; letter-spacing:0.5px; margin-bottom:2px; }
+`;
+
+// Convierte el contenido de un ticket (lo que va dentro de .ticket-bubble) en un PNG con su estilo
+async function renderTicketImage(ticketHtml) {
+  return renderHtmlToImage(`<style>${TICKET_CSS}</style><div class="ticket-bubble">${ticketHtml}</div>`, 340);
+}
+
 // ══════════════════════════════════════════════════════════════
 // HELPERS — Media (Meta Graph API)
 // ══════════════════════════════════════════════════════════════
@@ -2034,7 +2065,7 @@ app.post('/api/send-ticket', requireAuth, simulateIfDemo('ticket'), async (req, 
       return res.status(500).json({ error: 'WhatsApp no configurado' });
     }
 
-    const imageBuffer = await renderHtmlToImage(ticketHtml);
+    const imageBuffer = await renderTicketImage(ticketHtml);
     const mediaId     = await uploadMediaToMeta(imageBuffer, 'image/png', `ticket_${Date.now()}.png`, creds.whatsapp_phone_number_id, creds.whatsapp_token);
     const result      = await sendMediaMessage(waId, mediaId, 'image', caption||'', null, creds.whatsapp_phone_number_id, creds.whatsapp_token);
 
