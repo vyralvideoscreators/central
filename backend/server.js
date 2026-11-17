@@ -1818,152 +1818,200 @@ app.patch('/api/orders/:id', requireAuth, async (req, res) => {
 // API — Reports
 // ══════════════════════════════════════════════════════════════
 
-app.get('/api/reports', requireAuth, async (req, res) => {
-  const tenantId = req.tenant.tenantId;
-  const { period = 'hoy', from, to } = req.query;
-  const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-  if ((from && !ISO_DATE.test(from)) || (to && !ISO_DATE.test(to))) {
-    return res.status(400).json({ error: 'Fechas inválidas (formato YYYY-MM-DD)' });
-  }
+// Informes del negocio. Todo se calcula en SU zona horaria: "hoy" es hoy allí, no en UTC.
+// period: hoy | 7dias | mes | año | personalizado (con from/to YYYY-MM-DD) · canal: todos | wa | ig
+// tz (opcional): zona del navegador, solo si el negocio aún no tiene una guardada.
+const MONTHS_ES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+const DAYS_ES = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
 
-  // Build time window
-  let startExpr, endExpr, groupBy, labelFn, barCount;
-  const now = new Date();
-
+// Buckets de los gráficos a partir de la fecha/hora local del negocio (y,m,d,h como números)
+function reportBuckets(period, now, from, to) {
+  const U = (y, m, d, h = 0) => new Date(Date.UTC(y, m - 1, d, h)); // fecha "local" tratada como UTC
+  const key = (dt, kind) => {
+    const p = n => String(n).padStart(2, '0');
+    const base = dt.getUTCFullYear() + '-' + p(dt.getUTCMonth() + 1);
+    if (kind === 'month') return base;
+    if (kind === 'day') return base + '-' + p(dt.getUTCDate());
+    return base + '-' + p(dt.getUTCDate()) + 'T' + p(dt.getUTCHours());
+  };
+  const out = [];
   if (period === 'hoy') {
-    const todayStr = now.toISOString().slice(0, 10);
-    startExpr = `'${todayStr} 00:00:00'`;
-    endExpr   = `'${todayStr} 23:59:59'`;
-    groupBy   = `EXTRACT(HOUR FROM created_at)`;
-    barCount  = 24;
-  } else if (period === '7dias') {
-    const d = new Date(now); d.setDate(d.getDate() - 6);
-    startExpr = `'${d.toISOString().slice(0,10)} 00:00:00'`;
-    endExpr   = `NOW()`;
-    groupBy   = `DATE(created_at)`;
-    barCount  = 7;
-  } else if (period === 'mes') {
-    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
-    startExpr = `'${firstDay} 00:00:00'`;
-    endExpr   = `NOW()`;
-    groupBy   = `DATE(created_at)`;
-    barCount  = 31;
-  } else if (period === 'año') {
-    startExpr = `'${now.getFullYear()}-01-01 00:00:00'`;
-    endExpr   = `NOW()`;
-    groupBy   = `EXTRACT(MONTH FROM created_at)`;
-    barCount  = 12;
-  } else if (period === 'personalizado' && from && to) {
-    startExpr = `'${from} 00:00:00'`;
-    endExpr   = `'${to} 23:59:59'`;
-    groupBy   = `DATE(created_at)`;
-    barCount  = 31;
-  } else {
-    return res.status(400).json({ error: 'period inválido' });
+    for (let i = 6; i >= 0; i--) {
+      const dt = U(now.y, now.m, now.d, now.h - i);
+      const hr = dt.getUTCHours();
+      out.push({ keys: [key(dt, 'hour')], label: hr === 0 ? '12am' : hr < 12 ? hr + 'am' : hr === 12 ? '12pm' : (hr - 12) + 'pm' });
+    }
+    return { kind: 'hour', buckets: out };
   }
+  if (period === '7dias') {
+    for (let i = 6; i >= 0; i--) {
+      const dt = U(now.y, now.m, now.d - i);
+      out.push({ keys: [key(dt, 'day')], label: DAYS_ES[dt.getUTCDay()] });
+    }
+    return { kind: 'day', buckets: out };
+  }
+  if (period === 'mes') {
+    const daysInMonth = new Date(Date.UTC(now.y, now.m, 0)).getUTCDate();
+    const starts = [1, 4, 7, 10, 13, 16, 19, 22, 25, 28].filter(d => d <= daysInMonth);
+    starts.forEach((sd, i) => {
+      const ed = i < starts.length - 1 ? starts[i + 1] - 1 : daysInMonth;
+      const keys = [];
+      for (let d = sd; d <= ed; d++) keys.push(key(U(now.y, now.m, d), 'day'));
+      out.push({ keys, label: String(sd) });
+    });
+    return { kind: 'day', buckets: out };
+  }
+  if (period === 'personalizado') {
+    const a = U(...from.split('-').map(Number)), b = U(...to.split('-').map(Number));
+    const days = Math.round((b - a) / 86400000) + 1;
+    if (days <= 31) {
+      for (let i = 0; i < days; i++) {
+        const dt = new Date(a.getTime() + i * 86400000);
+        out.push({ keys: [key(dt, 'day')], label: dt.getUTCDate() + '/' + (dt.getUTCMonth() + 1) });
+      }
+      return { kind: 'day', buckets: out };
+    }
+    for (let dt = U(a.getUTCFullYear(), a.getUTCMonth() + 1, 1); dt <= b; dt = U(dt.getUTCFullYear(), dt.getUTCMonth() + 2, 1)) {
+      out.push({ keys: [key(dt, 'month')], label: MONTHS_ES[dt.getUTCMonth()] + (dt.getUTCFullYear() !== now.y ? ' ' + String(dt.getUTCFullYear()).slice(2) : '') });
+    }
+    return { kind: 'month', buckets: out };
+  }
+  for (let m = 1; m <= 12; m++) out.push({ keys: [key(U(now.y, m, 1), 'month')], label: MONTHS_ES[m - 1] }); // año
+  return { kind: 'month', buckets: out };
+}
 
-  const timeFilter = `created_at BETWEEN ${startExpr} AND ${endExpr}`;
+app.get('/api/reports', requireAuth, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  const tenantId = req.tenant.tenantId;
+  const period = String(req.query.period || 'hoy');
+  const canal = ['wa', 'ig'].includes(req.query.canal) ? req.query.canal : 'todos';
+  const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+  if (!['hoy', '7dias', 'mes', 'año', 'personalizado'].includes(period)) return res.status(400).json({ error: 'period inválido' });
+  let from = null, to = null;
+  if (period === 'personalizado') {
+    from = String(req.query.from || ''); to = String(req.query.to || '');
+    if (!ISO_DATE.test(from) || !ISO_DATE.test(to) || isNaN(Date.parse(from)) || isNaN(Date.parse(to))) {
+      return res.status(400).json({ error: 'Fechas inválidas (formato YYYY-MM-DD)' });
+    }
+    if (from > to) return res.status(400).json({ error: 'La fecha inicial debe ser anterior a la final' });
+    if ((Date.parse(to) - Date.parse(from)) / 86400000 > 366) return res.status(400).json({ error: 'El rango máximo es de un año' });
+  }
 
   try {
-    // KPIs
-    const { rows: kpi } = await pool.query(`
-      SELECT
-        COALESCE(SUM(total_price), 0)::float                                        AS ventas,
-        COUNT(*)::int                                                                AS pedidos,
-        COUNT(*) FILTER (WHERE delivery_status = 'delivered')::int                  AS entregados,
-        COUNT(*) FILTER (WHERE delivery_status = 'to_deliver')::int                 AS pendientes,
-        COUNT(*) FILTER (WHERE delivery_status = 'not_delivered')::int              AS cancelados,
-        COUNT(*) FILTER (WHERE delivery_method_label ILIKE '%Motorizado%'
-                            OR delivery_method_label ILIKE '%Delivery%')::int        AS delivery,
-        COUNT(*) FILTER (WHERE delivery_method_label ILIKE '%Encomienda%')::int     AS encomiendas,
-        COUNT(*) FILTER (WHERE platform = 'wa')::int                                AS count_wa,
-        COUNT(*) FILTER (WHERE platform = 'ig')::int                                AS count_ig
-      FROM orders
-      WHERE tenant_id = $1 AND ${timeFilter}
-    `, [tenantId]);
+    const { rows: [t] } = await pool.query('SELECT timezone FROM tenants WHERE id = $1', [tenantId]);
+    const tz = isValidTimezone(t && t.timezone) ? t.timezone
+             : isValidTimezone(req.query.tz) ? req.query.tz : DEFAULT_TIMEZONE;
 
-    const k = kpi[0];
-    const total = k.pedidos || 1;
-    const waCount = k.count_wa || 0;
-    const igCount = k.count_ig || 0;
-    const canalTotal = waCount + igCount || 1;
+    // Hora local del negocio y límites del período (como timestamps locales sin zona)
+    const { rows: [nowRow] } = await pool.query(
+      "SELECT to_char(NOW() AT TIME ZONE $1, 'YYYY-MM-DD HH24') AS now_local", [tz]);
+    const [ymd, hh] = nowRow.now_local.split(' ');
+    const [y, m, d] = ymd.split('-').map(Number);
+    const now = { y, m, d, h: Number(hh) };
+    const startLocal = {
+      hoy: ymd, '7dias': new Date(Date.UTC(y, m - 1, d - 6)).toISOString().slice(0, 10),
+      mes: ymd.slice(0, 8) + '01', 'año': y + '-01-01', personalizado: from,
+    }[period];
+    const endExclusive = period === 'personalizado'
+      ? new Date(Date.parse(to) + 86400000).toISOString().slice(0, 10) : null;
 
-    // New clients in period
-    const { rows: nc } = await pool.query(`
-      SELECT COUNT(*)::int AS cnt FROM clients
-      WHERE tenant_id = $1 AND created_at BETWEEN ${startExpr} AND ${endExpr}
-    `, [tenantId]);
+    // Fecha/hora local de cada fila: created_at se guarda en la zona de la sesión de la base
+    const LOCAL = (col) => `((${col} AT TIME ZONE current_setting('TimeZone')) AT TIME ZONE $2)`;
+    const inPeriod = (col) => `${LOCAL(col)} >= $3::timestamp AND ($4::timestamp IS NULL OR ${LOCAL(col)} < $4::timestamp)`;
+    const canalCond = `($5 = 'todos' OR o.platform = $5)`;
+    const P = [tenantId, tz, startLocal, endExclusive, canal];
+    const ENC = `lower(coalesce(o.delivery_method_label, '')) LIKE '%encomienda%'`;
+    const DLV = `(NOT ${ENC} AND (lower(coalesce(o.delivery_method_label, '')) LIKE '%motorizado%' OR lower(coalesce(o.delivery_method_label, '')) LIKE '%delivery%'))`;
+    const W = `o.tenant_id = $1 AND ${inPeriod('o.created_at')} AND ${canalCond}`;
+    const { kind, buckets } = reportBuckets(period, now, from, to);
+    const bucketFmt = { hour: 'YYYY-MM-DD"T"HH24', day: 'YYYY-MM-DD', month: 'YYYY-MM' }[kind];
 
-    // Top products
-    const { rows: tp } = await pool.query(`
-      SELECT oi.emoji || ' ' || oi.name AS name,
-             SUM(oi.qty)::int            AS qty,
-             SUM(oi.line_price)::float   AS total
-      FROM order_items oi
-      JOIN orders o ON o.id = oi.order_id
-      WHERE o.tenant_id = $1 AND oi.tenant_id = o.tenant_id AND ${timeFilter.replace('created_at', 'o.created_at')}
-      GROUP BY oi.emoji, oi.name
-      ORDER BY qty DESC
-      LIMIT 6
-    `, [tenantId]);
+    const [kpi, pays, tops, encRows, series, newCli] = await Promise.all([
+      pool.query(`
+        SELECT COALESCE(SUM(o.total_price), 0)::float AS ventas,
+               COUNT(*)::int AS pedidos,
+               COUNT(*) FILTER (WHERE o.delivery_status = 'delivered')::int AS entregados,
+               COUNT(*) FILTER (WHERE o.delivery_status = 'to_deliver')::int AS pendientes,
+               COUNT(*) FILTER (WHERE o.delivery_status = 'not_delivered')::int AS no_entregados,
+               COUNT(*) FILTER (WHERE ${DLV})::int AS delivery,
+               COUNT(*) FILTER (WHERE ${ENC})::int AS encomiendas,
+               COUNT(*) FILTER (WHERE ${ENC} AND o.delivery_status = 'delivered')::int AS enc_entregadas,
+               COUNT(*) FILTER (WHERE ${ENC} AND o.delivery_status = 'to_deliver')::int AS enc_transito,
+               COALESCE(SUM(o.shipping) FILTER (WHERE ${ENC}), 0)::float AS enc_ingresos,
+               COALESCE(AVG(o.shipping) FILTER (WHERE o.shipping > 0), 0)::float AS avg_shipping,
+               COUNT(*) FILTER (WHERE o.platform = 'wa')::int AS count_wa,
+               COUNT(*) FILTER (WHERE o.platform = 'ig')::int AS count_ig
+        FROM orders o WHERE ${W}`, P),
+      pool.query(`
+        SELECT o.pay_method_label AS label, COUNT(*)::int AS n FROM orders o
+        WHERE ${W} AND o.pay_method_label IS NOT NULL AND o.pay_method_label NOT IN ('', '—')
+        GROUP BY o.pay_method_label ORDER BY n DESC, label`, P),
+      // Top productos: artículos de los pedidos; un pedido sin artículos cuenta como 1 unidad de su resumen
+      pool.query(`
+        SELECT name, MIN(emoji) AS emoji, SUM(qty)::int AS qty, SUM(revenue)::float AS revenue FROM (
+          SELECT COALESCE(oi.name, 'Producto') AS name, oi.emoji, oi.qty, COALESCE(oi.line_price, 0) AS revenue
+          FROM order_items oi JOIN orders o ON o.id = oi.order_id AND oi.tenant_id = o.tenant_id
+          WHERE ${W}
+          UNION ALL
+          SELECT COALESCE(o.product_summary, 'Producto'), NULL, 1, COALESCE(o.total_price, 0)
+          FROM orders o
+          WHERE ${W} AND NOT EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id AND oi.tenant_id = o.tenant_id)
+        ) x GROUP BY name ORDER BY qty DESC, revenue DESC LIMIT 5`, P),
+      pool.query(`
+        SELECT COALESCE(o.tenant_order_number, o.order_number) AS num, o.client_name, o.address, o.delivery_status, o.shipping
+        FROM orders o WHERE ${W} AND ${ENC}
+        ORDER BY o.created_at DESC LIMIT 10`, P),
+      pool.query(`
+        SELECT to_char(${LOCAL('o.created_at')}, '${bucketFmt}') AS b, COALESCE(SUM(o.total_price), 0)::float AS amount, COUNT(*)::int AS n
+        FROM orders o WHERE ${W} GROUP BY b`, P),
+      pool.query(`
+        SELECT COUNT(*)::int AS n FROM clients c
+        WHERE c.tenant_id = $1 AND ${inPeriod('c.created_at')} AND $5::text IS NOT NULL`, P),
+    ]);
 
-    // Time-series bars
-    const { rows: ts } = await pool.query(`
-      SELECT ${groupBy} AS bucket,
-             COALESCE(SUM(total_price), 0)::float AS amount
-      FROM orders
-      WHERE tenant_id = $1 AND ${timeFilter}
-      GROUP BY bucket
-      ORDER BY bucket
-    `, [tenantId]);
-
-    // Build bars arrays
-    let bars = [], barLabels = [];
-    if (period === 'hoy') {
-      for (let h = 0; h < 24; h++) {
-        const row = ts.find(r => parseInt(r.bucket) === h);
-        if (row || h <= now.getHours()) {
-          bars.push(row ? Math.round(row.amount) : 0);
-          barLabels.push(h + ':00');
-        }
-      }
-    } else if (period === 'año') {
-      const months = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-      for (let m = 1; m <= 12; m++) {
-        const row = ts.find(r => parseInt(r.bucket) === m);
-        bars.push(row ? Math.round(row.amount) : 0);
-        barLabels.push(months[m - 1]);
-      }
-    } else {
-      ts.forEach(r => {
-        bars.push(Math.round(r.amount));
-        const d = new Date(r.bucket);
-        barLabels.push(period === '7dias'
-          ? ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][d.getDay()]
-          : String(d.getDate()));
-      });
+    const k = kpi.rows[0];
+    const byBucket = new Map(series.rows.map(r => [r.b, r]));
+    const bars = [], barsCount = [];
+    for (const bk of buckets) {
+      let amount = 0, n = 0;
+      for (const key of bk.keys) { const r = byBucket.get(key); if (r) { amount += r.amount; n += r.n; } }
+      bars.push(Math.round(amount * 100) / 100);
+      barsCount.push(n);
     }
-    if (bars.length === 0) { bars = [0]; barLabels = ['—']; }
+    const canalTotal = k.count_wa + k.count_ig;
+    const money = v => Math.round((Number(v) || 0) * 100) / 100;
 
     res.json({
-      ventas: Math.round(k.ventas * 100) / 100,
+      timezone: tz,
+      period, canal, from: startLocal, to: endExclusive ? to : ymd,
+      ventas: money(k.ventas),
       pedidos: k.pedidos,
       entregados: k.entregados,
       pendientes: k.pendientes,
-      cancelados: k.cancelados,
+      noEntregados: k.no_entregados,
+      cancelados: 0, // CENTRAL aún no tiene un estado "cancelado"
       delivery: k.delivery,
       encomiendas: k.encomiendas,
-      newClients: nc[0].cnt,
-      topProducts: tp.map(p => [p.name, p.qty, '$' + p.total.toFixed(2)]),
-      bars,
-      barLabels,
-      canal: {
-        wa: Math.round(waCount / canalTotal * 100),
-        ig: Math.round(igCount / canalTotal * 100),
-      },
+      encomiendasEntregadas: k.enc_entregadas,
+      encomiendasEnTransito: k.enc_transito,
+      encomiendasIngresos: money(k.enc_ingresos),
+      avgShipping: money(k.avg_shipping),
+      newClients: newCli.rows[0].n,
+      canal: canalTotal > 0
+        ? { wa: Math.round(k.count_wa / canalTotal * 100), ig: Math.round(k.count_ig / canalTotal * 100) }
+        : { wa: 0, ig: 0 },
+      paymentMethods: pays.rows.map(r => [r.label, r.n]),
+      topProducts: tops.rows.map(r => [(r.emoji || '📦') + ' ' + r.name, r.qty, '$' + (Number(r.revenue) || 0).toFixed(0)]),
+      encomiendaRows: encRows.rows.map(r => ({
+        id: '#' + String(r.num).padStart(4, '0'), cliente: r.client_name || '—', destino: r.address || '—',
+        estado: r.delivery_status === 'delivered' ? 'Entregado' : r.delivery_status === 'not_delivered' ? 'No entregado' : 'En tránsito',
+        costo: r.shipping !== null && r.shipping !== undefined && Number(r.shipping) > 0 ? '$' + Number(r.shipping).toFixed(2) : '—',
+      })),
+      bars, barsCount, barLabels: buckets.map(b => b.label),
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Informes:', err.message);
+    res.status(500).json({ error: 'No se pudo calcular el informe' });
   }
 });
 

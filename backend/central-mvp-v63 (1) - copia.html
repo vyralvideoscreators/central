@@ -8652,156 +8652,18 @@ let infTab = 'ventas';
 // ── Informes: calculados de verdad a partir de pedidos y clientes reales ──
 function moneyToNum(str) { return parseFloat((str + '').replace(/[^0-9.]/g, '')) || 0; }
 
-function getInfPeriodRange(period) {
-  const now = new Date();
-  let start, end = now;
-  if (period === '7dias') {
-    start = new Date(now); start.setDate(start.getDate() - 6); start.setHours(0, 0, 0, 0);
-  } else if (period === 'mes') {
-    start = new Date(now.getFullYear(), now.getMonth(), 1);
-  } else if (period === 'año') {
-    start = new Date(now.getFullYear(), 0, 1);
-  } else if (period === 'personalizado') {
-    const fromVal = document.getElementById('infDateFrom')?.value;
-    const toVal   = document.getElementById('infDateTo')?.value;
-    start = fromVal ? new Date(fromVal + 'T00:00:00') : new Date(now.getFullYear(), now.getMonth(), 1);
-    end   = toVal   ? new Date(toVal + 'T23:59:59')   : now;
-    return { start, end };
-  } else { // 'hoy'
-    start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+// Los informes los calcula el servidor, en la zona horaria del negocio y con el filtro de canal
+function infQueryString() {
+  const p = new URLSearchParams({ period: infPeriod, canal: infCanal });
+  if (infPeriod === 'personalizado') {
+    p.set('from', document.getElementById('infDateFrom')?.value || '');
+    p.set('to', document.getElementById('infDateTo')?.value || '');
   }
-  return { start, end };
+  try { const tz = Intl.DateTimeFormat().resolvedOptions().timeZone; if (tz) p.set('tz', tz); } catch (e) {}
+  return p.toString();
 }
-
-function getInfData(period) {
-  const { start, end } = getInfPeriodRange(period);
-  const periodOrders = orders.filter(o => {
-    if (!o.createdAt) return false;
-    const d = new Date(o.createdAt);
-    return d >= start && d <= end;
-  });
-
-  const ventas      = periodOrders.reduce((s, o) => s + moneyToNum(o.price), 0);
-  const pedidos     = periodOrders.length;
-  const entregados  = periodOrders.filter(o => o.delivery === 'delivered').length;
-  const pendientes  = periodOrders.filter(o => o.delivery === 'to_deliver').length;
-  const cancelados  = 0; // CENTRAL no tiene un estado "cancelado" todavía
-
-  // Tipo de entrega — mismo criterio de palabras clave que usa el resto de la app (ver línea ~5448)
-  let delivery = 0, encomiendas = 0;
-  const encomiendaOrders = [];
-  periodOrders.forEach(o => {
-    const label = (orderExtras[o.id]?.delivery || '').toLowerCase();
-    if (label.includes('encomienda')) { encomiendas++; encomiendaOrders.push(o); }
-    else if (label.includes('motorizado') || label.includes('delivery')) delivery++;
-  });
-
-  // Costo de envío promedio real (solo pedidos con envío registrado)
-  const shippedOrders = periodOrders
-    .map(o => parseFloat((orderExtras[o.id]?.shipping + '') || '') )
-    .filter(v => !isNaN(v) && v > 0);
-  const avgShipping = shippedOrders.length > 0
-    ? shippedOrders.reduce((s, v) => s + v, 0) / shippedOrders.length
-    : 0;
-
-  // Encomiendas: estado real y costo de envío real
-  const encomiendasEntregadas = encomiendaOrders.filter(o => o.delivery === 'delivered').length;
-  const encomiendasEnTransito = encomiendaOrders.filter(o => o.delivery === 'to_deliver').length;
-  const encomiendasIngresos = encomiendaOrders.reduce((s, o) => {
-    const v = parseFloat((orderExtras[o.id]?.shipping + '') || '');
-    return s + (isNaN(v) ? 0 : v);
-  }, 0);
-  const encomiendaRows = encomiendaOrders.slice(0, 10).map(o => ({
-    id: o.id, cliente: o.client, destino: orderExtras[o.id]?.address || '—',
-    estado: o.delivery === 'delivered' ? 'Entregado' : o.delivery === 'not_delivered' ? 'No entregado' : 'En tránsito',
-    costo: (() => { const v = parseFloat((orderExtras[o.id]?.shipping + '') || ''); return isNaN(v) ? '—' : '$' + v.toFixed(2); })(),
-  }));
-
-  // Métodos de pago reales (agrupados por lo que el negocio realmente usó)
-  const payMap = {};
-  periodOrders.forEach(o => {
-    const label = orderExtras[o.id]?.pay;
-    if (!label || label === '—') return;
-    payMap[label] = (payMap[label] || 0) + 1;
-  });
-  const paymentMethods = Object.entries(payMap).sort((a, b) => b[1] - a[1]);
-
-  const waCount = periodOrders.filter(o => o.platform === 'wa').length;
-  const igCount = periodOrders.filter(o => o.platform === 'ig').length;
-  const totalPlat = waCount + igCount;
-  const canal = totalPlat > 0
-    ? { wa: Math.round(waCount / totalPlat * 100), ig: Math.round(igCount / totalPlat * 100) }
-    : { wa: 0, ig: 0 };
-
-  const newClients = clientsDB.filter(c => {
-    if (!c.createdAt) return false;
-    const d = new Date(c.createdAt);
-    return d >= start && d <= end;
-  }).length;
-
-  // Top productos por unidades e ingresos
-  const productMap = {};
-  periodOrders.forEach(o => {
-    const items = (o.items && o.items.length > 0)
-      ? o.items
-      : [{ name: o.product, qty: 1, linePrice: moneyToNum(o.price), emoji: orderExtras[o.id]?.emoji || '📦' }];
-    items.forEach(it => {
-      const key = it.name || 'Producto';
-      if (!productMap[key]) productMap[key] = { emoji: it.emoji || '📦', qty: 0, revenue: 0 };
-      productMap[key].qty += it.qty || 1;
-      productMap[key].revenue += it.linePrice || 0;
-    });
-  });
-  const topProducts = Object.entries(productMap)
-    .sort((a, b) => b[1].qty - a[1].qty)
-    .slice(0, 5)
-    .map(([name, v]) => [`${v.emoji} ${name}`, v.qty, '$' + v.revenue.toFixed(0)]);
-
-  // Ventas y cantidad de pedidos agrupados por sub-período, para los gráficos de barras
-  let bars = [], barsCount = [], barLabels = [];
-  const bucketOrders = (pred) => periodOrders.filter(pred);
-  const pushBucket = (pred, label) => {
-    const bucket = bucketOrders(pred);
-    bars.push(bucket.reduce((s, o) => s + moneyToNum(o.price), 0));
-    barsCount.push(bucket.length);
-    barLabels.push(label);
-  };
-
-  if (period === 'hoy') {
-    for (let i = 6; i >= 0; i--) {
-      const h = new Date(); h.setHours(h.getHours() - i, 0, 0, 0);
-      const hr = h.getHours();
-      pushBucket(
-        o => { const d = new Date(o.createdAt); return d.getHours() === hr && d.toDateString() === h.toDateString(); },
-        hr === 0 ? '12am' : hr < 12 ? hr + 'am' : hr === 12 ? '12pm' : (hr - 12) + 'pm'
-      );
-    }
-  } else if (period === '7dias') {
-    const dayNames = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
-    for (let i = 6; i >= 0; i--) {
-      const d0 = new Date(); d0.setDate(d0.getDate() - i);
-      pushBucket(o => new Date(o.createdAt).toDateString() === d0.toDateString(), dayNames[d0.getDay()]);
-    }
-  } else if (period === 'mes') {
-    const now = new Date();
-    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    const bucketStarts = [1,4,7,10,13,16,19,22,25,28].filter(d => d <= daysInMonth);
-    bucketStarts.forEach((startDay, idx) => {
-      const endDay = idx < bucketStarts.length - 1 ? bucketStarts[idx + 1] - 1 : daysInMonth;
-      pushBucket(o => { const dd = new Date(o.createdAt).getDate(); return dd >= startDay && dd <= endDay; }, String(startDay));
-    });
-  } else { // 'año' y 'personalizado'
-    const monthNames = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-    for (let m = 0; m < 12; m++) {
-      pushBucket(o => new Date(o.createdAt).getMonth() === m, monthNames[m]);
-    }
-  }
-
-  return {
-    ventas, pedidos, entregados, pendientes, cancelados, delivery, encomiendas, newClients,
-    topProducts, bars, barsCount, barLabels, canal, avgShipping,
-    encomiendasEntregadas, encomiendasEnTransito, encomiendasIngresos, encomiendaRows, paymentMethods,
-  };
+function fetchInfData() {
+  return apiJson('GET', '/api/reports?' + infQueryString());
 }
 
 function setInfPeriod(p, el) {
@@ -8912,9 +8774,26 @@ function switchInfTab(tab, el) {
   renderInforme(tab);
 }
 
-function renderInforme(tab) {
-  const d = getInfData(infPeriod);
+let _infReqSeq = 0;
+async function renderInforme(tab) {
   const body = document.getElementById('infBody');
+  const seq = ++_infReqSeq;
+  if (body.children.length) body.style.opacity = '.5';
+  else body.innerHTML = '<div class="inf-chart-card" style="text-align:center;padding:40px 20px;color:var(--text3);font-size:13px;">Calculando informe…</div>';
+  let d;
+  try {
+    d = await fetchInfData();
+  } catch (err) {
+    if (seq !== _infReqSeq) return;
+    body.style.opacity = '';
+    body.innerHTML = `<div class="inf-chart-card" style="text-align:center;padding:40px 20px;font-size:13px;">
+      <div style="color:var(--red);font-weight:600;margin-bottom:6px;">⚠ No se pudo calcular el informe</div>
+      <div style="color:var(--text3);margin-bottom:14px;">${escHtml(err.message)}</div>
+      <button class="btn-ghost" onclick="renderInforme(infTab)">Reintentar</button></div>`;
+    return;
+  }
+  if (seq !== _infReqSeq) return; // llegó una consulta más nueva (cambio de pestaña o filtro)
+  body.style.opacity = '';
   body.innerHTML = '';
 
   const periodLabel = { hoy:'hoy', '7dias':'últimos 7 días', mes:'este mes', año:'este año', personalizado: document.getElementById('infCustomLabel')?.textContent || 'rango personalizado' }[infPeriod] || 'el período seleccionado';
@@ -8953,7 +8832,7 @@ function renderInforme(tab) {
           <div class="inf-chart-title">Métodos de pago</div>
           <div class="inf-chart-sub">Más usados ${periodLabel}</div>
           ${d.paymentMethods.length > 0
-            ? renderBarChart(d.paymentMethods.map(p=>p[1]), d.paymentMethods.map(p=>p[0]), 'accent', 60)
+            ? renderBarChart(d.paymentMethods.map(p=>p[1]), d.paymentMethods.map(p=>escHtml(p[0])), 'accent', 60)
             : '<div style="padding:20px 0;text-align:center;font-size:12px;color:var(--text3);">Sin datos aún</div>'}
         </div>
       </div>
@@ -9084,7 +8963,7 @@ function renderInforme(tab) {
       <div class="inf-chart-card">
         <div class="inf-chart-title">Top productos por unidades vendidas</div>
         <div class="inf-chart-sub">${periodLabel}</div>
-        ${renderBarChart(d.topProducts.map(p=>p[1]), d.topProducts.map(p=>p[0].split(' ').slice(1,3).join(' ')), 'accent', 90)}
+        ${renderBarChart(d.topProducts.map(p=>p[1]), d.topProducts.map(p=>escHtml(p[0].split(' ').slice(1,3).join(' '))), 'accent', 90)}
       </div>
       <div class="inf-chart-card">
         <div class="inf-chart-title">Ranking de productos</div>
@@ -9097,7 +8976,7 @@ function renderInforme(tab) {
               const pct = Math.round(p[1]/totalUnits*100);
               return `<tr>
                 <td style="color:var(--text3);font-weight:700;">${i+1}</td>
-                <td class="bold">${p[0]}</td>
+                <td class="bold">${escHtml(p[0])}</td>
                 <td>${p[1]} uds</td>
                 <td class="green">${p[2]}</td>
                 <td><div style="display:flex;align-items:center;gap:7px;"><div style="flex:1;height:5px;background:var(--surface3);border-radius:2px;"><div style="width:${pct}%;height:100%;background:var(--accent);border-radius:2px;"></div></div><span style="font-size:10.5px;color:var(--text3);">${pct}%</span></div></td>
@@ -9173,13 +9052,15 @@ function printInforme() {
   win.document.close();
 }
 
-function downloadExcel() {
-  const d = getInfData(infPeriod);
+async function downloadExcel() {
+  let d;
+  try { d = await fetchInfData(); }
+  catch (err) { showToast('⚠ No se pudo descargar el informe (' + err.message + ')'); return; }
   const tabLabels = { ventas:'Ventas', pedidos:'Pedidos', delivery:'Delivery', encomiendas:'Encomiendas', clientes:'Contactos', productos:'Productos' };
   const periodLabel = { hoy:'Hoy', '7dias':'Últimos 7 días', mes:'Este mes', año:'Este año', personalizado: document.getElementById('infCustomLabel')?.textContent || 'Personalizado' }[infPeriod];
   let csv = '';
   if (infTab === 'ventas') {
-    csv = 'Métrica,Valor\nVentas totales,$' + d.ventas + '\nPedidos,' + d.pedidos + '\nTicket promedio,$' + (d.ventas/d.pedidos).toFixed(0) + '\nTasa entrega,' + Math.round(d.entregados/d.pedidos*100) + '%\n\nProducto,Unidades,Ingresos\n' + d.topProducts.map(p=>p.join(',')).join('\n');
+    csv = 'Métrica,Valor\nVentas totales,$' + d.ventas + '\nPedidos,' + d.pedidos + '\nTicket promedio,$' + (d.pedidos ? (d.ventas/d.pedidos).toFixed(0) : 0) + '\nTasa entrega,' + (d.pedidos ? Math.round(d.entregados/d.pedidos*100) : 0) + '%\n\nProducto,Unidades,Ingresos\n' + d.topProducts.map(p=>p.join(',')).join('\n');
   } else if (infTab === 'clientes') {
     csv = 'Nombre,Teléfono,Instagram,Ciudad,Canal,Pedidos\n' + clientsDB.map(c=>[c.name,c.phone,c.ig,c.city,c.channel==='wa'?'WhatsApp':'Instagram',c.orders.length].join(',')).join('\n');
   } else if (infTab === 'pedidos') {
