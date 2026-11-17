@@ -4629,6 +4629,8 @@ function updateDetailDeliveryBtn(delivery) {
 
 // Guarda en el servidor un cambio de estado ya mostrado en pantalla. Si falla, avisa y
 // ejecuta undo() para volver a dejar la pantalla como está en el servidor.
+// Con varios clics seguidos, solo la última petición decide qué se muestra si algo falla.
+const _patchSeq = {};
 function patchOrder(orderId, fields, undo) {
   const realId = orderRealIds[orderId];
   if (!realId) {
@@ -4636,9 +4638,22 @@ function patchOrder(orderId, fields, undo) {
     if (undo) undo();
     return Promise.resolve(false);
   }
-  return apiJson('PATCH', '/api/orders/' + realId, fields).then(() => true).catch(err => {
-    if (undo) undo();
+  const seq = _patchSeq[orderId] = (_patchSeq[orderId] || 0) + 1;
+  return apiJson('PATCH', '/api/orders/' + realId, fields).then(() => true).catch(async err => {
     showToast('⚠ No se guardó el cambio del pedido ' + orderId + ' (' + err.message + ')');
+    if (seq !== _patchSeq[orderId]) return false; // hay un cambio más nuevo en curso: él decide
+    // Volver a lo que de verdad tiene el servidor; si tampoco se puede leer, deshacer este cambio
+    try {
+      const list = await apiJson('GET', '/api/orders');
+      const fresh = Array.isArray(list) && list.find(x => x.id === realId);
+      if (!fresh) throw new Error('no encontrado');
+      if (seq !== _patchSeq[orderId]) return false;
+      storeServerOrder(fresh, 'replace');
+      renderOrders();
+      if (currentDetailId === orderId && document.getElementById('orderDetailOverlay').classList.contains('visible')) openOrderDetail(orderId);
+    } catch (e) {
+      if (undo) undo();
+    }
     return false;
   });
 }
@@ -4929,17 +4944,18 @@ function printOrder() {
     '<div class="sec"><div class="st">Cliente<\/div>',
     '<div class="row"><span class="rl">Nombre<\/span><span class="rv">' + escHtml(o.client) + '<\/span><\/div>',
     '<div class="row"><span class="rl">Canal<\/span><span class="rv">' + (o.platform==='wa'?'WhatsApp':'Instagram') + '<\/span><\/div><\/div>',
-    '<div class="sec"><div class="st">Producto<\/div><div class="pb"><div class="pn">' + ex.emoji + ' ' + o.product + '<\/div>' + (ex.notes?'<div class="pd">'+ex.notes+'<\/div>':'') + '<\/div><\/div>',
+    // Todo dato del pedido va escapado: la ventana de impresión comparte origen con la app
+    '<div class="sec"><div class="st">Producto<\/div><div class="pb"><div class="pn">' + escHtml(ex.emoji) + ' ' + escHtml(o.product) + '<\/div>' + (ex.notes?'<div class="pd">'+escHtml(ex.notes)+'<\/div>':'') + '<\/div><\/div>',
     '<div class="sec"><div class="st">Pago y entrega<\/div>',
-    '<div class="row"><span class="rl">Método de pago<\/span><span class="rv">' + ex.pay + '<\/span><\/div>',
+    '<div class="row"><span class="rl">Método de pago<\/span><span class="rv">' + escHtml(ex.pay) + '<\/span><\/div>',
     '<div class="row"><span class="rl">Estado pago<\/span><span class="rv"><span class="badge ' + payClass + '">' + payStatus + '<\/span><\/span><\/div>',
-    '<div class="row"><span class="rl">Tipo entrega<\/span><span class="rv">' + ex.delivery + '<\/span><\/div>',
+    '<div class="row"><span class="rl">Tipo entrega<\/span><span class="rv">' + escHtml(ex.delivery) + '<\/span><\/div>',
     '<div class="row"><span class="rl">Estado entrega<\/span><span class="rv"><span class="badge ' + delClass2 + '">' + delStatus + '<\/span><\/span><\/div>',
-    '<div class="row"><span class="rl">Dirección<\/span><span class="rv">' + (ex.address||'—') + '<\/span><\/div><\/div>',
+    '<div class="row"><span class="rl">Dirección<\/span><span class="rv">' + escHtml(ex.address||'—') + '<\/span><\/div><\/div>',
     '<div class="sec"><div class="st">Resumen<\/div>',
-    '<div class="row"><span class="rl">Subtotal<\/span><span class="rv">' + o.price + '<\/span><\/div>',
+    '<div class="row"><span class="rl">Subtotal<\/span><span class="rv">' + escHtml(o.price) + '<\/span><\/div>',
     '<div class="tr"><span>Total<\/span><span>' + total + '<\/span><\/div><\/div>',
-    '<div class="ft">Gracias por tu compra 🙌<br>Mi Tienda · CENTRAL · ' + dateStr + '<br><div class="bc">' + o.id + '-' + Date.now().toString(36).toUpperCase() + '<\/div><\/div>',
+    '<div class="ft">Gracias por tu compra 🙌<br>' + escHtml(businessProfile.businessName || 'CENTRAL') + ' · ' + dateStr + '<br><div class="bc">' + escHtml(o.id) + '-' + Date.now().toString(36).toUpperCase() + '<\/div><\/div>',
     '<scr' + 'ipt>window.onload=function(){window.print();}<\/scr' + 'ipt>',
     '<\/' + 'bo'+'dy><\/' + 'ht'+'ml>'
   ].join('');
@@ -5200,6 +5216,7 @@ function openOrderModal() {
     const existing = findClientForConvo(c);
     if (existing) {
       applyClientSelection(existing);
+      document.getElementById('mClient').dataset.convoMatch = '1'; // elegida por ser la de este chat
     } else {
       selectNewClient();
       document.getElementById('mClientFree').value = c.name;
@@ -5275,6 +5292,7 @@ function filterClientDrop(q) {
 function applyClientSelection(c) {
   const initials = c.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
   document.getElementById('mClient').value = c.name;
+  delete document.getElementById('mClient').dataset.convoMatch;
   if (isServerId(c.id)) document.getElementById('mClient').dataset.clientId = c.id;
   else delete document.getElementById('mClient').dataset.clientId;
   document.getElementById('mClientName').textContent = c.name;
@@ -5340,6 +5358,7 @@ function saveOrder() {
   const productPrice = document.getElementById('mTotal').value.trim() || (selProduct ? selProduct.product.price : '$0');
   const clientName   = document.getElementById('mClient').value;
   const clientId     = document.getElementById('mClient').dataset.clientId || null;
+  const linkConvo    = document.getElementById('mClient').dataset.convoMatch === '1';
   const address      = document.getElementById('mAddress').value;
   const notes        = document.getElementById('mNotes').value.trim();
   const newId        = null; // el número lo asigna el servidor al confirmar
@@ -5352,6 +5371,7 @@ function saveOrder() {
     items: allItems,
     convoKey: currentConvo,
     clientId,
+    linkConvo,
   };
 
   // populate panel
@@ -5462,7 +5482,7 @@ async function confirmOrder() {
   try {
     saved = await apiJson('POST', '/api/orders', {
       clientName: d.client,
-      ...orderClientFields(d.clientId, convos[d.convoKey]),
+      ...orderClientFields(d.clientId, convos[d.convoKey], d.linkConvo),
       platform: d.platform,
       productSummary: productFull,
       totalPrice: parseFloat((total + '').replace(/[^0-9.]/g, '')) || 0,
@@ -5490,12 +5510,18 @@ async function confirmOrder() {
   d.id = saved.orderNumber;
   document.getElementById('opNum').textContent = d.id;
   if (saved.createdClient) addServerClient(saved.createdClient);
+  if (d.linkConvo && convos[d.convoKey]) {
+    const fc = clientsDB.find(x => x.id === saved.clientId);
+    if (fc && !fc.convoKey && !clientsDB.some(x => x.convoKey === convos[d.convoKey].waId)) fc.convoKey = convos[d.convoKey].waId;
+  }
   storeServerOrder(saved, 'prepend');
   orderExtras[d.id].productDetail = d.productDetail || '';
   renderOrders();
 
-  // Send ticket to chat — stays in conversation
+  // Send ticket to chat — stays in conversation. Si mientras se guardaba el usuario cambió de chat,
+  // el ticket se guarda en SU conversación pero no se pinta en la que está abierta.
   const list = document.getElementById('msgList');
+  const showHere = !d.convoKey || d.convoKey === currentConvo;
   if (list) {
     const sending = document.createElement('div');
     sending.className = 'msg out';
@@ -5505,7 +5531,7 @@ async function confirmOrder() {
       </div>
       <div class="msg-av" style="background:linear-gradient(135deg,#6c63ff,#a855f7);align-self:flex-end;">Tú</div>
     `;
-    list.appendChild(sending);
+    if (showHere) list.appendChild(sending);
 
     const ticketInner = `
       <div class="ticket-header">
@@ -5543,8 +5569,7 @@ async function confirmOrder() {
       </button>
       <div class="msg-av" style="background:linear-gradient(135deg,#6c63ff,#a855f7);align-self:flex-end;">Tú</div>
     `;
-    list.appendChild(ticketWrap);
-    list.scrollTop = list.scrollHeight;
+    if (showHere) { list.appendChild(ticketWrap); list.scrollTop = list.scrollHeight; }
 
     // Save ticket to conversation so it persists when switching chats
     saveTicketToConvo(d.convoKey || currentConvo, ticketId, ticketInner, 'confirm', timeStr);
@@ -5678,7 +5703,7 @@ function showConvoHistory(key) {
         <span class="op-history-card-id">${o.id}</span>
         <span class="op-history-card-time">${o.time}</span>
       </div>
-      <div class="op-history-card-product">${ex.emoji || '📦'} ${escHtml(o.product)}</div>
+      <div class="op-history-card-product">${escHtml(ex.emoji || '📦')} ${escHtml(o.product)}</div>
       <div class="op-history-card-bottom">
         <span class="op-history-card-price">${o.price}</span>
         <span style="font-size:11px;color:var(--text3);">${payIcons[o.pay] || ''} ${deliveryLabels[o.delivery] || o.delivery}</span>
@@ -10518,12 +10543,23 @@ function findClientForConvo(c) {
     });
     if (byPhone.length === 1) return byPhone[0];
   }
+  // Fichas anteriores (sin chat vinculado): la única con ese mismo nombre
+  const name = String(c.name || '').trim().toLowerCase();
+  if (name) {
+    const byName = clientsDB.filter(cl => !cl.convoKey && String(cl.name || '').trim().toLowerCase() === name);
+    if (byName.length === 1) return byName[0];
+  }
   return null;
 }
 
 // Datos de cliente para guardar un pedido: la ficha elegida o, si no hay, lo necesario para crearla
-function orderClientFields(clientId, convo) {
-  if (isServerId(clientId)) return { clientId };
+// linkConvo: la ficha la eligió la app como "la de este chat" → el servidor le asigna el chat si no tiene
+function orderClientFields(clientId, convo, linkConvo) {
+  if (isServerId(clientId)) {
+    const c = clientsDB.find(x => x.id === clientId);
+    if (linkConvo && convo && convo.waId && c && !c.convoKey) return { clientId, clientConvoKey: convo.waId };
+    return { clientId };
+  }
   const out = {};
   if (convo && convo.waId) {
     out.clientConvoKey = convo.waId;

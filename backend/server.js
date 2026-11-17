@@ -313,19 +313,33 @@ async function initDB() {
     // Pedidos vinculados a la ficha del cliente (no por nombre). Nada se borra:
     // - clients.convo_key: la conversación (waId o ig_…) de la que salió la ficha
     // - los pedidos antiguos sin ficha se vinculan SOLO si hay exactamente un cliente con ese nombre
-    try {
-      await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS convo_key TEXT`);
-      await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS clients_tenant_convo_key_uniq ON clients (tenant_id, convo_key) WHERE convo_key IS NOT NULL`);
-      await pool.query(`CREATE INDEX IF NOT EXISTS orders_tenant_client_idx ON orders (tenant_id, client_id)`);
-      const { rowCount } = await pool.query(`
-        UPDATE orders o SET client_id = c.id
-        FROM clients c
-        WHERE o.client_id IS NULL AND c.tenant_id = o.tenant_id AND c.name = o.client_name
-          AND (SELECT COUNT(*) FROM clients c2 WHERE c2.tenant_id = o.tenant_id AND c2.name = o.client_name) = 1
-      `);
-      if (rowCount) console.log(`✅ ${rowCount} pedido(s) antiguos vinculados a su ficha de cliente`);
-    } catch (err) {
-      console.error('⚠️  Migración pedidos ↔ clientes:', err.message);
+    // El relleno de pedidos antiguos corre UNA sola vez (cuando se crea la columna): después,
+    // un pedido sin ficha es decisión del usuario y no se vuelve a vincular solo.
+    {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const { rows: col } = await client.query(
+          `SELECT 1 FROM information_schema.columns WHERE table_name = 'clients' AND column_name = 'convo_key'`);
+        await client.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS convo_key TEXT`);
+        await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS clients_tenant_convo_key_uniq ON clients (tenant_id, convo_key) WHERE convo_key IS NOT NULL`);
+        await client.query(`CREATE INDEX IF NOT EXISTS orders_tenant_client_idx ON orders (tenant_id, client_id)`);
+        if (!col[0]) {
+          const { rowCount } = await client.query(`
+            UPDATE orders o SET client_id = c.id
+            FROM clients c
+            WHERE o.client_id IS NULL AND c.tenant_id = o.tenant_id AND c.name = o.client_name
+              AND (SELECT COUNT(*) FROM clients c2 WHERE c2.tenant_id = o.tenant_id AND c2.name = o.client_name) = 1
+          `);
+          console.log(`✅ Pedidos ↔ fichas: ${rowCount} pedido(s) antiguos vinculados a su ficha`);
+        }
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        console.error('❌ Migración pedidos ↔ clientes (sin clients.convo_key fallarán altas de pedidos y clientes):', err.message);
+      } finally {
+        client.release();
+      }
     }
 
     try {
@@ -536,8 +550,8 @@ async function dbCreateOrder(tenantId, data) {
 
     await client.query('COMMIT');
     const { rows: itemRows } = await pool.query(
-      'SELECT id, product_id, emoji, name, detail, qty, unit_price, line_price FROM order_items WHERE order_id = $1',
-      [order.id]
+      'SELECT id, product_id, emoji, name, detail, qty, unit_price, line_price FROM order_items WHERE order_id = $1 AND tenant_id = $2 ORDER BY ctid',
+      [order.id, tenantId]
     );
     order.items = itemRows.map(i => ({
       id: i.id, productId: i.product_id, emoji: i.emoji, name: i.name,
@@ -559,6 +573,22 @@ class BadRequest extends Error {}
 
 const CONVO_KEY_RE = /^(ig_)?[0-9A-Za-z_-]{1,64}$/;
 
+// Asigna un chat a una ficha que aún no tiene. Si otra petición simultánea se lo dio a otra
+// ficha, simplemente no se asigna (el savepoint evita que el choque anule el pedido).
+async function linkClientToConvo(db, tenantId, clientId, convoKey) {
+  await db.query('SAVEPOINT link_convo');
+  try {
+    await db.query(`
+      UPDATE clients SET convo_key = $3 WHERE id = $2 AND tenant_id = $1 AND convo_key IS NULL
+        AND NOT EXISTS (SELECT 1 FROM clients WHERE tenant_id = $1 AND convo_key = $3)`,
+      [tenantId, clientId, convoKey]);
+    await db.query('RELEASE SAVEPOINT link_convo');
+  } catch (err) {
+    await db.query('ROLLBACK TO SAVEPOINT link_convo');
+    if (err.code !== '23505') throw err;
+  }
+}
+
 // Ficha del cliente de un pedido (dentro de la transacción del pedido):
 // - clientId dado → debe ser de este negocio
 // - sin clientId → la ficha de esa conversación si tiene el mismo nombre; si no, se crea una nueva
@@ -566,6 +596,10 @@ async function resolveOrderClient(db, tenantId, data) {
   if (data.clientId) {
     const { rows } = await db.query('SELECT id FROM clients WHERE id::text = $1 AND tenant_id = $2', [String(data.clientId), tenantId]);
     if (!rows[0]) throw new BadRequest('Cliente no encontrado');
+    // La app la eligió como "la ficha de este chat": se le asigna el chat si aún no tiene uno
+    if (typeof data.clientConvoKey === 'string' && CONVO_KEY_RE.test(data.clientConvoKey)) {
+      await linkClientToConvo(db, tenantId, rows[0].id, data.clientConvoKey);
+    }
     return { clientId: rows[0].id, createdClient: null };
   }
   const name = String(data.clientName || '').trim();
@@ -577,14 +611,33 @@ async function resolveOrderClient(db, tenantId, data) {
       [tenantId, convoKey, name]);
     if (rows[0]) return { clientId: rows[0].id, createdClient: null };
   }
+  // Fichas anteriores a convo_key (o sin chat): si hay UNA sola sin chat con ese nombre, es esa.
+  // Se le asigna el chat (si está libre) para que la próxima vez se encuentre directamente.
+  const { rows: byName } = await db.query(
+    'SELECT id FROM clients WHERE tenant_id = $1 AND convo_key IS NULL AND lower(name) = lower($2) LIMIT 2',
+    [tenantId, name]);
+  if (byName.length === 1) {
+    if (convoKey) {
+      await linkClientToConvo(db, tenantId, byName[0].id, convoKey);
+    }
+    return { clientId: byName[0].id, createdClient: null };
+  }
   const isIg = convoKey ? convoKey.startsWith('ig_') : data.platform === 'ig';
   const phone = typeof data.clientPhone === 'string' ? data.clientPhone.trim().slice(0, 40) || null : null;
-  const { rows } = await db.query(`
+  const insert = (key) => db.query(`
     INSERT INTO clients (tenant_id, name, phone, channel, convo_key)
-    VALUES ($1, $2, $3, $4,
-      CASE WHEN $5::text IS NOT NULL AND NOT EXISTS (SELECT 1 FROM clients WHERE tenant_id = $1 AND convo_key = $5) THEN $5 END)
+    VALUES ($1, $2, $3, $4, $5)
+    ON CONFLICT (tenant_id, convo_key) WHERE convo_key IS NOT NULL DO NOTHING
     RETURNING *
-  `, [tenantId, name.slice(0, 200), phone, isIg ? 'ig' : 'wa', convoKey]);
+  `, [tenantId, name.slice(0, 200), phone, isIg ? 'ig' : 'wa', key]);
+  // Si el chat ya tiene otra ficha (u otra petición simultánea la acaba de crear), la nueva va sin chat
+  let { rows } = await insert(convoKey);
+  if (!rows[0]) {
+    const { rows: owner } = await db.query(
+      'SELECT id FROM clients WHERE tenant_id = $1 AND convo_key = $2 AND lower(name) = lower($3)', [tenantId, convoKey, name]);
+    if (owner[0]) return { clientId: owner[0].id, createdClient: null };
+    ({ rows } = await insert(null));
+  }
   return { clientId: rows[0].id, createdClient: mapClientRow(rows[0]) };
 }
 
@@ -625,8 +678,18 @@ async function dbUpdateOrder(tenantId, orderId, fields) {
 
     const sets = [];
     const values = [];
-    for (const [key, val] of Object.entries(fields)) {
+    const ENUMS = { pay_status: ['ok', 'pend'], delivery_status: ['to_deliver', 'delivered', 'not_delivered'] };
+    for (const [key, raw] of Object.entries(fields)) {
       if (!allowed.includes(key)) continue;
+      let val = raw;
+      if (ENUMS[key] && !ENUMS[key].includes(val)) throw new BadRequest(`${key} inválido`);
+      if (key === 'total_price' || key === 'shipping') {
+        val = Number(raw ?? 0);
+        if (!Number.isFinite(val) || val < 0 || val > 1e8) throw new BadRequest(`${key} inválido`);
+        val = Math.round(val * 100) / 100;
+      } else if (!ENUMS[key] && val !== null && val !== undefined) {
+        val = String(val).slice(0, key === 'notes' || key === 'address' ? 2000 : 300);
+      }
       values.push(val);
       sets.push(`${key} = $${values.length}`);
     }
@@ -712,6 +775,7 @@ async function dbGetClients(tenantId) {
 async function dbUpsertClient(tenantId, data) {
   if (!dbReady) return null;
   if (data.id) {
+    if (!UUID_RE.test(String(data.id))) return null; // id inválido → 404, no error de base
     const { rows } = await pool.query(`
       UPDATE clients SET
         name = $1, phone = $2, ig = $3, email = $4, city = $5, zone = $6,
@@ -732,23 +796,27 @@ async function dbUpsertClient(tenantId, data) {
     return mapClientRow(rows[0]);
   }
   const convoKey = typeof data.convoKey === 'string' && CONVO_KEY_RE.test(data.convoKey) ? data.convoKey : null;
-  const { rows } = await pool.query(`
+  // Si ese chat ya tiene ficha, la nueva se guarda sin chat (nunca un error por el índice único)
+  const insert = (key) => pool.query(`
     INSERT INTO clients (tenant_id, name, phone, ig, email, city, zone, address,
       extra_addresses, pay_method, channel, notes, is_vip, convo_key)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
-      CASE WHEN $14::text IS NOT NULL AND NOT EXISTS (SELECT 1 FROM clients WHERE tenant_id = $1 AND convo_key = $14) THEN $14 END)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+    ON CONFLICT (tenant_id, convo_key) WHERE convo_key IS NOT NULL DO NOTHING
     RETURNING *
   `, [
     tenantId, data.name, data.phone || null, data.ig || null, data.email || null,
     data.city || null, data.zone || null, data.address || null,
     JSON.stringify(data.extraAddresses || []), data.payMethod || null,
-    data.channel || null, data.notes || null, !!data.isVip, convoKey,
+    data.channel || null, data.notes || null, !!data.isVip, key,
   ]);
+  let { rows } = await insert(convoKey);
+  if (!rows[0]) ({ rows } = await insert(null));
   return mapClientRow(rows[0]);
 }
 
 async function dbDeleteClient(tenantId, clientId) {
   if (!dbReady) return false;
+  if (!UUID_RE.test(String(clientId))) return false;
   const { rowCount } = await pool.query(
     'DELETE FROM clients WHERE id = $1 AND tenant_id = $2',
     [clientId, tenantId]
@@ -1890,7 +1958,9 @@ app.get('/api/reports', requireAuth, async (req, res) => {
   let from = null, to = null;
   if (period === 'personalizado') {
     from = String(req.query.from || ''); to = String(req.query.to || '');
-    if (!ISO_DATE.test(from) || !ISO_DATE.test(to) || isNaN(Date.parse(from)) || isNaN(Date.parse(to))) {
+    // Fecha real de calendario (2026-02-31 no existe)
+    const realDate = (s) => ISO_DATE.test(s) && !isNaN(Date.parse(s)) && new Date(Date.parse(s)).toISOString().slice(0, 10) === s;
+    if (!realDate(from) || !realDate(to)) {
       return res.status(400).json({ error: 'Fechas inválidas (formato YYYY-MM-DD)' });
     }
     if (from > to) return res.status(400).json({ error: 'La fecha inicial debe ser anterior a la final' });
@@ -1899,8 +1969,13 @@ app.get('/api/reports', requireAuth, async (req, res) => {
 
   try {
     const { rows: [t] } = await pool.query('SELECT timezone FROM tenants WHERE id = $1', [tenantId]);
-    const tz = isValidTimezone(t && t.timezone) ? t.timezone
-             : isValidTimezone(req.query.tz) ? req.query.tz : DEFAULT_TIMEZONE;
+    let tz = isValidTimezone(t && t.timezone) ? t.timezone : null;
+    if (!tz && isValidTimezone(req.query.tz)) {
+      // Primera vez: la zona del navegador del negocio queda guardada como la suya
+      tz = req.query.tz;
+      await pool.query('UPDATE tenants SET timezone = $1 WHERE id = $2 AND timezone IS NULL', [tz, tenantId]);
+    }
+    if (!tz) tz = DEFAULT_TIMEZONE;
 
     // Hora local del negocio y límites del período (como timestamps locales sin zona)
     const { rows: [nowRow] } = await pool.query(
@@ -1966,7 +2041,7 @@ app.get('/api/reports', requireAuth, async (req, res) => {
         FROM orders o WHERE ${W} GROUP BY b`, P),
       pool.query(`
         SELECT COUNT(*)::int AS n FROM clients c
-        WHERE c.tenant_id = $1 AND ${inPeriod('c.created_at')} AND $5::text IS NOT NULL`, P),
+        WHERE c.tenant_id = $1 AND ${inPeriod('c.created_at')} AND ($5 = 'todos' OR c.channel = $5)`, P),
     ]);
 
     const k = kpi.rows[0];
@@ -2143,6 +2218,9 @@ function simulateIfDemo(kind) {
     if (req.tenant?.isDemo !== true) return res.status(503).json({ error: 'Servicio no disponible, intenta en un momento' });
     const b = req.body || {};
     const tenantId = req.tenant.tenantId;
+    if (b.igId !== undefined && (typeof b.igId !== 'string' || !/^[0-9A-Za-z_-]{1,64}$/.test(b.igId))) {
+      return res.status(400).json({ error: 'igId inválido' });
+    }
     const viaIg = kind === 'ig' || (kind === 'ticket' && !!b.igId);
     const platform = viaIg ? 'ig' : 'wa';
     const convoKey = viaIg ? (b.igId ? `ig_${b.igId}` : null) : b.waId;

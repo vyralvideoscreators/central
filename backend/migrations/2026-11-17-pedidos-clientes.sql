@@ -1,7 +1,8 @@
 -- ══════════════════════════════════════════════════════════════
 -- CENTRAL — pedidos vinculados a la ficha del cliente (17-nov-2026)
 --
--- server.js ejecuta ESTO MISMO automáticamente al arrancar (initDB), y todo es
+-- server.js ejecuta ESTO MISMO automáticamente al arrancar (initDB); el relleno del paso 3
+-- solo corre la primera vez (cuando se crea la columna convo_key). Todo es
 -- idempotente: se puede correr varias veces sin efecto adicional.
 -- Este archivo sirve para revisarlo o aplicarlo a mano ANTES del deploy, después
 -- de hacer el respaldo de la base en Railway (Postgres → Backups).
