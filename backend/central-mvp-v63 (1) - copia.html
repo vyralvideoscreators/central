@@ -3989,6 +3989,12 @@ function apiAuthHeader() {
 }
 
 // El estilo del ticket que se envía como imagen lo pone el servidor (TICKET_CSS en server.js)
+// Destinatario del ticket según el canal de la conversación (Instagram nunca sale por WhatsApp)
+function ticketRecipient(c) {
+  return c.platform === 'ig'
+    ? { igId: c.igSenderId || String(c.waId).replace(/^ig_/, '') }
+    : { waId: c.waId };
+}
 
 // ─── ORDERS DATA ───────────────────────────────────────────────
 let orders = [];
@@ -5239,7 +5245,7 @@ function confirmOrder() {
     // Save ticket to conversation so it persists when switching chats
     saveTicketToConvo(d.convoKey || currentConvo, ticketId, ticketInner, 'confirm', timeStr);
 
-    // Si es conversación real, enviar el ticket como imagen por WhatsApp
+    // Si es conversación real, enviar el ticket como imagen por su canal (WhatsApp o Instagram)
     const convoKey = d.convoKey || currentConvo;
     const convoData = convos[convoKey];
     if (convoData && convoData.isReal && convoData.waId) {
@@ -5247,14 +5253,14 @@ function confirmOrder() {
         method: 'POST',
         headers: apiHeaders(),
         body: JSON.stringify({
-          waId: convoData.waId,
+          ...ticketRecipient(convoData),
           ticketHtml: ticketInner,
           caption: 'Aquí está tu resguardo de compra 🧾',
           orderType: 'confirmacion',
         }),
       }).then(r => r.json()).then(data => {
-        if (!data.success) showToast('⚠ Error enviando ticket por WhatsApp: ' + (data.error || ''));
-      }).catch(() => showToast('⚠ No se pudo enviar el ticket por WhatsApp'));
+        if (!data.success) showToast('⚠ Error enviando el ticket al cliente: ' + (data.error || ''));
+      }).catch(() => showToast('⚠ No se pudo enviar el ticket al cliente'));
     }
   }
 
@@ -9711,7 +9717,7 @@ function sendPresupuesto() {
   // Save ticket to conversation so it persists when switching chats
   saveTicketToConvo(d.convoKey || currentConvo, presId, presupuestoInner, 'presupuesto', timeStr);
 
-  // Si es conversación real, enviar el presupuesto como imagen por WhatsApp
+  // Si es conversación real, enviar el presupuesto como imagen por su canal (WhatsApp o Instagram)
   const convoKey = d.convoKey || currentConvo;
   const convoData = convos[convoKey];
   if (convoData && convoData.isReal && convoData.waId) {
@@ -9719,14 +9725,14 @@ function sendPresupuesto() {
       method: 'POST',
       headers: apiHeaders(),
       body: JSON.stringify({
-        waId: convoData.waId,
+        ...ticketRecipient(convoData),
         ticketHtml: presupuestoInner,
         caption: '📋 Presupuesto — responde "ACEPTO" para confirmar tu pedido',
         orderType: 'presupuesto',
       }),
     }).then(r => r.json()).then(data => {
-      if (!data.success) showToast('⚠ Error enviando presupuesto por WhatsApp: ' + (data.error || ''));
-    }).catch(() => showToast('⚠ No se pudo enviar el presupuesto por WhatsApp'));
+      if (!data.success) showToast('⚠ Error enviando el presupuesto al cliente: ' + (data.error || ''));
+    }).catch(() => showToast('⚠ No se pudo enviar el presupuesto al cliente'));
   }
   // Panel stays open — no orders created, currentDraft preserved for later confirmation
 }

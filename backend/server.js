@@ -1972,15 +1972,16 @@ function simulateIfDemo(kind) {
     if (req.tenant?.isDemo !== true) return res.status(503).json({ error: 'Servicio no disponible, intenta en un momento' });
     const b = req.body || {};
     const tenantId = req.tenant.tenantId;
-    const platform = kind === 'ig' ? 'ig' : 'wa';
-    const convoKey = kind === 'ig' ? (b.igId ? `ig_${b.igId}` : null) : b.waId;
+    const viaIg = kind === 'ig' || (kind === 'ticket' && !!b.igId);
+    const platform = viaIg ? 'ig' : 'wa';
+    const convoKey = viaIg ? (b.igId ? `ig_${b.igId}` : null) : b.waId;
     if (!convoKey) return res.status(400).json({ error: 'Falta el destinatario' });
     const text = kind === 'ticket' ? (b.caption || '🧾 Resguardo de compra')
                : kind === 'media'  ? (b.caption || '📎 Archivo adjunto')
                : b.text;
     if (!text) return res.status(400).json({ error: 'Falta el texto' });
     try {
-      await dbGetOrCreateConvo(convoKey, null, tenantId, platform, kind === 'ig' ? b.igId : null);
+      await dbGetOrCreateConvo(convoKey, null, tenantId, platform, viaIg ? b.igId : null);
       const sentMessage = { id: 'demo_' + crypto.randomUUID(), role: 'out', type: 'text', text, time: new Date().toISOString() };
       await dbSaveMessage(sentMessage, convoKey, tenantId);
       broadcastToTenant(tenantId, { type: 'message_sent', waId: convoKey, platform, message: sentMessage });
@@ -2055,9 +2056,87 @@ app.post('/api/send-media', requireAuth, upload.single('file'), simulateIfDemo('
 // API — Enviar ticket como imagen PNG (WhatsApp)
 // ══════════════════════════════════════════════════════════════
 
+// Instagram solo acepta imágenes por URL pública: el ticket se publica en un enlace aleatorio
+// que caduca a los 15 minutos, el tiempo justo para que Meta lo descargue.
+const TICKET_LINK_TTL_MS = 15 * 60 * 1000;
+const publicTicketImages = new Map(); // token → { buffer, expires }
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of publicTicketImages) if (now > v.expires) publicTicketImages.delete(k);
+}, 60 * 1000).unref();
+
+function publishTicketImage(buffer) {
+  // Tope de memoria: si hubiera demasiados, se descartan los más antiguos
+  while (publicTicketImages.size >= 500) publicTicketImages.delete(publicTicketImages.keys().next().value);
+  const token = crypto.randomBytes(32).toString('hex');
+  publicTicketImages.set(token, { buffer, expires: Date.now() + TICKET_LINK_TTL_MS });
+  return `${APP_URL.replace(/\/$/, '')}/api/ticket-image/${token}`;
+}
+
+app.get('/api/ticket-image/:token', (req, res) => {
+  const item = /^[0-9a-f]{64}$/.test(req.params.token) ? publicTicketImages.get(req.params.token) : null;
+  if (!item || Date.now() > item.expires) return res.status(404).end();
+  res.set({ 'Content-Type': 'image/png', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex', 'Referrer-Policy': 'no-referrer' });
+  res.send(item.buffer);
+});
+
+async function sendIgImageByUrl(creds, igId, url) {
+  const response = await axios.post(
+    `https://graph.instagram.com/${GRAPH_API_VERSION}/me/messages`,
+    { recipient: { id: igId }, message: { attachment: { type: 'image', payload: { url } } } },
+    { headers: { Authorization: `Bearer ${creds.instagram_access_token}`, 'Content-Type': 'application/json' } }
+  );
+  return response.data.message_id || 'ig_out_' + Date.now();
+}
+
+// Ticket por Instagram: imagen (por enlace temporal) y, si hay, el texto aparte (IG no admite pie de foto)
+async function sendTicketInstagram(req, res) {
+  const { igId, ticketHtml, caption, orderType } = req.body;
+  const tenantId = req.tenant.tenantId;
+  try {
+    const creds = await getTenantCredentials(tenantId);
+    if (!creds.instagram_access_token) return res.status(500).json({ error: 'Instagram no configurado' });
+
+    const imageBuffer = await renderTicketImage(ticketHtml);
+    const imageId = await sendIgImageByUrl(creds, igId, publishTicketImage(imageBuffer));
+    const convoKey = `ig_${igId}`;
+    await dbGetOrCreateConvo(convoKey, null, tenantId, 'ig', igId);
+
+    const mediaId = 'igtkt_' + crypto.randomUUID();
+    mediaCache[mediaId] = { buffer: imageBuffer, mimeType: 'image/png', size: imageBuffer.length, tenantId: String(tenantId) };
+    const sentMessage = {
+      id: imageId, role: 'out', type: 'image', mediaId, mimeType: 'image/png',
+      caption: caption || '', mediaUrl: `/api/media/${mediaId}`, orderType: orderType || null,
+      time: new Date().toISOString(),
+    };
+    await dbSaveMessage(sentMessage, convoKey, tenantId);
+    broadcastToTenant(tenantId, { type: 'message_sent', waId: convoKey, platform: 'ig', message: sentMessage });
+
+    if (caption) {
+      try {
+        const textMessage = { id: await sendIgText(creds, igId, caption), role: 'out', type: 'text', text: caption, time: new Date().toISOString() };
+        await dbSaveMessage(textMessage, convoKey, tenantId);
+      } catch (err) {
+        console.error('Ticket IG: imagen enviada, texto no:', err.response?.data || err.message);
+      }
+    }
+    console.log(`🧾 Ticket (${orderType || 'sin tipo'}) enviado por Instagram a ${igId}`);
+    res.json({ success: true, message: sentMessage });
+  } catch (err) {
+    console.error('Error enviando ticket por Instagram:', err.response?.data || err.message);
+    res.status(500).json({ error: 'Error al enviar ticket por Instagram', details: err.response?.data || err.message });
+  }
+}
+
 app.post('/api/send-ticket', requireAuth, simulateIfDemo('ticket'), async (req, res) => {
-  const { waId, ticketHtml, caption, orderType } = req.body;
-  if (!waId || !ticketHtml) return res.status(400).json({ error: 'Faltan waId o ticketHtml' });
+  const { waId, igId, ticketHtml, caption, orderType } = req.body;
+  if (!ticketHtml) return res.status(400).json({ error: 'Falta ticketHtml' });
+  if (igId !== undefined) {
+    if (typeof igId !== 'string' || !/^[0-9A-Za-z_-]{1,64}$/.test(igId)) return res.status(400).json({ error: 'igId inválido' });
+    return sendTicketInstagram(req, res);
+  }
+  // Un id de Instagram nunca debe salir por WhatsApp
+  if (!waId || String(waId).startsWith('ig_')) return res.status(400).json({ error: 'Falta waId (o igId para Instagram)' });
 
   try {
     const creds = await getTenantCredentials(req.tenant.tenantId);
