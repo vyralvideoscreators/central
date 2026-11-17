@@ -310,6 +310,24 @@ async function initDB() {
       }
     }
 
+    // Pedidos vinculados a la ficha del cliente (no por nombre). Nada se borra:
+    // - clients.convo_key: la conversación (waId o ig_…) de la que salió la ficha
+    // - los pedidos antiguos sin ficha se vinculan SOLO si hay exactamente un cliente con ese nombre
+    try {
+      await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS convo_key TEXT`);
+      await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS clients_tenant_convo_key_uniq ON clients (tenant_id, convo_key) WHERE convo_key IS NOT NULL`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS orders_tenant_client_idx ON orders (tenant_id, client_id)`);
+      const { rowCount } = await pool.query(`
+        UPDATE orders o SET client_id = c.id
+        FROM clients c
+        WHERE o.client_id IS NULL AND c.tenant_id = o.tenant_id AND c.name = o.client_name
+          AND (SELECT COUNT(*) FROM clients c2 WHERE c2.tenant_id = o.tenant_id AND c2.name = o.client_name) = 1
+      `);
+      if (rowCount) console.log(`✅ ${rowCount} pedido(s) antiguos vinculados a su ficha de cliente`);
+    } catch (err) {
+      console.error('⚠️  Migración pedidos ↔ clientes:', err.message);
+    }
+
     try {
       await seedDefaultTenant();
     } catch (err) {
@@ -490,6 +508,7 @@ async function dbCreateOrder(tenantId, data) {
       WHERE id = $1 RETURNING order_seq
     `, [tenantId]);
     if (!seqRows[0]) throw new Error('Tenant no encontrado');
+    const { clientId, createdClient } = await resolveOrderClient(client, tenantId, data);
     const { rows } = await client.query(`
       INSERT INTO orders (tenant_id, client_id, client_name, platform, product_summary,
         total_price, pay_status, delivery_status, pay_method_label, delivery_method_label,
@@ -497,7 +516,7 @@ async function dbCreateOrder(tenantId, data) {
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
       RETURNING *
     `, [
-      tenantId, data.clientId || null, data.clientName || null, data.platform || null,
+      tenantId, clientId, data.clientName || null, data.platform || null,
       data.productSummary || null, data.totalPrice || 0, data.payStatus || 'pend',
       data.deliveryStatus || 'to_deliver', data.payMethodLabel || null,
       data.deliveryMethodLabel || null, data.address || null, data.notes || null,
@@ -524,13 +543,49 @@ async function dbCreateOrder(tenantId, data) {
       id: i.id, productId: i.product_id, emoji: i.emoji, name: i.name,
       detail: i.detail, qty: i.qty, unitPrice: i.unit_price, linePrice: i.line_price,
     }));
-    return mapOrderRow(order);
+    const result = mapOrderRow(order);
+    if (createdClient) result.createdClient = createdClient;
+    return result;
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
   } finally {
     client.release();
   }
+}
+
+// Error de datos del cliente de la API (se responde 400 con este mensaje)
+class BadRequest extends Error {}
+
+const CONVO_KEY_RE = /^(ig_)?[0-9A-Za-z_-]{1,64}$/;
+
+// Ficha del cliente de un pedido (dentro de la transacción del pedido):
+// - clientId dado → debe ser de este negocio
+// - sin clientId → la ficha de esa conversación si tiene el mismo nombre; si no, se crea una nueva
+async function resolveOrderClient(db, tenantId, data) {
+  if (data.clientId) {
+    const { rows } = await db.query('SELECT id FROM clients WHERE id::text = $1 AND tenant_id = $2', [String(data.clientId), tenantId]);
+    if (!rows[0]) throw new BadRequest('Cliente no encontrado');
+    return { clientId: rows[0].id, createdClient: null };
+  }
+  const name = String(data.clientName || '').trim();
+  if (!name) return { clientId: null, createdClient: null };
+  const convoKey = typeof data.clientConvoKey === 'string' && CONVO_KEY_RE.test(data.clientConvoKey) ? data.clientConvoKey : null;
+  if (convoKey) {
+    const { rows } = await db.query(
+      'SELECT id FROM clients WHERE tenant_id = $1 AND convo_key = $2 AND lower(name) = lower($3)',
+      [tenantId, convoKey, name]);
+    if (rows[0]) return { clientId: rows[0].id, createdClient: null };
+  }
+  const isIg = convoKey ? convoKey.startsWith('ig_') : data.platform === 'ig';
+  const phone = typeof data.clientPhone === 'string' ? data.clientPhone.trim().slice(0, 40) || null : null;
+  const { rows } = await db.query(`
+    INSERT INTO clients (tenant_id, name, phone, channel, convo_key)
+    VALUES ($1, $2, $3, $4,
+      CASE WHEN $5::text IS NOT NULL AND NOT EXISTS (SELECT 1 FROM clients WHERE tenant_id = $1 AND convo_key = $5) THEN $5 END)
+    RETURNING *
+  `, [tenantId, name.slice(0, 200), phone, isIg ? 'ig' : 'wa', convoKey]);
+  return { clientId: rows[0].id, createdClient: mapClientRow(rows[0]) };
 }
 
 async function dbUpdateOrder(tenantId, orderId, fields) {
@@ -581,6 +636,7 @@ function mapClientRow(r) {
     channel:        r.channel,
     notes:          r.notes,
     isVip:          r.is_vip,
+    convoKey:       r.convo_key || null,
     createdAt:      r.created_at,
     updatedAt:      r.updated_at,
   };
@@ -611,18 +667,24 @@ async function dbUpsertClient(tenantId, data) {
       JSON.stringify(data.extraAddresses || []), data.payMethod || null,
       data.channel || null, data.notes || null, !!data.isVip, data.id, tenantId,
     ]);
-    return rows[0] ? mapClientRow(rows[0]) : null;
+    if (!rows[0]) return null;
+    // Los pedidos de la ficha muestran su nombre actual
+    await pool.query('UPDATE orders SET client_name = $1 WHERE client_id = $2 AND tenant_id = $3 AND client_name IS DISTINCT FROM $1',
+      [rows[0].name, rows[0].id, tenantId]);
+    return mapClientRow(rows[0]);
   }
+  const convoKey = typeof data.convoKey === 'string' && CONVO_KEY_RE.test(data.convoKey) ? data.convoKey : null;
   const { rows } = await pool.query(`
     INSERT INTO clients (tenant_id, name, phone, ig, email, city, zone, address,
-      extra_addresses, pay_method, channel, notes, is_vip)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+      extra_addresses, pay_method, channel, notes, is_vip, convo_key)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
+      CASE WHEN $14::text IS NOT NULL AND NOT EXISTS (SELECT 1 FROM clients WHERE tenant_id = $1 AND convo_key = $14) THEN $14 END)
     RETURNING *
   `, [
     tenantId, data.name, data.phone || null, data.ig || null, data.email || null,
     data.city || null, data.zone || null, data.address || null,
     JSON.stringify(data.extraAddresses || []), data.payMethod || null,
-    data.channel || null, data.notes || null, !!data.isVip,
+    data.channel || null, data.notes || null, !!data.isVip, convoKey,
   ]);
   return mapClientRow(rows[0]);
 }
@@ -1678,6 +1740,7 @@ app.post('/api/orders', requireAuth, async (req, res) => {
     if (!order) return res.status(503).json({ error: 'Base de datos no disponible' });
     res.json(order);
   } catch (err) {
+    if (err instanceof BadRequest) return res.status(400).json({ error: err.message });
     res.status(500).json({ error: err.message });
   }
 });

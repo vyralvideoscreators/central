@@ -2903,7 +2903,7 @@
 
     <!-- free-text name (shown only for new clients) -->
     <div class="form-row" id="mClientFreeRow" style="display:none;">
-      <div class="form-field"><div class="form-label">Nombre del cliente</div><input class="form-input" id="mClientFree" placeholder="Nombre completo..." type="text" oninput="document.getElementById('mClient').value=this.value"></div>
+      <div class="form-field"><div class="form-label">Nombre del cliente</div><input class="form-input" id="mClientFree" placeholder="Nombre completo..." type="text" oninput="var h=document.getElementById('mClient');h.value=this.value;delete h.dataset.clientId"></div>
       <div class="form-field"><div class="form-label">Teléfono</div><input class="form-input" id="mPhone" value="" placeholder="+58 412 000 0000" type="text"></div>
     </div>
 
@@ -3079,7 +3079,7 @@
     </div>
 
     <div class="form-row" id="noClientFreeRow" style="display:none;">
-      <div class="form-field"><div class="form-label">Nombre</div><input class="form-input" id="noClientFree" placeholder="Nombre completo..." type="text" oninput="document.getElementById('noClient').value=this.value"></div>
+      <div class="form-field"><div class="form-label">Nombre</div><input class="form-input" id="noClientFree" placeholder="Nombre completo..." type="text" oninput="var h=document.getElementById('noClient');h.value=this.value;delete h.dataset.clientId"></div>
       <div class="form-field"><div class="form-label">Teléfono</div><input class="form-input" id="noPhone" placeholder="+58 412 000 0000" type="text"></div>
     </div>
 
@@ -4648,7 +4648,7 @@ function printOrder() {
     '<\/he'+'ad>' + '<bo'+'dy>',
     '<div class="hd"><div class="logo">CENTRAL<\/div><div class="tl">Resguardo de Pedido<\/div><div class="oid">' + o.id + '<\/div><div class="dt">' + dateStr + ' · ' + timeStr + '<\/div><\/div>',
     '<div class="sec"><div class="st">Cliente<\/div>',
-    '<div class="row"><span class="rl">Nombre<\/span><span class="rv">' + o.client + '<\/span><\/div>',
+    '<div class="row"><span class="rl">Nombre<\/span><span class="rv">' + escHtml(o.client) + '<\/span><\/div>',
     '<div class="row"><span class="rl">Canal<\/span><span class="rv">' + (o.platform==='wa'?'WhatsApp':'Instagram') + '<\/span><\/div><\/div>',
     '<div class="sec"><div class="st">Producto<\/div><div class="pb"><div class="pn">' + ex.emoji + ' ' + o.product + '<\/div>' + (ex.notes?'<div class="pd">'+ex.notes+'<\/div>':'') + '<\/div><\/div>',
     '<div class="sec"><div class="st">Pago y entrega<\/div>',
@@ -4917,7 +4917,7 @@ function openOrderModal() {
   resetAddressDrop();
   const c = convos[currentConvo];
   if (c) {
-    const existing = clientsDB.find(cl => cl.name === c.name);
+    const existing = findClientForConvo(c);
     if (existing) {
       applyClientSelection(existing);
     } else {
@@ -4934,6 +4934,7 @@ function openOrderModal() {
 
 function resetClientDropUI() {
   document.getElementById('mClient').value = '';
+  delete document.getElementById('mClient').dataset.clientId;
   document.getElementById('mClientName').textContent = 'Seleccionar cliente...';
   document.getElementById('mClientName').style.color = 'var(--text2)';
   document.getElementById('mClientAv').textContent = '?';
@@ -4994,6 +4995,8 @@ function filterClientDrop(q) {
 function applyClientSelection(c) {
   const initials = c.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
   document.getElementById('mClient').value = c.name;
+  if (isServerId(c.id)) document.getElementById('mClient').dataset.clientId = c.id;
+  else delete document.getElementById('mClient').dataset.clientId;
   document.getElementById('mClientName').textContent = c.name;
   document.getElementById('mClientName').style.color = 'var(--text)';
   document.getElementById('mClientAv').textContent = initials;
@@ -5007,6 +5010,7 @@ function applyClientSelection(c) {
 
 function selectNewClient() {
   document.getElementById('mClient').value = '';
+  delete document.getElementById('mClient').dataset.clientId;
   document.getElementById('mClientName').textContent = 'Cliente nuevo';
   document.getElementById('mClientName').style.color = 'var(--accent2)';
   document.getElementById('mClientAv').textContent = '+';
@@ -5055,6 +5059,7 @@ function saveOrder() {
   // ALWAYS use the mTotal field — the user may have modified it
   const productPrice = document.getElementById('mTotal').value.trim() || (selProduct ? selProduct.product.price : '$0');
   const clientName   = document.getElementById('mClient').value;
+  const clientId     = document.getElementById('mClient').dataset.clientId || null;
   const address      = document.getElementById('mAddress').value;
   const notes        = document.getElementById('mNotes').value.trim();
   const newId        = null; // el número lo asigna el servidor al confirmar
@@ -5066,6 +5071,7 @@ function saveOrder() {
     productLabel, productDetail, productEmoji, productPrice, address, notes,
     items: allItems,
     convoKey: currentConvo,
+    clientId,
   };
 
   // populate panel
@@ -5176,6 +5182,7 @@ async function confirmOrder() {
   try {
     saved = await apiJson('POST', '/api/orders', {
       clientName: d.client,
+      ...orderClientFields(d.clientId, convos[d.convoKey]),
       platform: d.platform,
       productSummary: productFull,
       totalPrice: parseFloat((total + '').replace(/[^0-9.]/g, '')) || 0,
@@ -5202,6 +5209,7 @@ async function confirmOrder() {
 
   d.id = saved.orderNumber;
   document.getElementById('opNum').textContent = d.id;
+  if (saved.createdClient) addServerClient(saved.createdClient);
   storeServerOrder(saved, 'prepend');
   orderExtras[d.id].productDetail = d.productDetail || '';
   renderOrders();
@@ -5360,7 +5368,8 @@ function closeTicketPreview(e) {
 function showConvoHistory(key) {
   const c = convos[key];
   const clientName = c ? c.name : '';
-  const clientOrders = orders.filter(o => o.client === clientName);
+  const linked = c ? findClientForConvo(c) : null;
+  const clientOrders = linked ? orders.filter(o => o.clientId === linked.id) : [];
 
   document.getElementById('op-live').style.display = 'none';
   document.getElementById('op-empty').style.display = 'none';
@@ -7717,6 +7726,7 @@ let clientSearchQuery = '';
 
 // ─── CLIENTS RENDER ───────────────────────────────────────────
 function renderClients() {
+  relinkClientOrders();
   const grid = document.getElementById('clientsGrid');
   const query = clientSearchQuery.toLowerCase();
   const filtered = clientsDB.filter(c =>
@@ -7790,12 +7800,13 @@ function openClientProfile() {
   // called from chat header — find or create client from current convo
   const c = convos[currentConvo];
   if (!c) return;
-  let client = clientsDB.find(cl => cl.name === c.name);
+  let client = findClientForConvo(c);
   if (!client) {
-    // pre-fill new client from convo data
+    // pre-fill new client from convo data (queda vinculada a esta conversación)
     client = {
       id: 'c' + Date.now(),
-      name: c.name, phone: '', ig: c.platform === 'ig' ? '@' : '',
+      convoKey: c.waId || null,
+      name: c.name, phone: c.platform === 'wa' && c.waId ? '+' + c.waId : '', ig: c.platform === 'ig' ? '@' : '',
       email: '', city: '', zone: '', address: '',
       pay: '', channel: c.platform, notes: '',
       grad: c.avatarGrad, orders: [], isNew: true, isVip: false,
@@ -7850,6 +7861,8 @@ function removeAddressField(n) {
 
 function populateProfileModal(client) {
   currentClientId = client.id;
+  window._pmDraftClient = client._unsaved ? client : null;
+  relinkClientOrders();
 
   // header
   const initials = client.name ? client.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase() : '?';
@@ -7953,6 +7966,8 @@ function saveClientProfile() {
     }).catch(err => console.warn('No se pudo actualizar el cliente en el servidor:', err.message));
   } else {
     const temp = window._tempClient || {};
+    const draft = (window._pmDraftClient && window._pmDraftClient.id === currentClientId) ? window._pmDraftClient : {};
+    if (draft.convoKey) data.convoKey = draft.convoKey;
     const newClient = { ...temp, ...data, id: currentClientId, _unsaved: false };
     clientsDB.push(newClient);
     showToast(`${name} agregado a tus clientes ✓`);
@@ -7997,6 +8012,7 @@ function openNewOrderModal() {
   nosState = { product:null, size:null, color:null, qty:1 };
   nosItems = []; nosExtraCount = 0;
   document.getElementById('noClient').value = '';
+  delete document.getElementById('noClient').dataset.clientId;
   document.getElementById('noClientName').textContent = 'Seleccionar cliente...';
   document.getElementById('noClientName').style.color = 'var(--text2)';
   document.getElementById('noClientAv').textContent = '?';
@@ -8051,13 +8067,13 @@ function noRenderClientList(q) {
     const initials = c.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
     const item = document.createElement('div'); item.className = 'cli-drop-item';
     item.innerHTML = `<div class="cli-drop-av" style="background:${c.grad}">${escHtml(initials)}</div><div style="flex:1;min-width:0;"><div style="font-weight:600;">${escHtml(c.name)}</div>${c.phone?`<div style="font-size:11px;color:var(--text2);">${escHtml(c.phone)}</div>`:''}</div>`;
-    item.onclick = () => { document.getElementById('noClient').value = c.name; document.getElementById('noClientName').textContent = c.name; document.getElementById('noClientName').style.color = 'var(--text)'; document.getElementById('noClientAv').textContent = initials; document.getElementById('noClientAv').style.background = c.grad; document.getElementById('noClientFreeRow').style.display = 'none'; document.getElementById('noClientDrop').style.display = 'none'; document.getElementById('noClientArrow').style.transform = ''; if (c.address) document.getElementById('noAddress').value = c.address; };
+    item.onclick = () => { document.getElementById('noClient').value = c.name; if (isServerId(c.id)) document.getElementById('noClient').dataset.clientId = c.id; else delete document.getElementById('noClient').dataset.clientId; document.getElementById('noClientName').textContent = c.name; document.getElementById('noClientName').style.color = 'var(--text)'; document.getElementById('noClientAv').textContent = initials; document.getElementById('noClientAv').style.background = c.grad; document.getElementById('noClientFreeRow').style.display = 'none'; document.getElementById('noClientDrop').style.display = 'none'; document.getElementById('noClientArrow').style.transform = ''; if (c.address) document.getElementById('noAddress').value = c.address; };
     list.appendChild(item);
   });
 }
 function filterNoClientDrop(q) { noRenderClientList(q); }
 function selectNoNewClient() {
-  document.getElementById('noClient').value = ''; document.getElementById('noClientName').textContent = 'Cliente nuevo'; document.getElementById('noClientName').style.color = 'var(--accent2)'; document.getElementById('noClientAv').textContent = '+'; document.getElementById('noClientFreeRow').style.display = 'flex'; document.getElementById('noClientDrop').style.display = 'none'; document.getElementById('noClientArrow').style.transform = '';
+  document.getElementById('noClient').value = ''; delete document.getElementById('noClient').dataset.clientId; document.getElementById('noClientName').textContent = 'Cliente nuevo'; document.getElementById('noClientName').style.color = 'var(--accent2)'; document.getElementById('noClientAv').textContent = '+'; document.getElementById('noClientFreeRow').style.display = 'flex'; document.getElementById('noClientDrop').style.display = 'none'; document.getElementById('noClientArrow').style.transform = '';
   setTimeout(() => document.getElementById('noClientFree').focus(), 50);
 }
 
@@ -8293,7 +8309,8 @@ async function saveNewOrder() {
   let saved;
   try {
     saved = await apiJson('POST', '/api/orders', {
-      clientName, platform: 'wa', productSummary: productLabel,
+      clientName, ...orderClientFields(document.getElementById('noClient').dataset.clientId || null, null),
+      platform: noClientPlatform(), productSummary: productLabel,
       totalPrice: parseFloat((totalStr + '').replace(/[^0-9.]/g, '')) || 0,
       payStatus: 'pend', deliveryStatus: 'to_deliver',
       payMethodLabel: payLabel, deliveryMethodLabel: delLabel,
@@ -8313,6 +8330,7 @@ async function saveNewOrder() {
     _savingNewOrder = false;
     if (btn) { btn.disabled = false; btn.style.opacity = ''; }
   }
+  if (saved.createdClient) addServerClient(saved.createdClient);
   storeServerOrder(saved, 'prepend');
   renderOrders();
   closeNewOrderModal();
@@ -9992,7 +10010,8 @@ applyPlanNavigation(activePlan);
   try { renderDeliveryOpts(); } catch(e) {}
   try { renderPayGrids(); } catch(e) {}
 })();
-const ordersReady = loadRealOrders().then(() => { loadRealClients(); });
+// El historial de la conversación necesita pedidos y fichas de cliente: se esperan los dos
+const ordersReady = loadRealOrders().then(() => loadRealClients());
 loadRealConversations().then(() => {
   const firstKey = Object.keys(convos)[0];
   if (firstKey) {
@@ -10226,6 +10245,7 @@ function storeServerOrder(ro, mode) {
   if (idx >= 0) orders[idx] = order;
   else if (mode === 'prepend') orders.unshift(order);
   else orders.push(order);
+  if (mode !== 'append') relinkClientOrders(); // en la carga inicial se hace una vez al final
   return order;
 }
 
@@ -10250,6 +10270,75 @@ async function loadRealOrders() {
   }
 }
 
+// ── Pedidos ↔ fichas de cliente (por id, nunca por nombre) ──
+const CLIENT_GRADS = ['linear-gradient(135deg,#f093fb,#f5576c)','linear-gradient(135deg,#4facfe,#00f2fe)',
+  'linear-gradient(135deg,#43e97b,#38f9d7)','linear-gradient(135deg,#f7971e,#ffd200)',
+  'linear-gradient(135deg,#a18cd1,#fbc2eb)','linear-gradient(135deg,#30cfd0,#330867)'];
+const isServerId = id => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id || ''));
+const phoneDigits = p => String(p || '').replace(/\D/g, '');
+
+function clientFromServer(rc) {
+  return {
+    id: rc.id, name: rc.name, phone: rc.phone || '', ig: rc.ig || '',
+    email: rc.email || '', city: rc.city || '', zone: rc.zone || '',
+    address: rc.address || '', extraAddresses: rc.extraAddresses || [],
+    pay: rc.payMethod || '', channel: rc.channel || 'wa', notes: rc.notes || '',
+    convoKey: rc.convoKey || null,
+    grad: CLIENT_GRADS[clientsDB.length % CLIENT_GRADS.length], orders: [],
+    isNew: (Date.now() - new Date(rc.createdAt).getTime()) < 7 * 24 * 60 * 60 * 1000,
+    isVip: !!rc.isVip, createdAt: rc.createdAt,
+  };
+}
+
+// Ficha creada por el servidor al guardar un pedido de alguien sin ficha
+function addServerClient(rc) {
+  if (clientsDB.some(c => c.id === rc.id)) return;
+  clientsDB.unshift(clientFromServer(rc));
+  if (document.getElementById('v-clientes')?.classList.contains('active')) renderClients();
+}
+
+// Recalcula la lista de pedidos de cada ficha a partir de orders[].clientId
+function relinkClientOrders() {
+  clientsDB.forEach(c => { c.orders = orders.filter(o => o.clientId && o.clientId === c.id).map(o => o.id); });
+}
+
+// Ficha de una conversación: la vinculada a ese chat; si no, la que tenga su mismo teléfono
+function findClientForConvo(c) {
+  if (!c) return null;
+  const key = c.waId || null;
+  if (key) {
+    const byKey = clientsDB.find(cl => cl.convoKey && cl.convoKey === key);
+    if (byKey) return byKey;
+  }
+  if (c.platform === 'wa' && key) {
+    const d = phoneDigits(key);
+    const byPhone = clientsDB.filter(cl => {
+      const p = phoneDigits(cl.phone);
+      return p.length >= 7 && (p === d || (p.length >= 10 && d.endsWith(p.slice(-10))));
+    });
+    if (byPhone.length === 1) return byPhone[0];
+  }
+  return null;
+}
+
+// Datos de cliente para guardar un pedido: la ficha elegida o, si no hay, lo necesario para crearla
+function orderClientFields(clientId, convo) {
+  if (isServerId(clientId)) return { clientId };
+  const out = {};
+  if (convo && convo.waId) {
+    out.clientConvoKey = convo.waId;
+    if (convo.platform === 'wa') out.clientPhone = '+' + convo.waId;
+  }
+  return out;
+}
+
+// Canal del pedido independiente: el de la ficha elegida (si es de Instagram)
+function noClientPlatform() {
+  const id = document.getElementById('noClient').dataset.clientId;
+  const c = id && clientsDB.find(x => x.id === id);
+  return c && c.channel === 'ig' ? 'ig' : 'wa';
+}
+
 async function loadRealClients() {
   try {
     const res = await fetch(BACKEND_URL + '/api/clients', { headers: apiAuthHeader() });
@@ -10258,22 +10347,9 @@ async function loadRealClients() {
     if (!Array.isArray(realClients)) return false;
 
     clientsDB.length = 0;
-    const grads = ['linear-gradient(135deg,#f093fb,#f5576c)','linear-gradient(135deg,#4facfe,#00f2fe)',
-      'linear-gradient(135deg,#43e97b,#38f9d7)','linear-gradient(135deg,#f7971e,#ffd200)',
-      'linear-gradient(135deg,#a18cd1,#fbc2eb)','linear-gradient(135deg,#30cfd0,#330867)'];
 
-    realClients.forEach((rc, idx) => {
-      const relatedOrders = orders.filter(o => (o.client || '') === rc.name).map(o => o.id);
-      clientsDB.push({
-        id: rc.id, name: rc.name, phone: rc.phone || '', ig: rc.ig || '',
-        email: rc.email || '', city: rc.city || '', zone: rc.zone || '',
-        address: rc.address || '', extraAddresses: rc.extraAddresses || [],
-        pay: rc.payMethod || '', channel: rc.channel || 'wa', notes: rc.notes || '',
-        grad: grads[idx % grads.length], orders: relatedOrders,
-        isNew: (Date.now() - new Date(rc.createdAt).getTime()) < 7 * 24 * 60 * 60 * 1000,
-        isVip: !!rc.isVip, createdAt: rc.createdAt,
-      });
-    });
+    realClients.forEach(rc => clientsDB.push(clientFromServer(rc)));
+    relinkClientOrders();
 
     if (typeof renderClients === 'function') { try { renderClients(); } catch (e) {} }
     console.log('✓ Clientes reales cargados:', realClients.length);
