@@ -3776,8 +3776,14 @@ async function verifySessionAndApplyTenant() {
     if (t.whatsapp_number) businessProfile.phone = t.whatsapp_number;
     try { localStorage.setItem('central_profile', JSON.stringify(businessProfile)); } catch(e) {}
     applyBrandingGlobal();
-    // Apply plan
-    if (t.plan) applyPlanNavigation(t.plan);
+    // Apply plan (si cambió desde que se cargó la página, p. ej. lo subió el admin)
+    if (t.plan && normalizePlan(t.plan) !== activePlan) {
+      activePlan = normalizePlan(t.plan);
+      applyPlanNavigation(activePlan);
+      const view = document.querySelector('.view.active');
+      const navOf = { 'v-informes': 'nav-informes', 'v-pagos': 'nav-pagos' }[view && view.id];
+      if (navOf && !(planNavMap[activePlan] || []).includes(navOf)) goView('inbox');
+    }
   } catch(e) {
     // Network error — allow offline access
   }
@@ -9465,7 +9471,14 @@ function closePagModal(e) {
 }
 
 // ─── PLAN DE SUSCRIPCIÓN ──────────────────────────────────────
-let activePlan = 'pro'; // 'basic' | 'pro' | 'business'
+// Plan real desde el primer instante: lo inyecta el servidor en /app. Si faltara, el último
+// plan conocido de esta sesión y, en último caso, el más restringido (nunca mostrar de más).
+let activePlan = (function () {
+  const ok = p => ['basic', 'pro', 'business'].includes(p);
+  if (ok(window.__TENANT_PLAN__)) return window.__TENANT_PLAN__;
+  try { const t = JSON.parse(localStorage.getItem('central_tenant') || '{}'); if (ok(t.plan)) return t.plan; } catch (e) {}
+  return 'basic';
+})(); // 'basic' | 'pro' | 'business'
 
 const planNavMap = {
   basic:    ['nav-inbox','nav-pedidos','nav-catalogo','nav-clientes'],
@@ -9476,13 +9489,13 @@ const planNavMap = {
 // El backend siempre manda 'basic' | 'pro' | 'business'. Algunos ids de DOM legacy
 // usan el sufijo corto 'biz' (planCard-biz, planBtn-biz) — solo para eso se traduce.
 function normalizePlan(plan) {
-  return plan === 'biz' ? 'business' : (plan || 'pro');
+  return plan === 'biz' ? 'business' : (plan || 'basic');
 }
 
 function applyPlanNavigation(plan) {
   const p = normalizePlan(plan);
   const allNav = ['nav-inbox','nav-pedidos','nav-catalogo','nav-clientes','nav-informes','nav-pagos'];
-  const allowed = planNavMap[p] || planNavMap.pro;
+  const allowed = planNavMap[p] || planNavMap.basic;
   allNav.forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
@@ -9499,7 +9512,7 @@ function updatePlanBadge(plan) {
   const labels = { basic: 'BASIC', pro: 'PRO', business: 'BUSINESS' };
   const bg     = { basic: 'var(--green-dim)',    pro: 'var(--accent-glow)', business: 'var(--yellow-dim)' };
   const fg     = { basic: 'var(--green)',        pro: 'var(--accent2)',     business: 'var(--yellow)' };
-  const p = labels[normalized] ? normalized : 'pro';
+  const p = labels[normalized] ? normalized : 'basic';
   badge.textContent = labels[p];
   badge.style.background = bg[p];
   badge.style.color = fg[p];

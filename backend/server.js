@@ -2139,7 +2139,7 @@ app.get('/app', async (req, res) => {
   {
     try {
       const { rows } = await pool.query(
-        'SELECT active, expires_at, is_demo, business_name FROM tenants WHERE id = $1',
+        'SELECT active, expires_at, is_demo, business_name, plan FROM tenants WHERE id = $1',
         [decoded.tenantId]
       );
       tenant = rows[0];
@@ -2154,7 +2154,9 @@ app.get('/app', async (req, res) => {
   try { html = fs.readFileSync(SPA_FILE, 'utf8'); }
   catch { return res.status(500).send('Error cargando la app'); }
 
-  let inject = `<script>(function(){var u=new URL(location.href);if(u.searchParams.has('token')){try{localStorage.setItem('central_jwt',u.searchParams.get('token'))}catch(e){}u.searchParams.delete('token');history.replaceState(null,'',u.pathname+(u.search||''))}})();</script>`;
+  // El plan va en la página: el menú sale correcto desde el primer instante, sin esperar al perfil
+  const plan = ['basic', 'pro', 'business'].includes(tenant.plan) ? tenant.plan : 'basic';
+  let inject = `<script>(function(){var u=new URL(location.href);if(u.searchParams.has('token')){try{localStorage.setItem('central_jwt',u.searchParams.get('token'))}catch(e){}u.searchParams.delete('token');history.replaceState(null,'',u.pathname+(u.search||''))}})();window.__TENANT_PLAN__=${JSON.stringify(plan)};</script>`;
   if (tenant?.is_demo) {
     // Las demos no reciben las conversaciones de ejemplo originales escritas en la app
     html = html.replace(/const convos = \{\r?\n[\s\S]*?\r?\n\};\r?\n/, 'const convos = {};\n')
