@@ -1675,6 +1675,7 @@ app.post('/api/orders', requireAuth, async (req, res) => {
   }
   try {
     const order = await dbCreateOrder(req.tenant.tenantId, req.body);
+    if (!order) return res.status(503).json({ error: 'Base de datos no disponible' });
     res.json(order);
   } catch (err) {
     res.status(500).json({ error: err.message });

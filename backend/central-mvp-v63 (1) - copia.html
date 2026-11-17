@@ -3988,6 +3988,22 @@ function apiAuthHeader() {
   return t ? { 'Authorization': 'Bearer ' + t } : {};
 }
 
+// Llamada JSON a la API que falla de verdad: si la red cae o el servidor responde con error,
+// lanza un Error con el mensaje del servidor para poder avisar al usuario.
+async function apiJson(method, path, body) {
+  let res;
+  try {
+    res = await fetch(BACKEND_URL + path, {
+      method, headers: apiHeaders(), body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch (e) {
+    throw new Error('sin conexión con el servidor');
+  }
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error((data && (data.message || data.error)) || ('error ' + res.status));
+  return data;
+}
+
 // El estilo del ticket que se envía como imagen lo pone el servidor (TICKET_CSS en server.js)
 // Destinatario del ticket según el canal de la conversación (Instagram nunca sale por WhatsApp)
 function ticketRecipient(c) {
@@ -5041,7 +5057,7 @@ function saveOrder() {
   const clientName   = document.getElementById('mClient').value;
   const address      = document.getElementById('mAddress').value;
   const notes        = document.getElementById('mNotes').value.trim();
-  const newId        = '#0' + String(orders.length + 53).padStart(2, '0');
+  const newId        = null; // el número lo asigna el servidor al confirmar
 
   currentDraft = {
     id: newId, client: clientName, platform: c ? c.platform : 'wa',
@@ -5059,7 +5075,7 @@ function saveOrder() {
   live.style.display = 'flex';
   resetSentState(); // always start in form mode
 
-  document.getElementById('opNum').textContent = newId;
+  document.getElementById('opNum').textContent = 'Nuevo';
   const platLine = document.getElementById('opPlatformLine');
   platLine.textContent = c?.platform === 'ig' ? '● Instagram' : '● WhatsApp';
   platLine.style.color = c?.platform === 'ig' ? 'var(--ig)' : 'var(--wa)';
@@ -5117,12 +5133,14 @@ function saveOrder() {
   document.querySelectorAll('#opPayGrid .pay-btn').forEach(b => b.classList.remove('selected'));
   document.querySelectorAll('#opDeliveryOpts .delivery-opt').forEach(b => b.classList.remove('selected'));
 
-  showToast(`Pedido ${newId} creado — elige pago y entrega 👆`);
+  showToast('Pedido preparado — elige pago y entrega 👆');
 }
 
 // ── Show sent state in right panel ────────────────────────────
-function confirmOrder() {
+let _confirmingOrder = false;
+async function confirmOrder() {
   if (!currentDraft) { showToast('No hay pedido activo'); return; }
+  if (_confirmingOrder) return; // evita pedidos duplicados por doble clic
 
   const d = currentDraft;
   const productFull = d.productLabel + (d.productDetail ? ' · ' + d.productDetail : '');
@@ -5146,29 +5164,17 @@ function confirmOrder() {
   const timeStr = now.toLocaleTimeString('es-VE', { hour:'2-digit', minute:'2-digit' });
   const dateStr = now.toLocaleDateString('es-VE', { day:'2-digit', month:'short', year:'numeric' });
 
-  const newOrder = {
-    id: d.id, client: d.client, product: productFull,
-    platform: d.platform, price: total,
-    pay: 'pend', delivery: 'to_deliver', time: 'ahora mismo',
-    dateStr, timeStr, createdAt: now.toISOString(),
-  };
-  orders.unshift(newOrder);
+  const address = d.address || document.getElementById('mAddress')?.value || '—';
+  const notes = d.notes || document.getElementById('mNotes')?.value || '';
 
-  orderExtras[d.id] = {
-    pay: payLabel, delivery: delLabel,
-    address: d.address || document.getElementById('mAddress')?.value || '—',
-    notes: d.notes || document.getElementById('mNotes')?.value || '',
-    emoji: d.productEmoji || '📦', shipping: shippingVal || null,
-    dateStr, timeStr, productDetail: d.productDetail || '',
-  };
-
-  renderOrders();
-
-  // Guardar el pedido en el backend real
-  fetch(BACKEND_URL + '/api/orders', {
-    method: 'POST',
-    headers: apiHeaders(),
-    body: JSON.stringify({
+  // Primero se guarda en el servidor: el número del pedido (el que verá el cliente en el
+  // ticket) lo asigna él. Si falla, no se crea nada y el pedido queda listo para reintentar.
+  _confirmingOrder = true;
+  const btns = document.querySelectorAll('#opActions .confirm-btn, #opConfirmAfterPres');
+  btns.forEach(b => { b.disabled = true; b.style.opacity = '.6'; });
+  let saved;
+  try {
+    saved = await apiJson('POST', '/api/orders', {
       clientName: d.client,
       platform: d.platform,
       productSummary: productFull,
@@ -5177,18 +5183,28 @@ function confirmOrder() {
       deliveryStatus: 'to_deliver',
       payMethodLabel: payLabel,
       deliveryMethodLabel: delLabel,
-      address: orderExtras[d.id].address,
-      notes: orderExtras[d.id].notes,
+      address, notes,
       shipping: shippingVal ? (parseFloat((shippingVal + '').replace(/[^0-9.]/g, '')) || 0) : 0,
       items: (d.items || []).map(i => ({
         emoji: i.emoji, name: i.name, detail: i.detail, qty: i.qty,
         unitPrice: parseFloat((i.price + '').replace(/[^0-9.]/g, '')) || 0,
         linePrice: i.linePrice || 0,
       })),
-    }),
-  }).then(r => r.json()).then(saved => {
-    if (saved && saved.id) orderRealIds[d.id] = saved.id;
-  }).catch(err => console.warn('No se pudo guardar el pedido en el servidor:', err.message));
+    });
+    if (!saved || !saved.id || !saved.orderNumber) throw new Error('respuesta inesperada del servidor');
+  } catch (err) {
+    showToast('⚠ No se pudo guardar el pedido (' + err.message + '). Inténtalo de nuevo.');
+    return;
+  } finally {
+    _confirmingOrder = false;
+    btns.forEach(b => { b.disabled = false; b.style.opacity = ''; });
+  }
+
+  d.id = saved.orderNumber;
+  document.getElementById('opNum').textContent = d.id;
+  storeServerOrder(saved, 'prepend');
+  orderExtras[d.id].productDetail = d.productDetail || '';
+  renderOrders();
 
   // Send ticket to chat — stays in conversation
   const list = document.getElementById('msgList');
@@ -8248,7 +8264,9 @@ function noSelectDelivery(el) {
   document.getElementById('noShippingField').style.display = hasShipping ? '' : 'none';
 }
 
-function saveNewOrder() {
+let _savingNewOrder = false;
+async function saveNewOrder() {
+  if (_savingNewOrder) return;
   const clientName = document.getElementById('noClient').value || document.getElementById('noClientFree').value.trim();
   if (!clientName) { showToast('⚠ Selecciona o escribe un cliente'); return; }
   const allItems = [...nosItems];
@@ -8267,19 +8285,14 @@ function saveNewOrder() {
   const now = new Date();
   const dateStr = now.toLocaleDateString('es-VE',{day:'2-digit',month:'long',year:'numeric'});
   const timeStr = now.toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});
-  const newId = '#0' + String(orders.length + 53).padStart(2,'0');
   const totalStr = document.getElementById('noTotal').value || '$0';
-  orders.unshift({ id:newId, client:clientName, product:productLabel, platform:'wa', price:totalStr, pay:'pend', delivery:'to_deliver', time:'ahora mismo', items:allItems, createdAt: now.toISOString() });
-  orderExtras[newId] = { pay:payLabel, delivery:delLabel, address, notes, emoji:firstEmoji, shipping:shippingVal||null, dateStr, timeStr, productDetail:'' };
-  renderOrders();
-  closeNewOrderModal();
-  showToast(`Pedido ${newId} creado ✓`);
-
-  // Guardar el pedido en el backend real
-  fetch(BACKEND_URL + '/api/orders', {
-    method: 'POST',
-    headers: apiHeaders(),
-    body: JSON.stringify({
+  // Primero se guarda en el servidor, que asigna el número del pedido
+  _savingNewOrder = true;
+  const btn = document.querySelector('[onclick="saveNewOrder()"]');
+  if (btn) { btn.disabled = true; btn.style.opacity = '.6'; }
+  let saved;
+  try {
+    saved = await apiJson('POST', '/api/orders', {
       clientName, platform: 'wa', productSummary: productLabel,
       totalPrice: parseFloat((totalStr + '').replace(/[^0-9.]/g, '')) || 0,
       payStatus: 'pend', deliveryStatus: 'to_deliver',
@@ -8291,10 +8304,19 @@ function saveNewOrder() {
         unitPrice: parseFloat((i.price + '').replace(/[^0-9.]/g, '')) || 0,
         linePrice: i.linePrice || 0,
       })),
-    }),
-  }).then(r => r.json()).then(saved => {
-    if (saved && saved.id) orderRealIds[newId] = saved.id;
-  }).catch(err => console.warn('No se pudo guardar el pedido en el servidor:', err.message));
+    });
+    if (!saved || !saved.id || !saved.orderNumber) throw new Error('respuesta inesperada del servidor');
+  } catch (err) {
+    showToast('⚠ No se pudo guardar el pedido (' + err.message + '). Inténtalo de nuevo.');
+    return;
+  } finally {
+    _savingNewOrder = false;
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+  }
+  storeServerOrder(saved, 'prepend');
+  renderOrders();
+  closeNewOrderModal();
+  showToast(`Pedido ${saved.orderNumber} creado ✓`);
 }
 
 // ─── INFORMES ─────────────────────────────────────────────────
@@ -10176,6 +10198,37 @@ function timeAgo(dateInput) {
   return `hace ${days}d`;
 }
 
+// Guarda (o reemplaza) en la lista local un pedido tal como lo devuelve el servidor.
+// El número visible (#0001) es siempre el del servidor. mode: 'append' | 'prepend' | 'replace'
+function storeServerOrder(ro, mode) {
+  const legacyId = ro.orderNumber;
+  orderRealIds[legacyId] = ro.id;
+  const items = (ro.items || []).map(it => ({
+    emoji: it.emoji, name: it.name, detail: it.detail, qty: it.qty,
+    linePrice: Number(it.linePrice) || 0, price: '$' + (Number(it.unitPrice) || 0).toFixed(2),
+    unitPrice: Number(it.unitPrice) || 0, productId: it.productId || null,
+  }));
+  const order = {
+    id: legacyId, client: ro.clientName, clientId: ro.clientId || null, product: ro.productSummary,
+    platform: ro.platform, price: '$' + (Number(ro.totalPrice) || 0).toFixed(2),
+    pay: ro.payStatus, delivery: ro.deliveryStatus, time: timeAgo(ro.createdAt),
+    items, createdAt: ro.createdAt,
+  };
+  orderExtras[legacyId] = {
+    pay: ro.payMethodLabel || '—', delivery: ro.deliveryMethodLabel || '—',
+    address: ro.address || '—', notes: ro.notes || '',
+    emoji: (items[0] && items[0].emoji) || '📦', shipping: ro.shipping ? Number(ro.shipping) : null,
+    dateStr: new Date(ro.createdAt).toLocaleDateString('es-VE', { day:'2-digit', month:'short', year:'numeric' }),
+    timeStr: new Date(ro.createdAt).toLocaleTimeString('es-VE', { hour:'2-digit', minute:'2-digit' }),
+    productDetail: '',
+  };
+  const idx = orders.findIndex(o => o.id === legacyId);
+  if (idx >= 0) orders[idx] = order;
+  else if (mode === 'prepend') orders.unshift(order);
+  else orders.push(order);
+  return order;
+}
+
 async function loadRealOrders() {
   try {
     const res = await fetch(BACKEND_URL + '/api/orders', { headers: apiAuthHeader() });
@@ -10186,28 +10239,7 @@ async function loadRealOrders() {
     orders.length = 0;
     Object.keys(orderExtras).forEach(k => delete orderExtras[k]);
 
-    realOrders.forEach(ro => {
-      const legacyId = ro.orderNumber;
-      orderRealIds[legacyId] = ro.id;
-      const items = (ro.items || []).map(it => ({
-        emoji: it.emoji, name: it.name, detail: it.detail, qty: it.qty,
-        linePrice: Number(it.linePrice) || 0, price: '$' + (Number(it.unitPrice) || 0).toFixed(2),
-      }));
-      orders.push({
-        id: legacyId, client: ro.clientName, product: ro.productSummary,
-        platform: ro.platform, price: '$' + (Number(ro.totalPrice) || 0).toFixed(2),
-        pay: ro.payStatus, delivery: ro.deliveryStatus, time: timeAgo(ro.createdAt),
-        items, createdAt: ro.createdAt,
-      });
-      orderExtras[legacyId] = {
-        pay: ro.payMethodLabel || '—', delivery: ro.deliveryMethodLabel || '—',
-        address: ro.address || '—', notes: ro.notes || '',
-        emoji: (items[0] && items[0].emoji) || '📦', shipping: ro.shipping ? Number(ro.shipping) : null,
-        dateStr: new Date(ro.createdAt).toLocaleDateString('es-VE', { day:'2-digit', month:'short', year:'numeric' }),
-        timeStr: new Date(ro.createdAt).toLocaleTimeString('es-VE', { hour:'2-digit', minute:'2-digit' }),
-        productDetail: '',
-      };
-    });
+    realOrders.forEach(ro => storeServerOrder(ro, 'append'));
 
     renderOrders();
     console.log('✓ Pedidos reales cargados:', realOrders.length);
