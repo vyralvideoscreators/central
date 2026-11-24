@@ -49,7 +49,9 @@ run(async () => {
     r = await send(A.H, 'PATCH', '/api/orders/' + o.id, b);
     ok(r.status === 400, `Editar: rechaza ${d} (400)`);
   }
-  r = await send(A.H, 'PATCH', '/api/orders/' + o.id, { total_price: '12.345', delivery_status: 'delivered' });
+  // Pedido antiguo sin artículos: su total se respeta y se redondea (con artículos lo calcula el servidor)
+  const legacy = (await send(A.H, 'POST', '/api/orders', { clientName: 'V2', totalPrice: 5 })).body;
+  r = await send(A.H, 'PATCH', '/api/orders/' + legacy.id, { total_price: '12.345', delivery_status: 'delivered' });
   ok(r.status === 200 && Number(r.body.totalPrice) === 12.35 && r.body.deliveryStatus === 'delivered', 'Editar: total numérico redondeado y estado válido');
   r = await send(A.H, 'PATCH', '/api/clients/no-uuid', { name: 'x' });
   ok(r.status === 404, 'Cliente con id inválido → 404 (no 500)');

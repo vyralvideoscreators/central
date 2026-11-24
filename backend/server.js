@@ -496,6 +496,7 @@ function mapOrderRow(r) {
     address:             r.address,
     notes:               r.notes,
     shipping:            r.shipping,
+    discount:            r.discount ?? 0,
     createdAt:           r.created_at,
     updatedAt:           r.updated_at,
     items:               r.items || [],
@@ -527,6 +528,11 @@ async function dbGetOrders(tenantId) {
 
 async function dbCreateOrder(tenantId, data) {
   if (!dbReady) return null;
+  // Validación y total ANTES de abrir la transacción: el servidor calcula el total, no el cliente
+  const items = cleanOrderItems(data.items || []);
+  const shipping = cleanMoneyField(data.shipping, 'Costo de envío');
+  const discount = cleanMoneyField(data.discount, 'Descuento');
+  const total = items.length ? computeOrderTotal(items, shipping, discount) : cleanMoneyField(data.totalPrice, 'Total');
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -542,19 +548,19 @@ async function dbCreateOrder(tenantId, data) {
     const { rows } = await client.query(`
       INSERT INTO orders (tenant_id, client_id, client_name, platform, product_summary,
         total_price, pay_status, delivery_status, pay_method_label, delivery_method_label,
-        address, notes, shipping, tenant_order_number)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+        address, notes, shipping, tenant_order_number, discount)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
       RETURNING *
     `, [
       tenantId, clientId, data.clientName || null, data.platform || null,
-      data.productSummary || null, data.totalPrice || 0, data.payStatus || 'pend',
+      data.productSummary || null, total, data.payStatus || 'pend',
       data.deliveryStatus || 'to_deliver', data.payMethodLabel || null,
       data.deliveryMethodLabel || null, data.address || null, data.notes || null,
-      data.shipping || 0, seqRows[0].order_seq,
+      shipping, seqRows[0].order_seq, discount,
     ]);
     const order = rows[0];
 
-    for (const item of cleanOrderItems(data.items || [])) {
+    for (const item of items) {
       await client.query(`
         INSERT INTO order_items (order_id, tenant_id, product_id, emoji, name, detail, qty, unit_price, line_price)
         VALUES ($1, $2, (SELECT id FROM catalog_products WHERE id::text = $3 AND tenant_id = $2), $4, $5, $6, $7, $8, $9)
@@ -657,13 +663,31 @@ async function resolveOrderClient(db, tenantId, data) {
   return { clientId: rows[0].id, createdClient: mapClientRow(rows[0]) };
 }
 
+// Límite de NUMERIC(10,2)
+const MAX_MONEY = 99999999.99;
+function cleanMoneyField(v, label) {
+  const n = Number(v ?? 0);
+  if (!Number.isFinite(n) || n < 0 || n > MAX_MONEY) throw new BadRequest(label + ' inválido');
+  return Math.round(n * 100) / 100;
+}
+// Total de un pedido con artículos: Σ subtotales + envío − descuento (en centavos, sin errores de coma flotante)
+function computeOrderTotal(lines, shipping, discount) {
+  const cents = (n) => Math.round(Number(n) * 100);
+  const gross = lines.reduce((a, l) => a + cents(l.linePrice), 0) + cents(shipping);
+  const disc = cents(discount);
+  if (disc > gross) throw new BadRequest('El descuento no puede ser mayor que el total');
+  const total = (gross - disc) / 100;
+  if (total > MAX_MONEY) throw new BadRequest('El total es demasiado grande');
+  return total;
+}
+
 // Valida la lista de artículos de un pedido que llega por la API
 const MAX_ORDER_ITEMS = 100;
 function cleanOrderItems(items) {
   if (!Array.isArray(items)) throw new BadRequest('La lista de artículos no es válida');
   if (items.length > MAX_ORDER_ITEMS) throw new BadRequest(`Máximo ${MAX_ORDER_ITEMS} artículos por pedido`);
   const str = (v, max) => (v === undefined || v === null || v === '') ? null : String(v).slice(0, max);
-  const money = (v) => { const n = Number(v); if (!Number.isFinite(n) || n < 0 || n > 1e8) throw new BadRequest('Precio inválido'); return Math.round(n * 100) / 100; };
+  const money = (v) => { const n = Number(v); if (!Number.isFinite(n) || n < 0 || n > MAX_MONEY) throw new BadRequest('Precio inválido'); return Math.round(n * 100) / 100; };
   return items.map(it => {
     if (!it || typeof it !== 'object') throw new BadRequest('Artículo inválido');
     const name = str(it.name, 200);
@@ -671,10 +695,13 @@ function cleanOrderItems(items) {
     const qty = Number(it.qty ?? 1);
     if (!Number.isInteger(qty) || qty < 1 || qty > 100000) throw new BadRequest('Cantidad inválida');
     const unitPrice = money(it.unitPrice ?? 0);
+    // El subtotal siempre lo calcula el servidor (un linePrice enviado por el cliente se ignora)
+    const linePrice = money(unitPrice * qty);
+    if (linePrice > MAX_MONEY) throw new BadRequest('El total es demasiado grande');
     return {
       productId: UUID_RE.test(String(it.productId || '')) ? String(it.productId) : null,
       emoji: str(it.emoji, 16), name, detail: str(it.detail, 300), qty, unitPrice,
-      linePrice: it.linePrice === undefined ? money(unitPrice * qty) : money(it.linePrice),
+      linePrice,
     };
   });
 }
@@ -685,25 +712,28 @@ async function dbUpdateOrder(tenantId, orderId, fields) {
   if (!dbReady) return null;
   if (!UUID_RE.test(String(orderId))) return null;
   const allowed = ['pay_status', 'delivery_status', 'pay_method_label', 'delivery_method_label',
-    'address', 'notes', 'client_name', 'product_summary', 'total_price', 'shipping'];
+    'address', 'notes', 'client_name', 'product_summary', 'total_price', 'shipping', 'discount'];
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const { rows: found } = await client.query('SELECT id FROM orders WHERE id = $1 AND tenant_id = $2 FOR UPDATE', [orderId, tenantId]);
+    const { rows: found } = await client.query('SELECT id, shipping, discount FROM orders WHERE id = $1 AND tenant_id = $2 FOR UPDATE', [orderId, tenantId]);
     if (!found[0]) { await client.query('ROLLBACK'); return null; }
 
     const sets = [];
     const values = [];
+    let newShipping, newDiscount, sentTotal;
     const FIELD_LABELS = { pay_status: 'Estado de pago', delivery_status: 'Estado de entrega', total_price: 'Total', shipping: 'Costo de envío', discount: 'Descuento' };
     const ENUMS = { pay_status: ['ok', 'pend'], delivery_status: ['to_deliver', 'delivered', 'not_delivered'] };
     for (const [key, raw] of Object.entries(fields)) {
       if (!allowed.includes(key)) continue;
       let val = raw;
       if (ENUMS[key] && !ENUMS[key].includes(val)) throw new BadRequest(FIELD_LABELS[key] + ' inválido');
-      if (key === 'total_price' || key === 'shipping') {
-        val = Number(raw ?? 0);
-        if (!Number.isFinite(val) || val < 0 || val > 1e8) throw new BadRequest(FIELD_LABELS[key] + ' inválido');
-        val = Math.round(val * 100) / 100;
+      if (key === 'total_price' || key === 'shipping' || key === 'discount') {
+        val = cleanMoneyField(raw, FIELD_LABELS[key]);
+        if (key === 'shipping') newShipping = val;
+        if (key === 'discount') newDiscount = val;
+        // El total se decide más abajo: con artículos lo calcula el servidor
+        if (key === 'total_price') { sentTotal = val; continue; }
       } else if (!ENUMS[key] && val !== null && val !== undefined) {
         val = String(val).slice(0, key === 'notes' || key === 'address' ? 2000 : 300);
       }
@@ -721,7 +751,25 @@ async function dbUpdateOrder(tenantId, orderId, fields) {
       sets.push(`client_id = $${values.length}`);
     }
     const items = fields.items !== undefined ? cleanOrderItems(fields.items) : null;
-    if (!sets.length && !items) throw new BadRequest('No hay cambios para guardar');
+    // Total: con artículos = Σ subtotales + envío − descuento (valores nuevos + guardados). Un total
+    // enviado se ignora si el pedido tiene artículos (pedidos antiguos sin artículos lo conservan).
+    let lines = items;
+    if (!lines && (newShipping !== undefined || newDiscount !== undefined || sentTotal !== undefined)) {
+      const { rows } = await client.query('SELECT line_price AS "linePrice" FROM order_items WHERE order_id = $1 AND tenant_id = $2', [orderId, tenantId]);
+      lines = rows;
+    }
+    const hasItems = !!(lines && lines.length);
+    if (hasItems) {
+      if (items || newShipping !== undefined || newDiscount !== undefined) {
+        const total = computeOrderTotal(lines, newShipping ?? Number(found[0].shipping || 0), newDiscount ?? Number(found[0].discount || 0));
+        values.push(total);
+        sets.push(`total_price = $${values.length}`);
+      }
+    } else if (sentTotal !== undefined) {
+      values.push(sentTotal);
+      sets.push(`total_price = $${values.length}`);
+    }
+    if (!sets.length && !items && !(sentTotal !== undefined && hasItems)) throw new BadRequest('No hay cambios para guardar');
 
     sets.push('updated_at = NOW()');
     values.push(orderId, tenantId);
