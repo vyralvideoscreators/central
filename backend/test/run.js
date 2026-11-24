@@ -15,21 +15,13 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { Client } = require('pg');
+const { DEFAULT_ADMIN_URL, assertLocalDb, dbUrlFor, serverEnv, MOCK_META } = require('./helpers/local-env');
 
 const ROOT = path.join(__dirname, '..');
-const ADMIN_URL = process.env.TEST_DATABASE_URL || 'postgres://postgres@127.0.0.1:55432/postgres';
+const ADMIN_URL = process.env.TEST_DATABASE_URL || DEFAULT_ADMIN_URL;
 const TEST_DB = 'central_test';
 const PORT = Number(process.env.TEST_PORT || 3990);
 const filter = process.argv[2] || '';
-
-function assertLocal(url) {
-  let u;
-  try { u = new URL(url); } catch { throw new Error('TEST_DATABASE_URL no es una URL válida'); }
-  if (!['localhost', '127.0.0.1', '[::1]', '::1'].includes(u.hostname) || /railway|rlwy/i.test(url)) {
-    throw new Error(`Las pruebas solo corren contra un Postgres LOCAL. Host recibido: "${u.hostname}". ¿Seguro que no es producción?`);
-  }
-  return u;
-}
 
 const files = (dir) => fs.existsSync(dir)
   ? fs.readdirSync(dir).filter(f => f.endsWith('.test.js') && f.includes(filter)).map(f => path.join(dir, f)) : [];
@@ -66,35 +58,24 @@ async function waitHealth(ms = 30000) {
 
   let server = null, admin = null;
   if (e2e.length) {
-    const u = assertLocal(ADMIN_URL);
+    const u = assertLocalDb(ADMIN_URL);
     admin = new Client({ connectionString: ADMIN_URL });
     await admin.connect().catch(e => { throw new Error(`No hay Postgres local en ${u.host} (${e.message}). Ver la skill "probar-central".`); });
     await admin.query(`DROP DATABASE IF EXISTS ${TEST_DB} WITH (FORCE)`);
     await admin.query(`CREATE DATABASE ${TEST_DB}`);
-    const dbUrl = new URL(ADMIN_URL); dbUrl.pathname = '/' + TEST_DB; dbUrl.search = '?sslmode=disable';
+    const dbUrl = dbUrlFor(ADMIN_URL, TEST_DB);
 
     const metaLog = path.join(os.tmpdir(), `central-meta-${process.pid}.jsonl`);
-    const env = {
-      ...process.env,
-      PORT: String(PORT), DATABASE_URL: dbUrl.toString(), APP_URL: `http://localhost:${PORT}`,
-      JWT_SECRET: 'jwt_de_pruebas_locales_0123456789abcdef', NODE_ENV: 'test', RAILWAY_ENVIRONMENT: '',
-      ADMIN_EMAIL: 'admin@test.local', ADMIN_PASSWORD: 'adminpass',
-      DEMO_CREATION_KEY: '0123456789abcdef0123456789abcdef01234567',
-      META_LOG: metaLog,
-      // Vacías a propósito: dotenv no las rellena desde un .env local, y nada sale a servicios reales
-      RESEND_API_KEY: '', RESEND_FROM: '', STRIPE_SECRET_KEY: '', STRIPE_WEBHOOK_SECRET: '',
-      WHATSAPP_TOKEN: '', WHATSAPP_PHONE_NUMBER_ID: '', INSTAGRAM_ACCESS_TOKEN: '', INSTAGRAM_ACCOUNT_ID: '',
-      META_APP_SECRET: '', INSTAGRAM_APP_SECRET: '', DEFAULT_TENANT_EMAIL: '', DEFAULT_TENANT_PASSWORD: '',
-    };
+    const env = serverEnv({ port: PORT, dbUrl, metaLog });
     let serverLog = '';
-    server = spawn(process.execPath, ['--require', path.join(__dirname, 'helpers', 'mock-meta.js'), 'server.js'],
+    server = spawn(process.execPath, ['--require', MOCK_META, 'server.js'],
       { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
     server.stdout.on('data', d => serverLog += d);
     server.stderr.on('data', d => serverLog += d);
     try { await waitHealth(); }
     catch (e) { console.error(serverLog); throw e; }
 
-    const testEnv = { ...env, BASE_URL: `http://127.0.0.1:${PORT}`, TEST_DB_URL: dbUrl.toString() };
+    const testEnv = { ...env, BASE_URL: `http://127.0.0.1:${PORT}`, TEST_DB_URL: dbUrl };
     for (const f of e2e) results.push(await runFile(f, testEnv));
 
     server.kill();

@@ -8,3 +8,4 @@ node_modules/
 .claude/*
 !.claude/agents/
 !.claude/skills/
+backend/test/.meta-calls.jsonl
