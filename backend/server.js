@@ -342,6 +342,22 @@ async function initDB() {
       }
     }
 
+    // Descuento por pedido. Los pedidos existentes quedan con descuento 0 (sin relleno).
+    // El CHECK se añade NOT VALID + VALIDATE (bloqueo corto) y solo si aún no existe.
+    try {
+      await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount NUMERIC(10,2) NOT NULL DEFAULT 0`);
+      await pool.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'orders_discount_nonneg' AND conrelid = 'orders'::regclass) THEN
+            ALTER TABLE orders ADD CONSTRAINT orders_discount_nonneg CHECK (discount >= 0) NOT VALID;
+            ALTER TABLE orders VALIDATE CONSTRAINT orders_discount_nonneg;
+          END IF;
+        END $$
+      `);
+    } catch (err) {
+      console.error('❌ Migración descuento de pedidos (sin orders.discount fallarán los descuentos):', err.message);
+    }
+
     try {
       await seedDefaultTenant();
     } catch (err) {
