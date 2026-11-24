@@ -7,6 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
+    --on-accent: #fff;
     --bg: #0a0a0f;
     --surface: #111118;
     --surface2: #16161f;
@@ -635,7 +636,7 @@
   .dlg-error { font-size: 12px; color: var(--red); min-height: 16px; margin: 2px 0 0; }
   .btn-danger {
     padding: 7px 15px; border-radius: 9px; background: var(--red); border: none;
-    color: #fff; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s;
+    color: var(--on-accent); font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s;
     display: flex; align-items: center; gap: 5px;
   }
   .btn-danger:hover { filter: brightness(1.1); transform: translateY(-1px); }
@@ -1629,7 +1630,7 @@
   }
   .odm-step.done .odm-step-name { color: var(--accent2); font-weight: 600; }
   .odm-step.current .odm-step-name { color: var(--yellow); font-weight: 600; }
-  .odm-step.alert .odm-step-dot { background: var(--red); border-color: var(--red); color: #fff; font-weight: 800; font-size: 13px; }
+  .odm-step.alert .odm-step-dot { background: var(--red); border-color: var(--red); color: var(--on-accent); font-weight: 800; font-size: 13px; }
   .odm-step.alert .odm-step-name { color: var(--red); font-weight: 600; }
 
   /* two-column grid inside detail */
@@ -1922,7 +1923,12 @@
   .txn-scroll::-webkit-scrollbar-thumb { background: var(--surface3); border-radius: 4px; }
   .txn-scroll::-webkit-scrollbar-thumb:hover { background: var(--text3); }
   .pag-wip { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 32px; text-align: center; }
-  .pag-wip-icon { width: 60px; height: 60px; border-radius: 18px; background: var(--surface3); display: flex; align-items: center; justify-content: center; font-size: 26px; }
+  .pag-wip-icon { width: 60px; height: 60px; border-radius: 18px; background: var(--surface3); color: var(--text2); display: flex; align-items: center; justify-content: center; }
+  .plan-pending { border-color: var(--accent); margin-bottom: 16px; padding: 14px 18px; }
+  .plan-pending-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .plan-pending-title { font-size: 13.5px; font-weight: 700; }
+  .plan-pending-sub { font-size: 12px; color: var(--text2); margin-top: 3px; }
+  .pag-stats { width: 100%; max-width: 720px; margin-bottom: 12px; text-align: left; }
   .pag-wip-title { font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 800; }
   .pag-wip-sub { font-size: 13px; color: var(--text2); line-height: 1.6; max-width: 420px; }
   .pag-kpi-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; }
@@ -2642,8 +2648,13 @@
         </div>
       </div>
       <div class="pag-wip">
-        <div class="pag-wip-icon">🚧</div>
-        <div class="pag-wip-title">En construcción</div>
+        <div class="stats-row pag-stats">
+          <div class="stat-card"><div class="stat-label">Cobrado</div><div class="stat-val" id="pagCobrado">$0.00</div><div class="stat-change" id="pagCobradoN">0 pedidos</div></div>
+          <div class="stat-card"><div class="stat-label">Por cobrar</div><div class="stat-val" id="pagPorCobrar">$0.00</div><div class="stat-change sc-warn" id="pagPorCobrarN">0 pedidos</div></div>
+          <div class="stat-card"><div class="stat-label">Entregados sin cobrar</div><div class="stat-val" id="pagEntregadoSin">0</div><div class="stat-change sc-red">Revisar</div></div>
+        </div>
+        <div class="pag-wip-icon"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M11.42 15.17 17.25 21A2.652 2.652 0 0 0 21 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 1 1-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 0 0 4.486-6.336l-3.276 3.277a3.004 3.004 0 0 1-2.25-2.25l3.276-3.276a4.5 4.5 0 0 0-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085"/></svg></div>
+        <div class="pag-wip-title">Registro de cobros en construcción</div>
         <div class="pag-wip-sub">Aquí llevarás el registro de los cobros y abonos de tus pedidos: quién pagó, cuánto y cuánto falta por cobrar. Estará disponible pronto.</div>
         <div class="pag-wip-sub">Mientras tanto, marca cada pedido como cobrado o pendiente desde la vista Pedidos.</div>
         <button class="btn-primary" onclick="goView('pedidos')">Ir a Pedidos</button>
@@ -3624,11 +3635,12 @@
         <div class="form-label">Descuento ($)</div>
         <input class="form-input" id="oeDiscount" type="number" min="0" step="0.01" placeholder="0.00" oninput="recalcOrderEditTotal()">
       </div>
+      <div class="form-field">
+        <div class="form-label">Total ($)</div>
+        <input class="form-input" id="oeTotal" type="number" min="0" step="0.01" readonly tabindex="-1" style="font-weight:700;color:var(--green);" oninput="this.dataset.manual='1';recalcOrderEditTotal()">
+      </div>
     </div>
-    <div class="form-field">
-      <div class="form-label">Total ($) <span id="oeTotalHint" style="text-transform:none;letter-spacing:0;font-weight:500;"></span></div>
-      <input class="form-input" id="oeTotal" type="number" min="0" step="0.01" readonly tabindex="-1" style="font-weight:700;color:var(--green);" oninput="this.dataset.manual='1';recalcOrderEditTotal()">
-    </div>
+    <div id="oeTotalHint" style="font-size:11.5px;color:var(--text3);margin:-4px 0 8px;"></div>
 
     <div class="modal-footer">
       <button class="btn-ghost" onclick="closeOrderEdit()">Cancelar</button>
@@ -3652,7 +3664,13 @@
 var businessProfile = (function() {
   try {
     var saved = localStorage.getItem('central_profile');
-    if (saved) return JSON.parse(saved);
+    if (saved) {
+      // El perfil guardado es de un negocio concreto: si en este navegador entra otra cuenta, no se reutiliza
+      var p = JSON.parse(saved), tid = null;
+      try { tid = JSON.parse(atob((localStorage.getItem('central_jwt') || '').split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).tenantId; } catch(e) {}
+      if (!p.tenantId || p.tenantId === tid) { p.tenantId = tid; return p; }
+      localStorage.removeItem('central_profile');
+    }
   } catch(e) {}
   return {
     businessName: '',
@@ -3845,7 +3863,22 @@ function goView(v) {
   if (v === 'ajustes')  { document.getElementById('nav-ajustes').classList.add('active'); switchSettings('perfil', document.querySelector('.ssn-item')); }
   if (v === 'clientes') { document.getElementById('nav-clientes').classList.add('active'); renderClients(); }
   if (v === 'informes') { document.getElementById('nav-informes').classList.add('active'); renderInforme('ventas'); }
-  if (v === 'pagos')    { document.getElementById('nav-pagos').classList.add('active'); }
+  if (v === 'pagos')    { document.getElementById('nav-pagos').classList.add('active'); renderPagosResumen(); }
+}
+
+// Pagos: resumen de cobros a partir de los pedidos (estado cobrado / pendiente)
+function renderPagosResumen() {
+  const money = o => parseFloat(String(o.price || '').replace(/[^0-9.]/g, '')) || 0;
+  let cob = 0, cobN = 0, pend = 0, pendN = 0, entSin = 0;
+  orders.forEach(o => {
+    if (o.pay === 'ok') { cob += money(o); cobN++; }
+    else { pend += money(o); pendN++; if (o.delivery === 'delivered') entSin++; }
+  });
+  const set = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
+  const n = k => k + (k === 1 ? ' pedido' : ' pedidos');
+  set('pagCobrado', '$' + cob.toFixed(2)); set('pagCobradoN', n(cobN));
+  set('pagPorCobrar', '$' + pend.toFixed(2)); set('pagPorCobrarN', n(pendN));
+  set('pagEntregadoSin', String(entSin));
 }
 
 // ─── CONVERSATIONS ────────────────────────────────────────────
@@ -4244,7 +4277,7 @@ function renderOrderSteps(o) {
   const notDelivered = o.delivery === 'not_delivered';
   const steps = [
     { name: 'Recibido',  done: true },
-    { name: 'Cobrado',   done: o.pay === 'ok' },
+    { name: (o.pay !== 'ok' && o.delivery === 'delivered') ? 'Falta cobrar' : 'Cobrado', done: o.pay === 'ok', alert: o.pay !== 'ok' && o.delivery === 'delivered' },
     { name: notDelivered ? 'No entregado' : 'Entregado', done: o.delivery === 'delivered', alert: notDelivered },
   ];
   const cur = steps.findIndex(s => !s.done);
@@ -4592,8 +4625,15 @@ async function saveOrderEdit() {
   if (_oeLegacy && totTyped.dataset.manual && items.length === 1) {
     const t = parseFloat(totTyped.value);
     if (!(t >= 0)) { flagField('oeTotal'); showToast('El total no es válido', 'error'); return; }
-    const unit = _round2((t + discountNum - shippingNum) / items[0].qty);
+    const target = _round2(t + discountNum - shippingNum);
+    const unit = _round2(target / items[0].qty);
     if (unit < 0) { flagField('oeTotal'); showToast('El total no puede ser menor que el envío', 'error'); return; }
+    if (Math.abs(_round2(unit * items[0].qty) - target) > 0.004) {
+      const near = _round2(_round2(unit * items[0].qty) + shippingNum - discountNum);
+      flagField('oeTotal');
+      showToast('Con ' + items[0].qty + ' unidades ese total no se reparte exacto. Usa $' + near.toFixed(2) + ' o cambia la cantidad a 1', 'error');
+      return;
+    }
     items[0].unitPrice = unit; items[0].linePrice = _round2(unit * items[0].qty);
   }
   const itemsSum = items.reduce((s, i) => s + i.linePrice, 0);
@@ -5376,7 +5416,7 @@ async function confirmOrder() {
         <div class="ticket-row"><span class="ticket-row-label">Pago</span><span class="ticket-row-value">${escHtml(payLabel)}</span></div>
         <div class="ticket-row"><span class="ticket-row-label">Entrega</span><span class="ticket-row-value">${escHtml(delLabel)}</span></div>
         <div class="ticket-row"><span class="ticket-row-label">Dirección</span><span class="ticket-row-value">${escHtml(d.address || '—')}</span></div>
-        ${shippingVisible ? `<div class="ticket-row"><span class="ticket-row-label">Envío</span><span class="ticket-row-value">${escHtml(shippingVal)}</span></div>` : ''}
+        ${Number(saved.shipping) > 0 ? `<div class="ticket-row"><span class="ticket-row-label">Envío</span><span class="ticket-row-value">$${Number(saved.shipping).toFixed(2)} USD</span></div>` : ''}
         ${d.discount > 0 ? `<div class="ticket-row"><span class="ticket-row-label">Descuento</span><span class="ticket-row-value">−$${Number(d.discount).toFixed(2)}</span></div>` : ''}
         <div class="ticket-total"><span>Total</span><span class="ticket-total-val">${total}</span></div>
       </div>
@@ -5671,12 +5711,26 @@ function showToast(msg, type) {
 
 // ── Ventanas propias de la app ────────────────────────────────
 // askConfirm({title, text, confirmLabel, cancelLabel, danger}) → Promise<boolean>
+let _dlgSeq = 0;
 function _openDialog(inner, onCancel, focusSel) {
   const ov = document.createElement('div');
   ov.className = 'dlg-overlay';
-  ov.innerHTML = '<div class="modal" role="dialog" aria-modal="true">' + inner + '</div>';
+  const tid = 'dlg-t-' + (++_dlgSeq);
+  ov.innerHTML = '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="' + tid + '">' + inner + '</div>';
+  const t = ov.querySelector('.modal-title'); if (t) t.id = tid;
   const prevFocus = document.activeElement;
-  const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); onCancel(); } };
+  const onKey = e => {
+    if (e.key === 'Escape') { e.stopPropagation(); onCancel(); return; }
+    if (e.key === 'Tab') {
+      // El foco del teclado no sale de la ventana mientras está abierta
+      const items = [...ov.querySelectorAll('button:not([disabled]), input, select, textarea')];
+      if (!items.length) return;
+      const first = items[0], last = items[items.length - 1];
+      if (!ov.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+      else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  };
   document.addEventListener('keydown', onKey, true);
   ov.addEventListener('mousedown', e => { if (e.target === ov) onCancel(); });
   document.body.appendChild(ov);
@@ -6967,7 +7021,7 @@ const TRANSLATIONS = {
     // Settings - seguridad panel
     seg_title: 'Seguridad y acceso', seg_sub: 'Protege tu cuenta y controla el acceso',
     seg_pass_card: '🔐 Contraseña y acceso',
-    seg_pass_label: 'Cambiar contraseña', seg_pass_desc: 'Última vez cambiada hace 3 meses', seg_pass_btn: 'Cambiar',
+    seg_pass_label: 'Cambiar contraseña', seg_pass_desc: 'Mínimo 8 caracteres; te pediremos la actual', seg_pass_btn: 'Cambiar',
     seg_2fa_label: 'Verificación en dos pasos (2FA)', seg_2fa_desc: 'Capa extra de seguridad con tu teléfono',
     seg_email_label: 'Correo de recuperación', seg_email_btn: 'Cambiar',
     seg_sessions_card: '🛡️ Sesiones activas',
@@ -7017,7 +7071,7 @@ const TRANSLATIONS = {
     set_plan: 'Plan & billing', set_tema: 'Dark mode', set_logout: 'Log out',
     seg_title: 'Security & access', seg_sub: 'Protect your account and control access',
     seg_pass_card: '🔐 Password & access',
-    seg_pass_label: 'Change password', seg_pass_desc: 'Last changed 3 months ago', seg_pass_btn: 'Change',
+    seg_pass_label: 'Change password', seg_pass_desc: 'At least 8 characters; we will ask for the current one', seg_pass_btn: 'Change',
     seg_2fa_label: 'Two-step verification (2FA)', seg_2fa_desc: 'Extra security layer with your phone',
     seg_email_label: 'Recovery email', seg_email_btn: 'Change',
     seg_sessions_card: '🛡️ Active sessions',
@@ -7064,7 +7118,7 @@ const TRANSLATIONS = {
     set_plan: 'Plano e faturamento', set_tema: 'Tema escuro', set_logout: 'Sair',
     seg_title: 'Segurança e acesso', seg_sub: 'Proteja sua conta e controle o acesso',
     seg_pass_card: '🔐 Senha e acesso',
-    seg_pass_label: 'Alterar senha', seg_pass_desc: 'Última alteração há 3 meses', seg_pass_btn: 'Alterar',
+    seg_pass_label: 'Alterar senha', seg_pass_desc: 'Mínimo 8 caracteres; pediremos a atual', seg_pass_btn: 'Alterar',
     seg_2fa_label: 'Verificação em dois passos (2FA)', seg_2fa_desc: 'Camada extra de segurança com seu telefone',
     seg_email_label: 'E-mail de recuperação', seg_email_btn: 'Alterar',
     seg_sessions_card: '🛡️ Sessões ativas',
@@ -7469,7 +7523,7 @@ const settingsPanels = {
       </div>
     </div>
 
-    <div class="s-card">
+    ${window.__DEMO_MODE__ ? '' : `<div class="s-card">
       <div class="s-card-title">${T('seg_pass_card')}</div>
       <div class="s-row">
         <div class="s-row-icon" style="background:var(--surface3)">🔑</div>
@@ -7479,7 +7533,7 @@ const settingsPanels = {
         </div>
         <div class="s-row-action"><button class="btn-ghost" style="font-size:11px;" onclick="openChangePassword()">${T('seg_pass_btn')}</button></div>
       </div>
-    </div>
+    </div>`}
   `,
 
   plan: () => `
@@ -7643,11 +7697,11 @@ function pendingPlanBanner() {
   const rank = { basic: 0, pro: 1, business: 2 };
   if (rank[activePlan] >= rank[p]) { try { sessionStorage.removeItem('central_pending_plan'); } catch (e) {} return ''; }
   const name = p === 'pro' ? 'Pro' : 'Business';
-  return `<div class="s-card" style="border-color:var(--accent);margin-bottom:16px;padding:14px 18px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+  return `<div class="s-card plan-pending">
+      <div class="plan-pending-row">
         <div>
-          <div style="font-size:13.5px;font-weight:700;">Completa el pago para activar el plan ${name}</div>
-          <div style="font-size:12px;color:var(--text2);margin-top:3px;">Tu cuenta funciona con el plan Basic hasta que el pago se complete.</div>
+          <div class="plan-pending-title">Completa el pago para activar el plan ${name}</div>
+          <div class="plan-pending-sub">Tu cuenta funciona con el plan Basic hasta que el pago se complete.</div>
         </div>
         <button class="btn-primary" onclick="startCheckout('${p}')">Pagar plan ${name}</button>
       </div>
@@ -7656,7 +7710,7 @@ function pendingPlanBanner() {
 
 async function startCheckout(plan) {
   try {
-    if (!window.__DEMO_MODE__) showToast('Redirigiendo a Stripe…');
+    if (!window.__DEMO_MODE__) showToast('Abriendo el pago…');
     const res  = await fetch(BACKEND_URL + '/api/billing/create-checkout', {
       method: 'POST', headers: apiHeaders(), body: JSON.stringify({ plan }),
     });
@@ -8657,7 +8711,7 @@ async function renderInforme(tab) {
     body.style.opacity = '';
     if (err.code === 'plan_required') {
       body.innerHTML = `<div class="inf-chart-card" style="text-align:center;padding:48px 20px;">
-        <div style="font-size:30px;margin-bottom:10px;">📊</div>
+        <div style="color:var(--text3);margin-bottom:10px;"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" width="32" height="32" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125z"/></svg></div>
         <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:800;margin-bottom:6px;">Disponible desde el plan Pro</div>
         <div style="font-size:13px;color:var(--text2);margin:0 auto 16px;max-width:380px;line-height:1.55;">Los informes de ventas, pedidos y clientes se activan con el plan Pro o Business.</div>
         <button class="btn-primary" style="margin:0 auto;" onclick="goToPlanSettings()">Ver planes</button></div>`;
@@ -9219,6 +9273,7 @@ function sendPresupuesto() {
       <div class="ticket-row"><span class="ticket-row-label">Entrega</span><span class="ticket-row-value">${escHtml(delLabel)}</span></div>
       <div class="ticket-row"><span class="ticket-row-label">Dirección</span><span class="ticket-row-value">${escHtml(d.address || document.getElementById('mAddress')?.value || '—')}</span></div>
       ${shippingVisible && shippingVal ? `<div class="ticket-row"><span class="ticket-row-label">Envío</span><span class="ticket-row-value">${escHtml(shippingVal)}</span></div>` : ''}
+      ${Number(d.discount) > 0 ? `<div class="ticket-row"><span class="ticket-row-label">Descuento</span><span class="ticket-row-value">−$${Number(d.discount).toFixed(2)}</span></div>` : ''}
       <div class="ticket-total"><span>Total estimado</span><span class="ticket-total-val">${total}</span></div>
     </div>
     <div class="ticket-footer" style="border-top:1px dashed var(--yellow);color:var(--yellow);opacity:0.8;">
@@ -9449,7 +9504,8 @@ async function saveProfileSettings() {
     country: businessProfile.country,
     whatsapp_number: businessProfile.phone,
   };
-  if (!window.__DEMO_MODE__) body.email = emailChanged ? newEmail : businessProfile.email;
+  // El correo solo viaja si cambia (si no, el servidor no tiene nada que comprobar)
+  if (emailChanged) body.email = newEmail;
   const persist = () => {
     try { localStorage.setItem('central_profile', JSON.stringify(businessProfile)); } catch(e) {}
     applyBrandingGlobal();
@@ -9473,7 +9529,7 @@ async function saveProfileSettings() {
       return;
     }
     // Se canceló: el resto del perfil se guarda y el correo no cambia
-    body.email = businessProfile.email;
+    delete body.email;
     persist();
     try { await apiJson('PUT', '/api/tenant/profile', body); showToast('Perfil guardado; el correo de acceso no se cambió'); }
     catch (err) { showToast('⚠ El perfil no se guardó en el servidor (' + err.message + ')'); }
