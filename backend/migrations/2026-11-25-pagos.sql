@@ -2,7 +2,9 @@
 -- CENTRAL — Fase 2: pagos de verdad (25-nov-2026)
 --
 -- server.js hace ESTO MISMO automáticamente al arrancar (initDB → ensurePaymentsSchema en
--- backend/pagos.js), todo en UNA transacción con lock_timeout de 5 s. Idempotente.
+-- backend/pagos.js): (a) DDL en una transacción corta con pg_advisory_xact_lock y lock_timeout 5 s, sin
+-- ejecutar ningún ALTER/CREATE si ya existe; (b) relleno de datos APARTE, por lotes de 1000 pedidos, en
+-- CADA arranque (porque la versión vieja puede crear pedidos 'ok' sin pago durante el despliegue).
 -- Este archivo es para revisarlo / respaldarlo. HAZ RESPALDO ANTES (pg_dump): el relleno
 -- modifica orders.amount_paid.
 --
@@ -15,7 +17,7 @@
 --   4) order_events: historial por pedido (created, edited, status_changed, payment_added,
 --      payment_voided, migrated).
 --   5) tenant_settings: métodos de pago / entrega del negocio.
---   6) schema_migrations + relleno de UNA sola vez: cada pedido con pay_status = 'ok', total > 0 y
+--   6) schema_migrations + relleno (se repite en cada arranque, idempotente; el método se guarda con su nombre canónico, p. ej. 'Pago Móvil'): cada pedido con pay_status = 'ok', total > 0 y
 --      sin pagos recibe un pago por su total (moneda base, tasa 1, método = pay_method_label o
 --      'Sin especificar', paid_at = created_at del pedido) y un evento 'migrated'.
 --      Pedidos pagados con total 0 no se tocan (amount_paid 0, pay_status 'ok').
@@ -50,6 +52,7 @@ CREATE TABLE IF NOT EXISTS payments (
 );
 CREATE INDEX IF NOT EXISTS payments_tenant_paid_at_idx ON payments (tenant_id, paid_at);
 CREATE INDEX IF NOT EXISTS payments_order_idx          ON payments (order_id);
+CREATE INDEX IF NOT EXISTS payments_client_idx         ON payments (client_id) WHERE client_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS order_events (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -62,7 +65,8 @@ CREATE TABLE IF NOT EXISTS order_events (
   seq        BIGINT GENERATED ALWAYS AS IDENTITY  -- orden de inserción (eventos de una misma transacción comparten created_at)
 );
 ALTER TABLE order_events ADD COLUMN IF NOT EXISTS seq BIGINT GENERATED ALWAYS AS IDENTITY;
-CREATE INDEX IF NOT EXISTS order_events_order_idx ON order_events (order_id, created_at);
+CREATE INDEX IF NOT EXISTS order_events_order_seq_idx ON order_events (order_id, created_at, seq);
+CREATE INDEX IF NOT EXISTS order_events_tenant_idx    ON order_events (tenant_id);
 
 CREATE TABLE IF NOT EXISTS tenant_settings (
   tenant_id        UUID PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
@@ -95,6 +99,11 @@ WITH mark AS (
 UPDATE orders o SET amount_paid = ins.amount_base FROM ins WHERE o.id = ins.order_id AND o.tenant_id = ins.tenant_id;
 
 COMMIT;
+
+-- Índice del relleno (el servidor lo crea solo, en segundo plano; orders ya tiene datos, por eso CONCURRENTLY
+-- y fuera de transacción). Hace barata la búsqueda de pedidos 'ok' sin pago en cada arranque:
+-- CREATE INDEX CONCURRENTLY IF NOT EXISTS orders_legacy_paid_idx ON orders (tenant_id)
+--   WHERE pay_status = 'ok' AND amount_paid = 0 AND total_price > 0;
 
 -- Comprobación (solo lectura): no debe quedar ningún pedido 'ok' con total > 0 y sin pago
 -- SELECT COUNT(*) FROM orders o WHERE pay_status = 'ok' AND total_price > 0

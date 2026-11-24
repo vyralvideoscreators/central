@@ -201,6 +201,9 @@ async function seedDemoTenant(client, tenantId, { city = 'Ciudad Demo' } = {}) {
         [tenantId, orderId, type, JSON.stringify(data), when]);
     }
     await recalcOrderPayment(client, tenantId, orderId);
+    // recalcOrderPayment toca updated_at: un pedido sembrado no debe parecer editado
+    await client.query('UPDATE orders SET updated_at = created_at WHERE id = $1 AND tenant_id = $2', [orderId, tenantId]);
+
   }
 
   // Numeración propia del negocio: #0001… en orden de fecha, y el contador al día
