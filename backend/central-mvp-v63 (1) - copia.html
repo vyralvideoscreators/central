@@ -223,6 +223,9 @@
     display: flex; align-items: center; gap: 5px;
   }
   .btn-ghost:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
+  .btn-ghost.green { color: var(--green); border-color: var(--green-dim); }
+  .btn-ghost.green:hover { color: var(--green); border-color: var(--green); }
+  .btn-ghost:focus-visible, .btn-primary:focus-visible, .btn-danger:focus-visible, .inf-filter-btn:focus-visible, .pagr-row:focus-visible, .or-pay.clickable:focus-visible, .odm-hist-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .btn-primary {
     padding: 7px 15px; border-radius: 9px;
     background: var(--accent); border: none;
@@ -526,7 +529,7 @@
   .or-price { font-size: 13px; font-weight: 700; color: var(--green); width: 65px; text-align: right; flex-shrink: 0; }
   .or-pay {
     font-size: 10.5px; font-weight: 700; padding: 3px 8px; border-radius: 6px;
-    width: 80px; text-align: center; flex-shrink: 0;
+    width: 92px; text-align: center; flex-shrink: 0;
   }
   .op-ok { background: var(--green-dim); color: var(--green); }
   .op-pend { background: var(--yellow-dim); color: var(--yellow); }
@@ -600,6 +603,7 @@
   .modal-title { font-family: 'Syne', sans-serif; font-size: 17px; font-weight: 800; margin-bottom: 3px; }
   .modal-sub { font-size: 12.5px; color: var(--text2); margin-bottom: 18px; }
   .form-field { margin-bottom: 13px; }
+  label.form-label { display: block; }
   .form-label { font-size: 10.5px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: 0.7px; margin-bottom: 5px; }
   .form-input {
     width: 100%; background: var(--surface2); border: 1px solid var(--border);
@@ -1950,7 +1954,8 @@
   .pagr-row.head:hover { background: none; }
   .pagr-row > div { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pagr-row .amt { text-align: right; font-weight: 700; color: var(--green); }
-  .pagr-row.voided > div { text-decoration: line-through; opacity: .55; }
+  .pagr-row.voided > div { opacity: .75; }
+  .pagr-row .amt { overflow: visible; }
   .pagr-row.voided .amt { color: var(--text3); }
   .pagr-sub { font-size: 10.5px; color: var(--text3); font-weight: 500; }
   .pagr-notice { background: var(--yellow-dim); color: var(--yellow); border-radius: 10px; padding: 9px 12px; font-size: 12px; font-weight: 600; }
@@ -1968,10 +1973,14 @@
   .odm-pay-item .opi-sub { font-size: 11px; color: var(--text3); margin-top: 1px; overflow-wrap: anywhere; }
   .odm-pay-item .opi-amt { text-align: right; font-size: 13px; font-weight: 700; color: var(--green); flex-shrink: 0; }
   .odm-pay-item .opi-amt small { display: block; font-size: 10.5px; font-weight: 500; color: var(--text3); }
-  .odm-pay-item.voided .opi-title, .odm-pay-item.voided .opi-amt { text-decoration: line-through; opacity: .6; }
+  .strike { text-decoration: line-through; opacity: .6; }
   .odm-pay-item.voided .opi-amt { color: var(--text3); }
+  .odm-pay-item .opi-void { font-size: 11.5px; font-weight: 600; color: var(--red); margin-top: 2px; overflow-wrap: anywhere; }
+  .odm-reg-pay { padding: 4px 10px; font-size: 11px; }
+  .pagr-void-tag { display: inline-block; margin-top: 3px; padding: 1px 7px; border-radius: 6px; background: var(--red-dim); color: var(--red); font-size: 10.5px; font-weight: 700; }
+  button.inf-filter-btn { font-family: inherit; }
   .odm-pay-void { font-size: 11px; padding: 4px 9px; }
-  .odm-hist-toggle { display: flex; align-items: center; justify-content: space-between; cursor: pointer; font-size: 9.5px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: 0.8px; }
+  .odm-hist-toggle { display: flex; align-items: center; justify-content: space-between; cursor: pointer; font-size: 10.5px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: 0.8px; }
   .odm-hist-toggle svg { width: 12px; height: 12px; transition: transform .2s; }
   .odm-hist-toggle.open svg { transform: rotate(180deg); }
   .odm-hist-item { display: flex; gap: 12px; padding: 7px 0; border-top: 1px solid var(--border); font-size: 12.5px; }
@@ -1980,7 +1989,7 @@
   .odm-hist-item .x { flex: 1; min-width: 0; color: var(--text2); line-height: 1.5; overflow-wrap: anywhere; }
   .inf-kpi-row.k5 { grid-template-columns: repeat(5, 1fr); }
   /* Ventana de registrar pago */
-  .pd-hint { font-size: 11.5px; color: var(--text3); margin-top: 4px; min-height: 14px; }
+  .pd-hint { font-size: 11.5px; color: var(--text3); margin-top: 4px; }
   .pd-balance { display: flex; align-items: center; justify-content: space-between; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 9px 12px; margin: 10px 0 12px; font-size: 12.5px; color: var(--text2); }
   .pd-balance b { font-family: 'Syne', sans-serif; font-size: 16px; color: var(--yellow); }
   .cobro-box { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-top: 10px; }
@@ -2402,18 +2411,18 @@
           <!-- cobro al crear -->
           <div class="section" style="flex-shrink:0;">
             <div class="cobro-box">
-      <div class="form-label" style="margin-bottom:6px;">Cobro al crear</div>
-      <select class="form-input" id="opCobroMode" onchange="onCobroModeChange('op')">
+      <label class="form-label" for="opCobroMode" style="margin-bottom:6px;">Cobro al crear</label>
+      <select class="form-input" id="opCobroMode" aria-label="Cobro al crear" onchange="onCobroModeChange('op')">
         <option value="none">Sin cobro</option>
         <option value="full">Pagó completo</option>
         <option value="partial">Dejó un abono de…</option>
       </select>
       <div id="opCobroFields" style="display:none;">
         <div class="form-row">
-          <div class="form-field" id="opCobroAmtField"><div class="form-label">Monto</div><input class="form-input" id="opCobroAmt" type="number" min="0" step="0.01" placeholder="0.00"></div>
-          <div class="form-field"><div class="form-label">Método</div><select class="form-input" id="opCobroMethod"></select></div>
+          <div class="form-field" id="opCobroAmtField"><label class="form-label" for="opCobroAmt">Monto</label><input class="form-input" id="opCobroAmt" type="number" min="0" step="0.01" placeholder="0.00"></div>
+          <div class="form-field"><label class="form-label" for="opCobroMethod">Método</label><select class="form-input" id="opCobroMethod" onchange="this.dataset.touched='1'"></select></div>
         </div>
-        <div class="form-field" style="margin-top:8px;"><div class="form-label">Referencia (opcional)</div><input class="form-input" id="opCobroRef" maxlength="80" placeholder="Nº de referencia o comprobante" autocomplete="off"></div>
+        <div class="form-field" style="margin-top:8px;"><label class="form-label" for="opCobroRef">Referencia (opcional)</label><input class="form-input" id="opCobroRef" maxlength="80" placeholder="Nº de referencia o comprobante" autocomplete="off"></div>
       </div>
     </div>
           </div>
@@ -2498,7 +2507,7 @@
         <div class="stat-card">
           <div class="stat-label">Pend. de pago</div>
           <div class="stat-val" id="statPendingPay">4</div>
-          <div class="stat-change sc-warn" id="statPendingPayChange">💳 Por cobrar</div>
+          <div class="stat-change sc-warn" id="statPendingPayChange">Por cobrar</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">Por entregar</div>
@@ -2724,21 +2733,21 @@
       </div>
       <div class="pagr-filters">
         <span style="font-size:11px;font-weight:700;color:var(--text3);">PERÍODO</span>
-        <div class="inf-filter-group" id="pagPeriodBtns">
-          <div class="inf-filter-btn active" onclick="setPagPeriod('hoy',this)">Hoy</div>
-          <div class="inf-filter-btn" onclick="setPagPeriod('ayer',this)">Ayer</div>
-          <div class="inf-filter-btn" onclick="setPagPeriod('7dias',this)">7 días</div>
-          <div class="inf-filter-btn" onclick="setPagPeriod('mes',this)">Este mes</div>
-          <div class="inf-filter-btn" id="pagRangeBtn" onclick="setPagPeriod('rango',this)">Rango</div>
+        <div class="inf-filter-group" id="pagPeriodBtns" role="group" aria-label="Período">
+          <button type="button" class="inf-filter-btn active" aria-pressed="true" onclick="setPagPeriod('hoy',this)">Hoy</button>
+          <button type="button" class="inf-filter-btn" aria-pressed="false" onclick="setPagPeriod('ayer',this)">Ayer</button>
+          <button type="button" class="inf-filter-btn" aria-pressed="false" onclick="setPagPeriod('7dias',this)">7 días</button>
+          <button type="button" class="inf-filter-btn" aria-pressed="false" onclick="setPagPeriod('mes',this)">Este mes</button>
+          <button type="button" class="inf-filter-btn" aria-pressed="false" id="pagRangeBtn" onclick="setPagPeriod('rango',this)">Rango</button>
         </div>
         <div id="pagRangeBox" style="display:none;align-items:center;gap:6px;">
-          <input type="date" id="pagDateFrom" class="form-input" style="padding:6px 9px;font-size:12px;width:140px;">
+          <input type="date" id="pagDateFrom" aria-label="Desde" class="form-input" style="padding:6px 9px;font-size:12px;width:140px;">
           <span style="color:var(--text3);">→</span>
-          <input type="date" id="pagDateTo" class="form-input" style="padding:6px 9px;font-size:12px;width:140px;">
+          <input type="date" id="pagDateTo" aria-label="Hasta" class="form-input" style="padding:6px 9px;font-size:12px;width:140px;">
           <button class="btn-primary" style="padding:6px 12px;font-size:12px;" onclick="applyPagRange()">Aplicar</button>
         </div>
         <div class="inf-divider"></div>
-        <span style="font-size:11px;font-weight:700;color:var(--text3);">MÉTODO</span>
+        <label for="pagMethodSel" style="font-size:11px;font-weight:700;color:var(--text3);">MÉTODO</label>
         <select class="form-input" id="pagMethodSel" style="padding:6px 10px;font-size:12px;width:auto;min-width:140px;" onchange="setPagMethod(this.value)">
           <option value="">Todos</option>
         </select>
@@ -2747,7 +2756,7 @@
         <div class="stat-card"><div class="stat-label">Cobrado del período</div><div class="stat-val" id="pagCobrado">$0.00</div><div class="stat-change" id="pagCobradoN">—</div></div>
         <div class="stat-card"><div class="stat-label">Nº de pagos</div><div class="stat-val" id="pagCount">0</div><div class="stat-change" id="pagCountN">—</div></div>
         <div class="stat-card"><div class="stat-label">Por cobrar total</div><div class="stat-val" id="pagPorCobrar">$0.00</div><div class="stat-change sc-warn" id="pagPorCobrarN">0 pedidos</div></div>
-        <div class="stat-card"><div class="stat-label">Entregados sin cobrar</div><div class="stat-val" id="pagEntregadoSin">0</div><div class="stat-change sc-red">Revisar</div></div>
+        <div class="stat-card"><div class="stat-label">Entregados sin cobrar</div><div class="stat-val" id="pagEntregadoSin">0</div><div class="stat-change sc-up" id="pagEntregadoSinN">ninguno</div></div>
       </div>
       <div class="pagr-body" id="pagrBody">
         <div class="pagr-card"><div class="pagr-empty">Cargando pagos…</div></div>
@@ -3187,18 +3196,18 @@
     <div class="form-field"><div class="form-label">Dirección de entrega</div><input class="form-input" id="noAddress" placeholder="Dirección completa..." type="text"></div>
     <div class="form-field"><div class="form-label">Notas / Descripción</div><input class="form-input" id="noNotes" placeholder="Instrucciones especiales..." type="text"></div>
     <div class="form-field"><div class="cobro-box">
-      <div class="form-label" style="margin-bottom:6px;">Cobro al crear</div>
-      <select class="form-input" id="noCobroMode" onchange="onCobroModeChange('no')">
+      <label class="form-label" for="noCobroMode" style="margin-bottom:6px;">Cobro al crear</label>
+      <select class="form-input" id="noCobroMode" aria-label="Cobro al crear" onchange="onCobroModeChange('no')">
         <option value="none">Sin cobro</option>
         <option value="full">Pagó completo</option>
         <option value="partial">Dejó un abono de…</option>
       </select>
       <div id="noCobroFields" style="display:none;">
         <div class="form-row">
-          <div class="form-field" id="noCobroAmtField"><div class="form-label">Monto</div><input class="form-input" id="noCobroAmt" type="number" min="0" step="0.01" placeholder="0.00"></div>
-          <div class="form-field"><div class="form-label">Método</div><select class="form-input" id="noCobroMethod"></select></div>
+          <div class="form-field" id="noCobroAmtField"><label class="form-label" for="noCobroAmt">Monto</label><input class="form-input" id="noCobroAmt" type="number" min="0" step="0.01" placeholder="0.00"></div>
+          <div class="form-field"><label class="form-label" for="noCobroMethod">Método</label><select class="form-input" id="noCobroMethod" onchange="this.dataset.touched='1'"></select></div>
         </div>
-        <div class="form-field" style="margin-top:8px;"><div class="form-label">Referencia (opcional)</div><input class="form-input" id="noCobroRef" maxlength="80" placeholder="Nº de referencia o comprobante" autocomplete="off"></div>
+        <div class="form-field" style="margin-top:8px;"><label class="form-label" for="noCobroRef">Referencia (opcional)</label><input class="form-input" id="noCobroRef" maxlength="80" placeholder="Nº de referencia o comprobante" autocomplete="off"></div>
       </div>
     </div></div>
 
@@ -3556,7 +3565,7 @@
       <div style="flex:1;min-width:0;">
         <div class="odm-id" id="odmId">
           #—
-          <span id="odmPayBadge" class="odm-pay-badge odm-pay-pend">Pend. pago</span>
+          <span id="odmPayBadge" class="odm-pay-badge odm-pay-pend">Pendiente</span>
         </div>
         <div class="odm-date" id="odmDate">—</div>
       </div>
@@ -3662,6 +3671,7 @@
               <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
               Cobro
             </span>
+            <button class="btn-ghost green odm-reg-pay" id="odmRegPayBtn" onclick="openPaymentDialog(currentDetailId)">Registrar pago</button>
           </div>
           <div class="odm-cobro-row">
             <div class="odm-cobro-tile"><div class="k">Total</div><div class="v" id="odmCobTotal">—</div></div>
@@ -3698,15 +3708,12 @@
         <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="width:13px;height:13px"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12"/></svg>
         Cambiar estado entrega
       </div>
-      <button class="btn-ghost" id="odmRegPayBtn" onclick="openPaymentDialog(currentDetailId)" style="color:var(--green);border-color:rgba(34,211,160,0.3);">
-        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:13px;height:13px"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z"/></svg>
-        Registrar pago
-      </button>
+
       <button class="btn-ghost" onclick="openOrderEdit()">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:13px;height:13px"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"/></svg>
         Editar
       </button>
-      <button class="btn-ghost" onclick="printOrder()" style="color:var(--green);border-color:rgba(34,211,160,0.3);">
+      <button class="btn-ghost green" onclick="printOrder()">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:13px;height:13px"><path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m10.5 0a48.536 48.536 0 00-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18 10.5h.008v.008H18V10.5zm-3 0h.008v.008H15V10.5z"/></svg>
         Imprimir
       </button>
@@ -4388,18 +4395,35 @@ async function sendFile(input) {
 }
 
 // ─── PAGOS (Fase 2): registrar pagos, saldo, historial, ajustes de cobro ───
-const fmtMoney = n => '$' + (Number(n) || 0).toFixed(2);
-const PAY_METHOD_NAMES = { pagoMovil:'Pago Móvil', zelle:'Zelle', binance:'Binance', efectivo:'Efectivo', transferencia:'Transferencia', divisas:'Divisas' };
+// Formato de dinero según la moneda base del negocio: USD "$1234.56"; el resto "1.234,56 VES" (VES: "Bs", EUR: "€")
+function fmtMoney(n) {
+  const v = Number(n) || 0, cur = baseCurrency();
+  if (cur === 'USD') return '$' + v.toFixed(2);
+  let s;
+  try { s = v.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); } catch (e) { s = v.toFixed(2); }
+  if (cur === 'EUR') return '€' + s;
+  if (cur === 'VES') return 'Bs ' + s;
+  return s + ' ' + cur;
+}
+// Un solo nombre por método (el que se muestra, se guarda y se envía como `method`)
+const PAY_METHOD_NAMES = { pagoMovil:'Pago Móvil', zelle:'Zelle', efectivo:'Efectivo', binance:'Binance', transferencia:'Transferencia', divisas:'Divisas', otro:'Otro' };
 const BASIC_PAY_METHODS = ['Efectivo', 'Zelle', 'Pago Móvil', 'Transferencia', 'Binance', 'Otro'];
-// Ajustes del negocio que guarda el servidor (métodos de pago, entrega, moneda base)
-let tenantSettings = null;
+// Ajustes del negocio que guarda el servidor (métodos de pago, entrega, moneda base). null = aún no cargados
+let tenantSettings = null, tenantSettingsFailed = false;
+// Último negocio que usó este navegador (para no migrar ajustes viejos a otro negocio)
+const _prevLastTenant = (() => { try { return localStorage.getItem('central_last_tenant'); } catch (e) { return null; } })();
+try { if (businessProfile && businessProfile.tenantId) localStorage.setItem('central_last_tenant', businessProfile.tenantId); } catch (e) {}
 
 function baseCurrency() { return (tenantSettings && tenantSettings.baseCurrency) || 'USD'; }
-// Métodos que se ofrecen al registrar un pago: los activos en Ajustes; si no hay, la lista básica
+function payNameFor(m) { return PAY_METHOD_NAMES[m && m.id] || String((m && m.name) || ''); }
+// Métodos que se ofrecen al registrar un pago: los activos en Ajustes (con su nombre canónico); si no hay, la lista básica
 function payMethodNames() {
   const list = tenantSettings && Array.isArray(tenantSettings.paymentMethods) ? tenantSettings.paymentMethods : [];
-  const names = list.filter(m => m && m.enabled !== false && m.name).map(m => String(m.name));
-  return names.length ? names : BASIC_PAY_METHODS.slice();
+  const names = [];
+  list.filter(m => m && m.enabled !== false).forEach(m => { const n = payNameFor(m); if (n && !names.includes(n)) names.push(n); });
+  if (!names.length) return BASIC_PAY_METHODS.slice();
+  if (!names.includes('Otro')) names.push('Otro');
+  return names;
 }
 function todayLocalIso() {
   const d = new Date();
@@ -4422,22 +4446,41 @@ function legacyPayToList(saved) {
   });
 }
 
-// Una sola vez por navegador: si el servidor aún no tiene ajustes y este navegador sí, los sube y los borra de aquí
+// Un solo guardado de ajustes a la vez (en orden). Un GET que cruce un guardado se descarta (ver loadTenantSettings).
+let _tsPutChain = Promise.resolve(), _tsPutSeq = 0, _tsPutting = 0;
+function putSettings(body) {
+  _tsPutSeq++; _tsPutting++;
+  const run = _tsPutChain.then(() => apiJson('PUT', '/api/tenant/settings', body));
+  _tsPutChain = run.catch(() => {});
+  return run.finally(() => { _tsPutting--; _tsPutSeq++; });
+}
+
+// Una sola vez por navegador: si el servidor aún no tiene ajustes y este navegador sí (y son de este mismo negocio),
+// los sube. En cualquier otro caso se descartan: nunca se copian a otro negocio.
 async function migrateLocalSettings() {
   const read = k => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } };
+  const drop = ks => ks.forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
   const rawPay = read('central_pagos'), rawDel = read('central_delivery');
-  const body = {}, migrated = [];
+  if (rawPay === null && rawDel === null) return;
+  const tid = businessProfile && businessProfile.tenantId;
+  const sameTenant = !_prevLastTenant || (tid && _prevLastTenant === tid);
   const noPay = !Array.isArray(tenantSettings.paymentMethods) || !tenantSettings.paymentMethods.length;
   const noDel = !tenantSettings.deliveryMethods || !Object.keys(tenantSettings.deliveryMethods).length;
   const isFull = v => v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length;
-  if (isFull(rawPay) && noPay) { body.paymentMethods = legacyPayToList(rawPay); migrated.push('central_pagos'); }
-  if (isFull(rawDel) && noDel) { body.deliveryMethods = rawDel; migrated.push('central_delivery'); }
+  const body = {}, migrated = [];
+  if (sameTenant) {
+    if (isFull(rawPay) && noPay) { body.paymentMethods = legacyPayToList(rawPay); migrated.push('central_pagos'); }
+    if (isFull(rawDel) && noDel) { body.deliveryMethods = cleanDelivery(rawDel); migrated.push('central_delivery'); }
+  }
+  // Lo que no se va a migrar (otro negocio, o el servidor ya tenía ajustes) se borra
+  drop(['central_pagos', 'central_delivery'].filter(k => !migrated.includes(k)));
   if (!migrated.length) return;
   try {
-    tenantSettings = await apiJson('PUT', '/api/tenant/settings', body);
-    migrated.forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+    const s = await putSettings(body);
+    tenantSettings = Object.assign({}, tenantSettings, s);
+    drop(migrated);
   } catch (err) {
-    showToast('⚠ No se pudieron subir tus ajustes de pago y entrega guardados en este navegador (' + err.message + '). Se reintentará al recargar.', 'error');
+    showToast('No se pudieron subir tus ajustes de pago y entrega guardados en este navegador (' + err.message + '). Se reintentará al recargar.', 'error');
   }
 }
 
@@ -4448,52 +4491,87 @@ function rerenderSettingsPanel() {
   if (el && (p === 'pagos' || p === 'entrega') && settingsPanels[p] && document.getElementById('v-ajustes')?.classList.contains('active')) el.innerHTML = settingsPanels[p]();
 }
 
-async function loadTenantSettings() {
-  try {
-    tenantSettings = await apiJson('GET', '/api/tenant/settings');
-    await migrateLocalSettings();
-    try { renderPayGrids(); renderDeliveryOpts(); } catch (e) {}
-    rerenderSettingsPanel();
-    return true;
-  } catch (err) {
-    console.warn('No se pudieron cargar los ajustes:', err.message);
-    notifyLoadError('los ajustes de cobro y entrega');
-    return false;
-  }
+let _tsLoading = null;
+function loadTenantSettings() {
+  if (_tsLoading) return _tsLoading;
+  _tsLoading = (async () => {
+    const putMark = _tsPutSeq;
+    try {
+      const s = await apiJson('GET', '/api/tenant/settings');
+      if (_tsPutting || putMark !== _tsPutSeq) {
+        // Se guardó algo mientras llegaba esta respuesta: puede ser anterior al guardado, se descarta
+        return !!tenantSettings;
+      }
+      tenantSettings = s;
+      tenantSettingsFailed = false;
+      await migrateLocalSettings();
+      try { renderPayGrids(); renderDeliveryOpts(); } catch (e) {}
+      rerenderSettingsPanel();
+      return true;
+    } catch (err) {
+      console.warn('No se pudieron cargar los ajustes:', err.message);
+      if (!tenantSettings) { tenantSettingsFailed = true; notifyLoadError('los ajustes de cobro y entrega'); rerenderSettingsPanel(); }
+      return !!tenantSettings;
+    } finally { _tsLoading = null; }
+  })();
+  return _tsLoading;
+}
+function retryTenantSettings() {
+  tenantSettingsFailed = false;
+  rerenderSettingsPanel();
+  loadTenantSettings();
+}
+// Bloque que sustituye a un panel de Ajustes mientras los ajustes no estén cargados (null si ya están)
+function settingsNotReadyHtml(title, sub) {
+  if (tenantSettings) return null;
+  return '<div class="sc-title">' + title + '</div><div class="sc-sub">' + sub + '</div>' +
+    '<div class="s-card"><div class="s-row"><div class="s-row-info">' + (tenantSettingsFailed
+      ? '<div class="s-row-label" style="color:var(--red);">No se pudieron cargar los ajustes</div><div class="s-row-desc">Hasta que carguen no se pueden editar, para no pisar lo que ya tienes guardado.</div></div>' +
+        '<div class="s-row-action"><button class="btn-ghost" onclick="retryTenantSettings()">Reintentar</button></div>'
+      : '<div class="s-row-label">Cargando…</div><div class="s-row-desc">Un momento, se están leyendo tus ajustes.</div></div>') +
+    '</div></div>';
 }
 
-// Lista completa de métodos (los conocidos + los que ya tenga el servidor) con su estado actual
+// Lista completa de métodos (los conocidos + los que ya tenga el servidor) con su estado actual.
+// null si los ajustes aún no cargaron (así nunca se guardan valores de fábrica encima de los reales).
 function effectivePayList() {
-  const cur = (tenantSettings && Array.isArray(tenantSettings.paymentMethods)) ? tenantSettings.paymentMethods : [];
+  if (!tenantSettings) return null;
+  const cur = Array.isArray(tenantSettings.paymentMethods) ? tenantSettings.paymentMethods : [];
   const byId = {};
-  cur.forEach(m => { byId[m.id] = m; });
+  cur.forEach(m => { if (m && m.id) byId[m.id] = m; });
   const out = PAY_GRID_META.map(m => {
     const c = byId[m.id];
-    return { id: m.id, name: (c && c.name) || PAY_METHOD_NAMES[m.id] || m.label, enabled: c ? c.enabled !== false : m.defOn, details: Object.assign({}, c && c.details) };
+    return { id: m.id, name: PAY_METHOD_NAMES[m.id] || m.label, enabled: c ? c.enabled !== false : m.defOn, details: Object.assign({}, c && c.details) };
   });
-  cur.forEach(m => { if (!PAY_GRID_META.some(g => g.id === m.id)) out.push({ id: m.id, name: m.name, enabled: m.enabled !== false, details: Object.assign({}, m.details) }); });
+  cur.forEach(m => { if (m && m.id && !PAY_GRID_META.some(g => g.id === m.id)) out.push({ id: m.id, name: m.name, enabled: m.enabled !== false, details: Object.assign({}, m.details) }); });
   return out;
 }
 async function savePayMethods(list) {
+  if (!tenantSettings) return false;
   try {
-    const s = await apiJson('PUT', '/api/tenant/settings', { paymentMethods: list });
-    tenantSettings = Object.assign({}, tenantSettings, s);
+    const s = await putSettings({ paymentMethods: list });
+    // Las opciones de entrega no se toman de esta respuesta: pueden tener un cambio más nuevo en curso
+    const rest = Object.assign({}, s); delete rest.deliveryMethods;
+    tenantSettings = Object.assign({}, tenantSettings, rest);
     return true;
   } catch (err) {
-    showToast('⚠ No se guardó el método de pago (' + err.message + ')');
+    showToast('No se guardó el método de pago (' + err.message + ')', 'error');
     return false;
   }
 }
 
 let _baseCurBusy = false;
 async function changeBaseCurrency(sel) {
-  if (_baseCurBusy) return;
+  if (_baseCurBusy || !tenantSettings) return;
   _baseCurBusy = true; sel.disabled = true;
   try {
-    tenantSettings = Object.assign({}, tenantSettings, await apiJson('PUT', '/api/tenant/settings', { baseCurrency: sel.value }));
-    showToast('Moneda base: ' + sel.value + ' ✓');
+    const s = await putSettings({ baseCurrency: sel.value });
+    const rest = Object.assign({}, s); delete rest.deliveryMethods;
+    tenantSettings = Object.assign({}, tenantSettings, rest);
+    showToast('Moneda base: ' + sel.value);
+    try { renderOrders(); } catch (e) {}
   } catch (err) {
-    showToast('⚠ No se cambió la moneda base (' + err.message + ')');
+    showToast('No se cambió la moneda base (' + err.message + ')', 'error');
   } finally {
     _baseCurBusy = false;
     rerenderSettingsPanel();
@@ -4528,39 +4606,64 @@ function updateChatDebt() {
 }
 
 // ── Ventana "Registrar pago" ──
-function openPaymentDialog(orderId) {
+// Vuelve a leer del servidor lo cobrado/saldo/estado de un pedido (p. ej. si otro dispositivo registró un pago)
+async function syncOrderPayState(orderId) {
+  const o = orders.find(x => x.id === orderId), realId = orderRealIds[orderId];
+  if (!o || !realId) return false;
+  const r = await apiJson('GET', '/api/orders/' + encodeURIComponent(realId) + '/payments');
+  o.paid = Number(r.amountPaid) || 0;
+  o.balance = Number(r.balance) || 0;
+  if (r.payStatus) o.pay = r.payStatus;
+  refreshAfterOrderChange(orderId);
+  return true;
+}
+
+let _payDlgOpen = false; // una sola ventana de pago a la vez (doble clic en la insignia)
+async function openPaymentDialog(orderId) {
+  if (_payDlgOpen) return false;
   const o = orders.find(x => x.id === orderId);
-  if (!o) return Promise.resolve(false);
+  if (!o) return false;
   const realId = orderRealIds[orderId];
-  if (!realId) { showToast('⚠ El pedido ' + orderId + ' no está guardado en el servidor', 'error'); return Promise.resolve(false); }
-  if (!(o.total > 0)) { showToast('El pedido no tiene monto por cobrar', 'error'); return Promise.resolve(false); }
-  if (!(o.balance > 0.004)) { showToast('El pedido ya está cobrado por completo'); return Promise.resolve(false); }
-  return new Promise(async resolve => {
-    if (!tenantSettings) await loadTenantSettings(); // sin ajustes se usan los métodos básicos y la moneda USD
+  if (!realId) { showToast('El pedido ' + orderId + ' no está guardado en el servidor', 'error'); return false; }
+  if (!(o.total > 0)) { showToast('El pedido no tiene monto por cobrar', 'error'); return false; }
+  if (!(o.balance > 0.004)) { showToast('El pedido ya está cobrado por completo'); return false; }
+  _payDlgOpen = true;
+  if (!tenantSettings) await loadTenantSettings();
+  if (!tenantSettings) {
+    // Sin los ajustes no se sabe la moneda base ni los métodos: no se abre el diálogo
+    _payDlgOpen = false;
+    const retry = await askConfirm({ title: 'No se pudieron cargar los ajustes de cobro', text: 'Hace falta conocer la moneda base y los métodos de pago para registrar un pago. Revisa tu conexión e inténtalo de nuevo.', confirmLabel: 'Reintentar' });
+    return retry ? openPaymentDialog(orderId) : false;
+  }
+  return new Promise(resolve => {
     const base = baseCurrency();
-    const currencies = (tenantSettings && tenantSettings.currencies && tenantSettings.currencies.length) ? tenantSettings.currencies : [base];
+    const currencies = (tenantSettings.currencies && tenantSettings.currencies.length) ? tenantSettings.currencies : [base];
     const curList = [base].concat(currencies.filter(c => c !== base));
     const today = todayLocalIso();
+    // Método por defecto: el elegido en la cuadrícula de pago del pedido, si está en la lista
+    const names = payMethodNames();
+    const gridSel = document.querySelector('#opPayGrid .pay-btn.selected');
+    const defMethod = gridSel && names.includes(gridSel.dataset.name) ? gridSel.dataset.name : '';
     let busy = false, done = false;
-    const finish = v => { if (done) return; done = true; d.close(); resolve(v); };
+    const finish = v => { if (done) return; done = true; _payDlgOpen = false; d.close(); resolve(v); };
     const d = _openDialog(
       '<div class="modal-title">Registrar pago</div>' +
       '<div class="modal-sub">Pedido ' + escHtml(o.id) + ' · ' + escHtml(o.client) + '</div>' +
-      '<div class="pd-balance"><span>Saldo pendiente</span><b>' + fmtMoney(o.balance) + '</b></div>' +
+      '<div class="pd-balance"><span>Saldo pendiente</span><b data-bal>' + fmtMoney(o.balance) + '</b></div>' +
       '<div class="form-row">' +
-        '<div class="form-field"><div class="form-label">Monto</div><input class="form-input" data-f="amount" type="number" min="0" step="0.01" inputmode="decimal" value="' + o.balance.toFixed(2) + '"></div>' +
-        '<div class="form-field"><div class="form-label">Método</div><select class="form-input" data-f="method">' + payMethodNames().map(n => '<option value="' + escHtml(n) + '">' + escHtml(n) + '</option>').join('') + '</select></div>' +
+        '<div class="form-field"><label class="form-label" for="pdAmount">Monto</label><input class="form-input" id="pdAmount" data-f="amount" type="number" min="0" step="0.01" inputmode="decimal" value="' + o.balance.toFixed(2) + '"></div>' +
+        '<div class="form-field"><label class="form-label" for="pdMethod">Método</label><select class="form-input" id="pdMethod" data-f="method">' + names.map(n => '<option value="' + escHtml(n) + '"' + (n === defMethod ? ' selected' : '') + '>' + escHtml(n) + '</option>').join('') + '</select></div>' +
       '</div>' +
-      '<div class="form-row">' +
-        '<div class="form-field"' + (curList.length > 1 ? '' : ' style="display:none"') + '><div class="form-label">Moneda</div><select class="form-input" data-f="currency">' + curList.map(c => '<option value="' + escHtml(c) + '">' + escHtml(c) + '</option>').join('') + '</select></div>' +
-        '<div class="form-field" data-rate-field style="display:none;"><div class="form-label" data-rate-label>Tasa</div><input class="form-input" data-f="rate" type="number" min="0" step="any" inputmode="decimal" placeholder="Ej: 36.50"></div>' +
+      '<div class="form-row"' + (curList.length > 1 ? '' : ' style="display:none"') + '>' +
+        '<div class="form-field"><label class="form-label" for="pdCurrency">Moneda</label><select class="form-input" id="pdCurrency" data-f="currency">' + curList.map(c => '<option value="' + escHtml(c) + '">' + escHtml(c) + '</option>').join('') + '</select></div>' +
+        '<div class="form-field" data-rate-field style="display:none;"><label class="form-label" for="pdRate" data-rate-label>Tasa</label><input class="form-input" id="pdRate" data-f="rate" type="number" min="0" step="any" inputmode="decimal" placeholder="Ej: 36.50"></div>' +
       '</div>' +
       '<div class="pd-hint" data-hint></div>' +
       '<div class="form-row">' +
-        '<div class="form-field"><div class="form-label">Referencia</div><input class="form-input" data-f="reference" maxlength="80" autocomplete="off" placeholder="Opcional"></div>' +
-        '<div class="form-field"><div class="form-label">Fecha</div><input class="form-input" data-f="date" type="date" max="' + today + '" value="' + today + '"></div>' +
+        '<div class="form-field"><label class="form-label" for="pdRef">Referencia</label><input class="form-input" id="pdRef" data-f="reference" maxlength="80" autocomplete="off" placeholder="Opcional"></div>' +
+        '<div class="form-field"><label class="form-label" for="pdDate">Fecha</label><input class="form-input" id="pdDate" data-f="date" type="date" max="' + today + '" value="' + today + '"></div>' +
       '</div>' +
-      '<div class="form-field"><div class="form-label">Nota</div><input class="form-input" data-f="note" maxlength="300" autocomplete="off" placeholder="Opcional"></div>' +
+      '<div class="form-field"><label class="form-label" for="pdNote">Nota</label><input class="form-input" id="pdNote" data-f="note" maxlength="300" autocomplete="off" placeholder="Opcional"></div>' +
       '<div class="dlg-error" data-err></div>' +
       '<div class="modal-footer"><button class="btn-ghost" data-act="no">Cancelar</button><button class="btn-primary" data-act="yes">Registrar pago</button></div>',
       () => { if (!busy) finish(false); }, '[data-f="amount"]');
@@ -4594,12 +4697,12 @@ function openPaymentDialog(orderId) {
       if (!(amount > 0)) { err.textContent = 'Escribe un monto mayor que 0'; return; }
       const method = q('method').value;
       if (!method) { err.textContent = 'Elige el método de pago'; return; }
-      const body = { amount, method };
-      const cur = q('currency').value;
-      if (cur && cur !== base) {
+      const cur = q('currency').value || base;
+      const body = { amount, method, currency: cur };
+      if (cur !== base) {
         const rate = parseFloat(q('rate').value);
         if (!(rate > 0)) { err.textContent = 'Indica la tasa de cambio (mayor que 0)'; return; }
-        body.currency = cur; body.exchangeRate = rate;
+        body.exchangeRate = rate;
       }
       const ref = q('reference').value.trim(), note = q('note').value.trim(), date = q('date').value;
       if (ref) body.reference = ref;
@@ -4613,10 +4716,22 @@ function openPaymentDialog(orderId) {
         if (tenantSettings) tenantSettings.canChangeBaseCurrency = false; // con un pago registrado la moneda base queda fija
         finish(true);
         refreshAfterOrderChange(orderId);
-        showToast('Pago registrado ✓');
+        showToast('Pago registrado');
       } catch (e) {
         err.textContent = (e && e.message) || 'No se pudo registrar el pago';
-        busy = false; yes.disabled = false; no.disabled = false;
+        // Si el rechazo fue por saldo o por pedido ya cobrado, lo que se ve estaba desactualizado: se vuelve a leer
+        try {
+          await syncOrderPayState(orderId);
+          const cur2 = orders.find(x => x.id === orderId);
+          if (cur2) {
+            o.balance = cur2.balance;
+            d.ov.querySelector('[data-bal]').textContent = fmtMoney(cur2.balance);
+            if (!(cur2.balance > 0.004)) { yes.dataset.settled = '1'; if (!/completo/i.test(err.textContent)) err.textContent = (err.textContent ? err.textContent + '. ' : '') + 'El pedido ya está cobrado por completo.'; }
+            else updateHint();
+          }
+        } catch (e2) {}
+        busy = false; no.disabled = false;
+        if (yes.dataset.settled !== '1') yes.disabled = false;
       }
     };
     no.onclick = () => { if (!busy) finish(false); };
@@ -4625,21 +4740,15 @@ function openPaymentDialog(orderId) {
   });
 }
 
-// ── Anular un pago ──
+// ── Anular un pago: un solo diálogo, con el motivo obligatorio ──
 async function voidPayment(paymentId) {
   const p = _odmPayments.find(x => x.id === paymentId);
   const orderId = currentDetailId;
   if (!p || p.voided || !orderId) return;
-  const yes = await askConfirm({
-    title: '¿Anular este pago?',
-    text: 'Se quitarán ' + fmtMoney(p.amountBase) + ' (' + p.method + ') de lo cobrado en ' + orderId + '. El pago queda en el historial como anulado.',
-    confirmLabel: 'Continuar', danger: true,
-  });
-  if (!yes) return;
   const ok = await openFormDialog({
-    title: 'Motivo de la anulación',
-    sub: 'Escribe por qué se anula este pago. Queda registrado en el historial.',
-    confirmLabel: 'Anular pago',
+    title: 'Anular pago',
+    sub: 'Se quitarán ' + fmtMoney(p.amountBase) + ' de ' + p.method + ' del pedido ' + String(orderId).replace(/^#?/, '#') + '. Queda en el historial como anulado.',
+    confirmLabel: 'Anular pago', danger: true,
     fields: [{ id: 'reason', label: 'Motivo', placeholder: 'Ej: referencia equivocada' }],
     onSubmit: async v => {
       const reason = (v.reason || '').trim();
@@ -4669,8 +4778,8 @@ async function loadOrderPayments(orderId) {
     renderOrderPayments();
   } catch (err) {
     if (seq !== _odmPaySeq) return;
-    box.innerHTML = '<div style="font-size:12px;color:var(--red);padding:6px 2px;">⚠ No se pudieron cargar los pagos (' + escHtml(err.message) + ') ' +
-      '<button class="btn-ghost" style="margin-left:6px;" onclick="loadOrderPayments(currentDetailId)">Reintentar</button></div>';
+    box.innerHTML = '<div style="font-size:12px;color:var(--red);padding:6px 2px;display:flex;align-items:center;gap:8px;">No se pudieron cargar los pagos (' + escHtml(err.message) + ') ' +
+      '<button class="btn-ghost" onclick="loadOrderPayments(currentDetailId)">Reintentar</button></div>';
   }
 }
 function renderOrderPayments() {
@@ -4681,11 +4790,12 @@ function renderOrderPayments() {
   box.innerHTML = _odmPayments.map(p => {
     const foreign = p.currency && p.currency !== base;
     const sub = [p.reference ? 'Ref. ' + escHtml(p.reference) : '', p.note ? escHtml(p.note) : ''].filter(Boolean).join(' · ');
+    const st = t => p.voided ? '<span class="strike">' + t + '</span>' : t;
     return '<div class="odm-pay-item' + (p.voided ? ' voided' : '') + '">' +
-      '<div class="opi-main"><div class="opi-title">' + escHtml(p.method) + ' · ' + escHtml(fmtWhen(p.paidAt)) + '</div>' +
+      '<div class="opi-main"><div class="opi-title">' + st(escHtml(p.method)) + ' · ' + escHtml(fmtWhen(p.paidAt)) + '</div>' +
       (sub ? '<div class="opi-sub">' + sub + '</div>' : '') +
-      (p.voided ? '<div class="opi-sub" style="color:var(--red);">Anulado' + (p.voidReason ? ': ' + escHtml(p.voidReason) : '') + '</div>' : '') + '</div>' +
-      '<div class="opi-amt">' + fmtMoney(p.amountBase) +
+      (p.voided ? '<div class="opi-void">Anulado' + (p.voidReason ? ': ' + escHtml(p.voidReason) : '') + '</div>' : '') + '</div>' +
+      '<div class="opi-amt">' + st(fmtMoney(p.amountBase)) +
         (foreign ? '<small>' + (Number(p.amount) || 0).toFixed(2) + ' ' + escHtml(p.currency) + ' · tasa ' + escHtml(p.exchangeRate) + '</small>' : '') + '</div>' +
       (p.voided ? '' : '<button class="btn-ghost odm-pay-void" onclick="voidPayment(' + escJsAttr(p.id) + ')">Anular</button>') +
     '</div>';
@@ -4760,16 +4870,28 @@ async function loadOrderHistory(orderId) {
       : '<div style="font-size:12px;color:var(--text3);">Sin movimientos registrados.</div>';
   } catch (err) {
     if (seq !== _histSeq) return;
-    box.innerHTML = '<div style="font-size:12px;color:var(--red);">⚠ No se pudo cargar el historial (' + escHtml(err.message) + ') ' +
-      '<button class="btn-ghost" style="margin-left:6px;" onclick="loadOrderHistory(currentDetailId)">Reintentar</button></div>';
+    box.innerHTML = '<div style="font-size:12px;color:var(--red);display:flex;align-items:center;gap:8px;">No se pudo cargar el historial (' + escHtml(err.message) + ') ' +
+      '<button class="btn-ghost" onclick="loadOrderHistory(currentDetailId)">Reintentar</button></div>';
   }
 }
 
 // ── Cobro al crear un pedido (chat y pedido manual) ──
+// Método elegido en la cuadrícula de pago del pedido (nombre canónico), si existe en la lista de métodos
+function gridPayName(p) {
+  const el = document.querySelector('#' + p + 'PayGrid .pay-btn.selected');
+  return el && el.dataset.name ? el.dataset.name : '';
+}
+function syncCobroMethod(p) {
+  const sel = document.getElementById(p + 'CobroMethod'), mode = document.getElementById(p + 'CobroMode');
+  if (!sel || !mode || mode.value === 'none' || sel.dataset.touched === '1') return;
+  const n = gridPayName(p);
+  if (n && [...sel.options].some(o => o.value === n)) sel.value = n;
+}
 function onCobroModeChange(p) {
   const mode = document.getElementById(p + 'CobroMode').value;
   document.getElementById(p + 'CobroFields').style.display = mode === 'none' ? 'none' : '';
   document.getElementById(p + 'CobroAmtField').style.display = mode === 'partial' ? '' : 'none';
+  syncCobroMethod(p);
 }
 function resetCobroBlock(p) {
   const m = document.getElementById(p + 'CobroMode');
@@ -4777,6 +4899,7 @@ function resetCobroBlock(p) {
   m.value = 'none';
   document.getElementById(p + 'CobroAmt').value = '';
   document.getElementById(p + 'CobroRef').value = '';
+  const sel = document.getElementById(p + 'CobroMethod'); if (sel) delete sel.dataset.touched;
   onCobroModeChange(p);
 }
 function refreshCobroMethods() {
@@ -4785,21 +4908,24 @@ function refreshCobroMethods() {
     if (!sel) return;
     const prev = sel.value;
     sel.innerHTML = payMethodNames().map(n => '<option value="' + escHtml(n) + '">' + escHtml(n) + '</option>').join('');
-    if (prev) sel.value = prev;
+    if (prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
+    syncCobroMethod(p);
   });
 }
 // Devuelve el pago inicial a enviar con el pedido (o null). Lanza Error si el abono no es válido.
+// "Pagó completo" no envía monto: el servidor usa el total del pedido.
 function readCobro(p, total) {
   const mode = document.getElementById(p + 'CobroMode').value;
   if (mode === 'none') return null;
-  let amount = total;
+  const method = document.getElementById(p + 'CobroMethod').value;
+  if (!(total > 0)) throw new Error('El pedido no tiene monto por cobrar');
+  const out = { method };
   if (mode === 'partial') {
-    amount = parseFloat(document.getElementById(p + 'CobroAmt').value);
+    const amount = parseFloat(document.getElementById(p + 'CobroAmt').value);
     if (!(amount > 0)) { flagField(p + 'CobroAmt'); throw new Error('Escribe el monto del abono'); }
     if (amount > total + 0.004) { flagField(p + 'CobroAmt'); throw new Error('El abono no puede superar el total (' + fmtMoney(total) + ')'); }
-  }
-  if (!(amount > 0)) throw new Error('El pedido no tiene monto por cobrar');
-  const out = { amount: _round2(amount), method: document.getElementById(p + 'CobroMethod').value };
+    out.amount = _round2(amount);
+  } else out.full = true;
   const ref = document.getElementById(p + 'CobroRef').value.trim();
   if (ref) out.reference = ref;
   return out;
@@ -4808,10 +4934,11 @@ function readCobro(p, total) {
 // ── Pantalla Pagos: registro de cobros por período ──
 let pagPeriod = 'hoy', pagMethod = '', pagRange = { from: '', to: '' }, _pagSeq = 0;
 const pagKnownMethods = new Set();
+const PAG_PERIOD_PARAM = { hoy: 'today', ayer: 'yesterday', '7dias': '7d', mes: 'month' };
 function setPagPeriod(p, el) {
   pagPeriod = p;
-  document.querySelectorAll('#pagPeriodBtns .inf-filter-btn').forEach(b => b.classList.remove('active'));
-  if (el) el.classList.add('active');
+  document.querySelectorAll('#pagPeriodBtns .inf-filter-btn').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
+  if (el) { el.classList.add('active'); el.setAttribute('aria-pressed', 'true'); }
   const box = document.getElementById('pagRangeBox');
   box.style.display = p === 'rango' ? 'flex' : 'none';
   if (p === 'rango') {
@@ -4833,15 +4960,6 @@ function applyPagRange() {
   loadPagos();
 }
 function setPagMethod(m) { pagMethod = m; loadPagos(); }
-function pagDates() {
-  const iso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-  const t = new Date();
-  if (pagPeriod === 'ayer') { const y = new Date(t); y.setDate(y.getDate() - 1); return { from: iso(y), to: iso(y) }; }
-  if (pagPeriod === '7dias') { const s = new Date(t); s.setDate(s.getDate() - 6); return { from: iso(s), to: iso(t) }; }
-  if (pagPeriod === 'mes') return { from: iso(new Date(t.getFullYear(), t.getMonth(), 1)), to: iso(t) };
-  if (pagPeriod === 'rango') return pagRange;
-  return {}; // hoy: el servidor usa el día de la zona horaria del negocio
-}
 function rebuildPagMethodSelect() {
   const sel = document.getElementById('pagMethodSel');
   if (!sel) return;
@@ -4851,15 +4969,20 @@ function rebuildPagMethodSelect() {
   sel.innerHTML = '<option value="">Todos</option>' + [...names].map(n => '<option value="' + escHtml(n) + '">' + escHtml(n) + '</option>').join('');
   sel.value = pagMethod;
 }
-// Por cobrar y entregados sin cobrar: salen de los pedidos cargados
+// Por cobrar y entregados sin cobrar: salen de los pedidos cargados (pendiente = saldo mayor que 0)
 function renderPagosResumen() {
   let pend = 0, pendN = 0, entSin = 0;
   orders.forEach(o => {
-    if (o.pay !== 'ok' && o.balance > 0.004) { pend += o.balance; pendN++; if (o.delivery === 'delivered') entSin++; }
+    if (o.balance > 0.004) { pend += o.balance; pendN++; if (o.delivery === 'delivered') entSin++; }
   });
   const set = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
   set('pagPorCobrar', fmtMoney(pend)); set('pagPorCobrarN', pendN + (pendN === 1 ? ' pedido' : ' pedidos'));
   set('pagEntregadoSin', String(entSin));
+  const sub = document.getElementById('pagEntregadoSinN');
+  if (sub) {
+    sub.textContent = entSin > 0 ? 'por cobrar al entregar' : 'ninguno';
+    sub.className = 'stat-change ' + (entSin > 0 ? 'sc-red' : 'sc-up');
+  }
 }
 async function loadPagos() {
   const body = document.getElementById('pagrBody');
@@ -4869,9 +4992,10 @@ async function loadPagos() {
   if (!tenantSettings) loadTenantSettings().then(() => { if (seq === _pagSeq) rebuildPagMethodSelect(); });
   rebuildPagMethodSelect();
   const q = new URLSearchParams();
-  const dt = pagDates();
-  if (dt.from) q.set('from', dt.from);
-  if (dt.to) q.set('to', dt.to);
+  if (pagPeriod === 'rango') {
+    if (pagRange.from) q.set('from', pagRange.from);
+    if (pagRange.to) q.set('to', pagRange.to);
+  } else if (PAG_PERIOD_PARAM[pagPeriod]) q.set('period', PAG_PERIOD_PARAM[pagPeriod]);
   if (pagMethod) q.set('method', pagMethod);
   try { const tz = Intl.DateTimeFormat().resolvedOptions().timeZone; if (tz) q.set('tz', tz); } catch (e) {}
   const set = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
@@ -4881,8 +5005,8 @@ async function loadPagos() {
   } catch (err) {
     if (seq !== _pagSeq) return;
     set('pagCobrado', '—'); set('pagCobradoN', ''); set('pagCount', '—'); set('pagCountN', '');
-    body.innerHTML = '<div class="pagr-card" style="text-align:center;"><div style="color:var(--red);font-weight:600;margin-bottom:6px;font-size:13px;">⚠ No se pudieron cargar los pagos</div>' +
-      '<div style="color:var(--text3);font-size:12.5px;margin-bottom:12px;">' + escHtml(err.message) + '</div><button class="btn-ghost" onclick="loadPagos()">Reintentar</button></div>';
+    body.innerHTML = '<div class="pagr-card" style="text-align:center;"><div style="color:var(--red);font-weight:600;margin-bottom:6px;font-size:13px;">No se pudieron cargar los pagos</div>' +
+      '<div style="color:var(--text3);font-size:12.5px;margin-bottom:12px;">' + escHtml(err.message) + '</div><button class="btn-ghost" style="margin:0 auto;" onclick="loadPagos()">Reintentar</button></div>';
     return;
   }
   if (seq !== _pagSeq) return;
@@ -4912,14 +5036,17 @@ async function loadPagos() {
     html += '<div class="pagr-row head"><div>Fecha</div><div>Pedido</div><div>Cliente</div><div>Método</div><div>Referencia</div><div style="text-align:right;">Monto</div></div>';
     html += list.map(p => {
       const foreign = p.currency && p.currency !== base;
-      return '<div class="pagr-row' + (p.voided ? ' voided' : '') + '" onclick="openPagoOrder(' + escJsAttr(p.orderNumber) + ')"' +
+      const st = t => p.voided ? '<span class="strike">' + t + '</span>' : t;
+      const open = 'openPagoOrder(' + escJsAttr(p.orderNumber) + ')';
+      return '<div class="pagr-row' + (p.voided ? ' voided' : '') + '" role="button" tabindex="0" onclick="' + open + '" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();' + open + '}"' +
         (p.voided && p.voidReason ? ' title="' + escHtml('Anulado: ' + p.voidReason) + '"' : '') + '>' +
         '<div>' + escHtml(fmtWhen(p.paidAt)) + '</div>' +
         '<div style="font-weight:700;color:var(--text3);">' + escHtml(p.orderNumber) + '</div>' +
         '<div>' + escHtml(p.clientName || '—') + '</div>' +
-        '<div>' + escHtml(p.method) + (p.voided ? ' <span class="cc-tag debt" style="display:inline-block;">Anulado</span>' : '') + '</div>' +
+        '<div>' + st(escHtml(p.method)) + '</div>' +
         '<div>' + escHtml(p.reference || '—') + '</div>' +
-        '<div class="amt">' + fmtMoney(p.amountBase) + (foreign ? '<div class="pagr-sub">' + (Number(p.amount) || 0).toFixed(2) + ' ' + escHtml(p.currency) + '</div>' : '') + '</div>' +
+        '<div class="amt">' + st(fmtMoney(p.amountBase)) + (foreign ? '<div class="pagr-sub">' + (Number(p.amount) || 0).toFixed(2) + ' ' + escHtml(p.currency) + '</div>' : '') +
+          (p.voided ? '<div class="pagr-void-tag">Anulado</div>' : '') + '</div>' +
       '</div>';
     }).join('');
   }
@@ -4978,7 +5105,7 @@ function openOrderDetail(orderId) {
   // pay badge
   const payBadge = document.getElementById('odmPayBadge');
   payBadge.className = 'odm-pay-badge ' + (o.pay === 'ok' ? 'odm-pay-ok' : 'odm-pay-pend');
-  payBadge.textContent = o.pay === 'ok' ? 'Cobrado ✓' : o.pay === 'partial' ? 'Abonado ' + fmtMoney(o.paid) : 'Pago pendiente';
+  payBadge.textContent = o.pay === 'ok' ? 'Cobrado' : o.pay === 'partial' ? 'Abonado ' + fmtMoney(o.paid) : 'Pendiente';
 
   // date — use saved or fallback to now
   const now = new Date();
@@ -5001,10 +5128,10 @@ function openOrderDetail(orderId) {
   // pay & delivery
   document.getElementById('odmPayMethod').textContent = ex.pay;
   document.getElementById('odmPayStatus').innerHTML = o.pay === 'ok'
-    ? '<span style="color:var(--green);font-weight:700;">✓ Cobrado</span>'
+    ? '<span style="color:var(--green);font-weight:700;">Cobrado</span>'
     : o.pay === 'partial'
       ? '<span style="color:var(--yellow);font-weight:700;">Abonado · saldo ' + fmtMoney(o.balance) + '</span>'
-      : '<span style="color:var(--yellow);font-weight:700;">⏳ Pendiente</span>';
+      : '<span style="color:var(--yellow);font-weight:700;">Pendiente</span>';
   document.getElementById('odmDelivery').textContent = ex.delivery;
 
   // address
@@ -5385,7 +5512,7 @@ function printOrder() {
   const timeStr = now.toLocaleTimeString('es-VE', { hour:'2-digit', minute:'2-digit' });
   const num = parseFloat((o.price+'').replace(/[^0-9.]/g,'')) || 0;
   const total = '$' + (num).toFixed(2) + ' USD';
-  const payStatus = o.pay === 'ok' ? '✓ Cobrado' : o.pay === 'partial' ? 'Abonado ' + fmtMoney(o.paid) + ' · Saldo ' + fmtMoney(o.balance) : '⏳ Pendiente';
+  const payStatus = o.pay === 'ok' ? 'Cobrado' : o.pay === 'partial' ? 'Abonado ' + fmtMoney(o.paid) + ' · Saldo ' + fmtMoney(o.balance) : 'Pendiente';
   const delStatus = o.delivery === 'delivered' ? '✓ Entregado' : o.delivery === 'not_delivered' ? '⚠ No entregado' : '🚀 Por entregar';
   const payClass = o.pay === 'ok' ? 's-ok' : 's-pend';
   const delClass2 = o.delivery === 'delivered' ? 's-done' : o.delivery === 'not_delivered' ? 's-warn' : 's-deliver';
@@ -5471,12 +5598,14 @@ function renderOrders() {
       ? `<span style="width:6px;height:6px;border-radius:50%;background:var(--wa);display:inline-block;box-shadow:0 0 4px rgba(37,211,102,0.5)"></span>`
       : `<span style="width:6px;height:6px;border-radius:50%;background:var(--ig);display:inline-block;box-shadow:0 0 4px rgba(225,48,108,0.4)"></span>`;
     const platName = o.platform === 'wa' ? 'WhatsApp' : 'Instagram';
-    const payClick = ` clickable" onclick="event.stopPropagation();openPaymentDialog(${escJsAttr(o.id)})" title="Registrar pago">`;
+    const payClick = o.balance > 0.004 && o.total > 0
+      ? ` clickable" role="button" tabindex="0" aria-label="Registrar pago" onclick="event.stopPropagation();openPaymentDialog(${escJsAttr(o.id)})" onkeydown="if(event.key==='Enter'){event.stopPropagation();event.preventDefault();openPaymentDialog(${escJsAttr(o.id)})}" title="Registrar pago">`
+      : `">`;
     const payBadge = o.pay === 'ok'
-      ? `<div class="or-pay op-ok">Cobrado ✓</div>`
+      ? `<div class="or-pay op-ok">Cobrado</div>`
       : o.pay === 'partial'
         ? `<div class="or-pay op-part${payClick}Abonado<small>Saldo ${fmtMoney(o.balance)}</small></div>`
-        : `<div class="or-pay op-pend${payClick}Pend. pago</div>`;
+        : `<div class="or-pay op-pend${payClick}Pendiente</div>`;
     let delClass, delIcon, delLabel;
     if (o.delivery === 'delivered') {
       delClass = 'db-delivered'; delIcon = `<svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`; delLabel = 'Entregado';
@@ -5527,7 +5656,7 @@ function updateOrderCounts() {
   let owed = 0;
   orders.forEach(o => {
     counts[o.delivery]++;
-    if (o.pay === 'pend' || o.pay === 'partial') { counts.pending_pay++; owed += o.balance; }
+    if (o.balance > 0.004) { counts.pending_pay++; owed += o.balance; }
   });
   document.getElementById('count-to_deliver').textContent = counts.to_deliver;
   document.getElementById('count-delivered').textContent = counts.delivered;
@@ -5538,10 +5667,10 @@ function updateOrderCounts() {
   document.getElementById('statPendingPay').textContent = counts.pending_pay;
   const ppChange = document.getElementById('statPendingPayChange');
   if (counts.pending_pay === 0) {
-    ppChange.textContent = '✓ Todo cobrado';
+    ppChange.textContent = 'Todo cobrado';
     ppChange.className = 'stat-change sc-up';
   } else {
-    ppChange.textContent = '💳 Por cobrar ' + fmtMoney(owed);
+    ppChange.textContent = 'Por cobrar ' + fmtMoney(owed);
     ppChange.className = 'stat-change sc-warn';
   }
 
@@ -5979,7 +6108,7 @@ async function confirmOrder() {
   const delEl = document.querySelector('#opDeliveryOpts .delivery-opt.selected') ||
                 document.getElementById('opEncomiendaBtn')?.classList.contains('selected') ? document.getElementById('opEncomiendaBtn') :
                 document.getElementById('opDeliveryAliadoBtn')?.classList.contains('selected') ? document.getElementById('opDeliveryAliadoBtn') : null;
-  const payLabel = payEl ? payEl.textContent.trim() : 'Por confirmar';
+  const payLabel = payEl ? (payEl.dataset.name || payEl.textContent.trim()) : 'Por confirmar';
   const delSelectedBtn = document.querySelector('#opDeliveryOpts .delivery-opt.selected') ||
     (document.getElementById('opEncomiendaBtn')?.classList.contains('selected') ? document.getElementById('opEncomiendaBtn') : null) ||
     (document.getElementById('opDeliveryAliadoBtn')?.classList.contains('selected') ? document.getElementById('opDeliveryAliadoBtn') : null);
@@ -6270,6 +6399,7 @@ function openOrderPanel() {
 function selectPay(el) {
   document.querySelectorAll('#opPayGrid .pay-btn').forEach(p => p.classList.remove('selected'));
   el.classList.add('selected');
+  syncCobroMethod('op');
 }
 
 function selectDelivery(el) {
@@ -6424,21 +6554,22 @@ function askConfirm(opts) {
     d.ov.querySelector('[data-act="yes"]').onclick = () => finish(true);
   });
 }
-// openFormDialog({title, sub, fields:[{id,label,type,autocomplete,placeholder}], confirmLabel, onSubmit(values)})
+// openFormDialog({title, sub, fields:[{id,label,type,autocomplete,placeholder}], confirmLabel, danger, onSubmit(values)})
 // onSubmit puede lanzar Error: el mensaje sale en la ventana y queda abierta. Resuelve true si se guardó.
 function openFormDialog(opts) {
   return new Promise(resolve => {
     let busy = false, done = false;
     const finish = v => { if (done) return; done = true; d.close(); resolve(v); };
+    const fseq = ++_dlgSeq;
     const fields = (opts.fields || []).map(f =>
-      '<div class="form-field"><div class="form-label">' + escHtml(f.label) + '</div>' +
-      '<input class="form-input" data-f="' + escHtml(f.id) + '" type="' + escHtml(f.type || 'text') + '" autocomplete="' + escHtml(f.autocomplete || 'off') + '" placeholder="' + escHtml(f.placeholder || '') + '"></div>').join('');
+      '<div class="form-field"><label class="form-label" for="ofd-' + fseq + '-' + escHtml(f.id) + '">' + escHtml(f.label) + '</label>' +
+      '<input class="form-input" id="ofd-' + fseq + '-' + escHtml(f.id) + '" data-f="' + escHtml(f.id) + '" type="' + escHtml(f.type || 'text') + '" autocomplete="' + escHtml(f.autocomplete || 'off') + '" placeholder="' + escHtml(f.placeholder || '') + '"></div>').join('');
     const d = _openDialog(
       '<div class="modal-title">' + escHtml(opts.title || '') + '</div>' +
       '<div class="modal-sub">' + escHtml(opts.sub || '') + '</div>' + fields +
       '<div class="dlg-error" data-err></div>' +
       '<div class="modal-footer"><button class="btn-ghost" data-act="no">Cancelar</button>' +
-      '<button class="btn-primary" data-act="yes">' + escHtml(opts.confirmLabel || 'Guardar') + '</button></div>',
+      '<button class="' + (opts.danger ? 'btn-danger' : 'btn-primary') + '" data-act="yes">' + escHtml(opts.confirmLabel || 'Guardar') + '</button></div>',
       () => { if (!busy) finish(false); }, '.form-input');
     const err = d.ov.querySelector('[data-err]');
     const yes = d.ov.querySelector('[data-act="yes"]');
@@ -8017,6 +8148,8 @@ const settingsPanels = {
   `,
 
   pagos: () => {
+    const notReady = settingsNotReadyHtml('Métodos de pago', 'Configura cómo recibes pagos de tus clientes');
+    if (notReady) return notReady;
     const DEFAULTS = [
       { id:'pagoMovil',   icon:'📱', name:'Pago móvil',            desc:'Banco · Cédula · Teléfono',              on:true,  fields:[{key:'banco',label:'Banco',placeholder:'Ej: Mercantil'},{key:'cedula',label:'Cédula',placeholder:'Ej: V-12345678'},{key:'telefono',label:'Teléfono',placeholder:'Ej: 0412-555-0100'}], data:{banco:'Banco Mercantil',cedula:'V-12345678',telefono:'0412-555-0100'} },
       { id:'zelle',       icon:'💵', name:'Zelle',                  desc:'Transferencia en dólares a EE.UU.',      on:true,  fields:[{key:'cuenta',label:'Email o teléfono',placeholder:'Ej: pagos@mitienda.com'}], data:{cuenta:'pagos@mitienda.com'} },
@@ -8040,24 +8173,24 @@ const settingsPanels = {
     <div class="sc-sub">Configura cómo recibes pagos de tus clientes</div>
 
     <div class="s-card">
-      <div class="s-card-title">💱 Moneda base</div>
+      <div class="s-card-title">Moneda base</div>
       <div class="s-row">
         <div class="s-row-info">
           <div class="s-row-label">Moneda de tus totales y saldos</div>
-          <div class="s-row-desc">${canChangeCur ? 'Los pagos en otra moneda se convierten a esta con la tasa que indiques al registrarlos.' : (tenantSettings ? 'No se puede cambiar: ya hay pagos registrados.' : 'Cargando ajustes…')}</div>
+          <div class="s-row-desc">${canChangeCur ? 'Los pagos en otra moneda se convierten a esta con la tasa que indiques al registrarlos.' : 'No se puede cambiar: ya hay pagos registrados.'}</div>
         </div>
         <div class="s-row-action"><select class="s-input" id="baseCurSel" ${canChangeCur ? '' : 'disabled'} onchange="changeBaseCurrency(this)">${curList.map(c => `<option value="${escHtml(c)}" ${c === cur ? 'selected' : ''}>${escHtml(c)}</option>`).join('')}</select></div>
       </div>
     </div>
 
     <div class="s-card">
-      <div class="s-card-title">💳 Métodos activos</div>
+      <div class="s-card-title">Métodos activos</div>
       ${methods.map(m => `
         <div class="pay-method-block" id="pmb_${m.id}">
           <div class="s-row">
             <div class="s-row-icon" style="background:var(--surface3)">${m.icon}</div>
             <div class="s-row-info">
-              <div class="s-row-label">${m.name}</div>
+              <div class="s-row-label">${escHtml(PAY_METHOD_NAMES[m.id] || m.name)}</div>
               <div class="s-row-desc" id="pmdesc_${m.id}">${escHtml(m.on ? summary(m) : m.desc)}</div>
             </div>
             <div class="s-row-action" style="display:flex;align-items:center;gap:10px;">
@@ -8083,6 +8216,8 @@ const settingsPanels = {
   `; },
 
   entrega: () => {
+    const notReady = settingsNotReadyHtml('Opciones de entrega', 'Configura cómo llegan los pedidos a tus clientes');
+    if (notReady) return notReady;
     const d = _getDelivery();
     const METHOD_META = [
       { id:'motorizado',  icon:'🏍️', name:'Motorizado independiente',      desc:'Gestionas tú directamente con el moto',    editable:false },
@@ -8098,8 +8233,8 @@ const settingsPanels = {
       <div class="s-card-title">🏍️ Tipos de entrega disponibles</div>
       ${METHOD_META.map(m => {
         const cfg = d[m.id];
-        const chips = m.editable ? (cfg.items || []).map((item, i) =>
-          `<span class="delivery-chip">${item}<button class="delivery-chip-del" onclick="removeDeliveryItem('${m.id}',${i})">×</button></span>`
+        const chips = m.editable ? (Array.isArray(cfg.items) ? cfg.items : []).map((item, i) =>
+          `<span class="delivery-chip">${escHtml(item)}<button class="delivery-chip-del" aria-label="Quitar" onclick="removeDeliveryItem('${m.id}',${i})">×</button></span>`
         ).join('') : '';
         return `
         <div class="s-row" style="flex-wrap:wrap;" id="dlvrow_${m.id}">
@@ -8626,10 +8761,10 @@ function renderClients() {
       }, 0);
       const debt = debtMap[c.id] || 0;
       const tags = [
-        debt > 0.004 ? `<span class="cc-tag debt">Debe ${fmtMoney(debt)}</span>` : '',
         c.isVip    ? `<span class="cc-tag vip">⭐ VIP</span>` : '',
         c.isNew    ? `<span class="cc-tag new">Nuevo</span>` : '',
         c.orders.length > 1 ? `<span class="cc-tag recurrent">Recurrente</span>` : '',
+        debt > 0.004 ? `<span class="cc-tag debt">Debe ${fmtMoney(debt)}</span>` : '',
       ].filter(Boolean).join('') || `<span class="cc-tag">${escHtml(c.pay || '—')}</span>`;
 
       row.innerHTML = `
@@ -9181,7 +9316,7 @@ function nosRecalcTotal() {
   document.getElementById('noTotalHint').textContent = disc > base + 0.004 ? '· el descuento supera el total' : '';
 }
 
-function noSelectPay(el) { document.querySelectorAll('#noPayGrid .pay-btn').forEach(b => b.classList.remove('selected')); el.classList.add('selected'); }
+function noSelectPay(el) { document.querySelectorAll('#noPayGrid .pay-btn').forEach(b => b.classList.remove('selected')); el.classList.add('selected'); syncCobroMethod('no'); }
 
 function noSelectDelivery(el) {
   document.querySelectorAll('#noDeliveryOpts .delivery-opt').forEach(d => d.classList.remove('selected')); el.classList.add('selected');
@@ -9212,7 +9347,7 @@ async function saveNewOrder() {
   if (noDisc > noBase + 0.004) { flagField('noDiscount'); showToast('El descuento no puede ser mayor que el total', 'error'); return; }
   const productLabel = allItems.map(i=>(i.qty>1?i.qty+'x ':'')+i.name).join(' + ');
   const payEl = document.querySelector('#noPayGrid .pay-btn.selected');
-  const payLabel = payEl ? payEl.textContent.trim() : '—';
+  const payLabel = payEl ? (payEl.dataset.name || payEl.textContent.trim()) : '—';
   const delEl = document.querySelector('#noDeliveryOpts .delivery-opt.selected');
   const delLabel = delEl ? delEl.textContent.trim() : '—';
   const address = document.getElementById('noAddress').value.trim() || '—';
@@ -9429,7 +9564,7 @@ async function renderInforme(tab) {
       <!-- KPIs -->
       <div class="inf-kpi-row k5">
         <div class="inf-kpi"><div class="inf-kpi-label">💰 Ventas totales</div><div class="inf-kpi-val">$${d.ventas.toLocaleString()}</div><div class="inf-kpi-sub inf-kpi-neutral">${periodLabel}</div></div>
-        <div class="inf-kpi"><div class="inf-kpi-label">💵 Cobrado</div><div class="inf-kpi-val">$${(Number(d.cobrado) || 0).toLocaleString()}</div><div class="inf-kpi-sub inf-kpi-neutral">Pagos recibidos ${periodLabel}</div></div>
+        <div class="inf-kpi"><div class="inf-kpi-label">Cobrado</div><div class="inf-kpi-val">$${(Number(d.cobrado) || 0).toLocaleString()}</div><div class="inf-kpi-sub inf-kpi-neutral">Pagos recibidos ${periodLabel}</div></div>
         <div class="inf-kpi"><div class="inf-kpi-label">📦 Pedidos</div><div class="inf-kpi-val">${d.pedidos}</div><div class="inf-kpi-sub inf-kpi-neutral">${periodLabel}</div></div>
         <div class="inf-kpi"><div class="inf-kpi-label">💵 Ticket promedio</div><div class="inf-kpi-val">$${d.pedidos > 0 ? (d.ventas/d.pedidos).toFixed(0) : '0'}</div><div class="inf-kpi-sub inf-kpi-neutral">Por pedido</div></div>
         <div class="inf-kpi"><div class="inf-kpi-label">✅ Tasa de entrega</div><div class="inf-kpi-val">${d.pedidos > 0 ? Math.round(d.entregados/d.pedidos*100) : 0}%</div><div class="inf-kpi-sub inf-kpi-neutral">${periodLabel}</div></div>
@@ -9944,7 +10079,7 @@ function sendPresupuesto() {
   if (d.productDetail) productFull += ' · ' + d.productDetail;
 
   // Pay / delivery labels
-  const payMap  = { zelle:'Zelle', pago_movil:'Pago Móvil', binance:'Binance USDT', efectivo:'Efectivo' };
+  const payMap  = { zelle:'Zelle', pago_movil:'Pago Móvil', binance:'Binance', efectivo:'Efectivo' };
   const payLabel = payMap[d.payMethod] || d.payMethod || '—';
   const delMap   = { motorizado:'Motorizado', retiro:'Retiro en tienda', encomienda: d.deliverySubOption || 'Encomienda', aliado: d.deliverySubOption || 'Delivery aliado' };
   const delLabel = delMap[d.deliveryType] || d.deliveryType || '—';
@@ -10179,6 +10314,7 @@ function logout() {
   try { localStorage.removeItem('central_auth'); } catch(e) {}
   try { localStorage.removeItem('central_jwt'); } catch(e) {}
   try { localStorage.removeItem('central_tenant'); } catch(e) {}
+  try { localStorage.removeItem('central_pagos'); localStorage.removeItem('central_delivery'); } catch(e) {}
   window.location.href = '/central-registro.html';
 }
 
@@ -11041,27 +11177,49 @@ function _getDelivery() {
   if (saved && typeof saved === 'object') {
     // merge so new defaults survive
     Object.keys(defaults).forEach(k => {
-      if (saved[k] !== undefined) defaults[k] = Object.assign({}, defaults[k], saved[k]);
+      const s = saved[k];
+      if (s && typeof s === 'object') defaults[k] = Object.assign({}, defaults[k], s);
+      const dk = defaults[k];
+      if ('items' in dk && !Array.isArray(dk.items)) dk.items = [];
+      if (Array.isArray(dk.items)) dk.items = dk.items.filter(x => typeof x === 'string' && x.trim());
+      if (typeof dk.label !== 'string' || !dk.label.trim()) dk.label = (k === 'motorizado' ? 'Motorizado independiente' : k === 'retiro' ? 'Retiro en tienda' : k === 'encomienda' ? 'Encomienda' : 'Plataformas de delivery externo');
     });
   }
   return defaults;
 }
 
+// Solo lo que el servidor acepta por tipo de entrega: enabled, label (≤60) e items (≤30 textos de ≤60)
+function cleanDelivery(d) {
+  const out = {};
+  ['motorizado', 'retiro', 'encomienda', 'plataformas'].forEach(k => {
+    const s = d && d[k];
+    if (!s || typeof s !== 'object') return;
+    const o = { enabled: s.enabled !== false };
+    if (typeof s.label === 'string' && s.label.trim()) o.label = s.label.trim().slice(0, 60);
+    if (Array.isArray(s.items)) o.items = s.items.filter(x => typeof x === 'string' && x.trim()).map(x => x.trim().slice(0, 60)).slice(0, 30);
+    out[k] = o;
+  });
+  return out;
+}
 // Se muestra al momento y se guarda en el servidor; si falla se avisa y se vuelve a lo que tiene el servidor
+// Sin ajustes cargados no se guarda nada (no se pisa lo del servidor con valores de fábrica). Los guardados van en orden (putSettings).
 let _dlvSeq = 0;
 function _saveDelivery(d) {
-  tenantSettings = Object.assign({}, tenantSettings || {}, { deliveryMethods: d });
+  if (!tenantSettings) return;
+  d = cleanDelivery(d);
+  tenantSettings = Object.assign({}, tenantSettings, { deliveryMethods: d });
   const seq = ++_dlvSeq;
-  apiJson('PUT', '/api/tenant/settings', { deliveryMethods: d }).catch(async err => {
-    showToast('⚠ No se guardaron las opciones de entrega (' + err.message + ')');
+  putSettings({ deliveryMethods: d }).catch(async err => {
+    showToast('No se guardaron las opciones de entrega (' + err.message + ')', 'error');
     if (seq !== _dlvSeq) return;
-    try { tenantSettings = await apiJson('GET', '/api/tenant/settings'); } catch (e) {}
+    await loadTenantSettings();
     renderDeliveryOpts();
     rerenderSettingsPanel();
   });
 }
 
 function toggleDeliveryMethod(id, toggleEl) {
+  if (!tenantSettings) return;
   toggleEl.classList.toggle('on');
   const d = _getDelivery();
   d[id].enabled = toggleEl.classList.contains('on');
@@ -11075,6 +11233,7 @@ function toggleDeliverySubEditor(id) {
 }
 
 function addDeliveryItem(id) {
+  if (!tenantSettings) return;
   const inp = document.getElementById('dlvinput_' + id);
   if (!inp) return;
   const val = inp.value.trim();
@@ -11092,6 +11251,7 @@ function addDeliveryItem(id) {
 }
 
 function removeDeliveryItem(id, idx) {
+  if (!tenantSettings) return;
   const d = _getDelivery();
   if (d[id].items) d[id].items.splice(idx, 1);
   _saveDelivery(d);
@@ -11125,7 +11285,7 @@ function renderDeliveryOpts() {
       hasAny = true;
       const icon = DELIVERY_ICONS[key];
       if (key === 'encomienda' || key === 'plataformas') {
-        const items = m.items || [];
+        const items = Array.isArray(m.items) ? m.items : [];
         const emoji = key === 'encomienda' ? '📦' : '🛵';
         const wrap = document.createElement('div');
         wrap.style.position = 'relative';
@@ -11133,18 +11293,26 @@ function renderDeliveryOpts() {
         wrap.innerHTML = `
           <div class="delivery-opt" onclick="toggleSubDrop('${dropId}',this)">
             ${icon}
-            <span>${m.label}</span>
+            <span>${escHtml(m.label)}</span>
             ${arrowSvg}
           </div>
           <div id="${dropId}" style="display:none;position:absolute;left:0;right:0;top:calc(100% + 3px);background:var(--surface);border:1px solid var(--border2);border-radius:10px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,0.4);z-index:50;">
-            ${items.map(it => `<div class="sub-drop-item" onclick="${selectFn}(this,'${it}','${key}')">${emoji} ${it}</div>`).join('')}
             ${items.length === 0 ? '<div class="sub-drop-item" style="color:var(--text3);pointer-events:none">Sin opciones configuradas</div>' : ''}
           </div>`;
+        const dropEl = wrap.querySelector('[id$="_drop"]');
+        items.forEach(it => {
+          const row = document.createElement('div');
+          row.className = 'sub-drop-item';
+          row.textContent = emoji + ' ' + it;
+          row.addEventListener('click', () => window[selectFn](row, it, key));
+          dropEl.insertBefore(row, dropEl.firstChild ? null : null);
+        });
         container.appendChild(wrap);
       } else {
         const btn = document.createElement('div');
         btn.className = 'delivery-opt';
-        btn.innerHTML = icon + m.label;
+        btn.innerHTML = icon;
+        btn.appendChild(document.createTextNode(m.label));
         btn.onclick = function() { _deliverySelect(this, containerId); };
         container.appendChild(btn);
       }
@@ -11352,6 +11520,7 @@ let _payBusy = false;
 async function savePayEdit(id) {
   if (_payBusy) return;
   const list = effectivePayList();
+  if (!list) return;
   const m = list.find(x => x.id === id);
   if (!m) return;
   const fields = PAY_DEFAULTS[id].fields;
@@ -11372,9 +11541,10 @@ async function savePayEdit(id) {
 
 async function togglePayMethod(id, toggleEl) {
   if (_payBusy) return;
+  const list = effectivePayList();
+  if (!list) return;
   const on = !toggleEl.classList.contains('on');
   toggleEl.classList.toggle('on', on);
-  const list = effectivePayList();
   const m = list.find(x => x.id === id);
   if (!m) { toggleEl.classList.toggle('on', !on); return; }
   m.enabled = on;
@@ -11391,12 +11561,12 @@ async function togglePayMethod(id, toggleEl) {
 }
 
 const PAY_GRID_META = [
-  { id:'pagoMovil',    label:'Pago móvil',           svg:`<svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 8.25h3v1.5h-3v-1.5z"/></svg>`, defOn:true  },
-  { id:'zelle',        label:'Zelle',                 svg:`<svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`, defOn:true  },
-  { id:'binance',      label:'Binance',               svg:`<svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 2.625v2.625m0 2.625v2.625"/></svg>`, defOn:true  },
-  { id:'efectivo',     label:'Efectivo $',            svg:`<svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z"/></svg>`, defOn:true  },
-  { id:'transferencia',label:'Transferencia',         svg:`<svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z"/></svg>`, defOn:false },
-  { id:'divisas',      label:'Divisas',               svg:`<svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`, defOn:false },
+  { id:'pagoMovil',    label:PAY_METHOD_NAMES.pagoMovil,           svg:`<svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 8.25h3v1.5h-3v-1.5z"/></svg>`, defOn:true  },
+  { id:'zelle',        label:PAY_METHOD_NAMES.zelle,                 svg:`<svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`, defOn:true  },
+  { id:'binance',      label:PAY_METHOD_NAMES.binance,               svg:`<svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 2.625v2.625m0 2.625v2.625"/></svg>`, defOn:true  },
+  { id:'efectivo',     label:PAY_METHOD_NAMES.efectivo,            svg:`<svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z"/></svg>`, defOn:true  },
+  { id:'transferencia',label:PAY_METHOD_NAMES.transferencia,         svg:`<svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z"/></svg>`, defOn:false },
+  { id:'divisas',      label:PAY_METHOD_NAMES.divisas,               svg:`<svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`, defOn:false },
 ];
 
 function renderPayGrids() {
@@ -11415,7 +11585,7 @@ function renderPayGrids() {
       return;
     }
     grid.innerHTML = enabled.map(m =>
-      `<div class="pay-btn" onclick="${selectFn}(this)">${m.svg}${m.label}</div>`
+      `<div class="pay-btn" data-id="${m.id}" data-name="${escHtml(m.label)}" onclick="${selectFn}(this)">${m.svg}${escHtml(m.label)}</div>`
     ).join('');
   });
   refreshCobroMethods();
