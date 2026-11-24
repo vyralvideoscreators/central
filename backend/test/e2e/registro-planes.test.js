@@ -48,7 +48,7 @@ run(async () => {
   ok(r.status === 400 && r.body.error === 'Falta el nombre del cliente', 'POST pedido sin nombre → "Falta el nombre del cliente"');
   const o = (await send(A.H, 'POST', '/api/orders', { clientName: 'M', items: [{ name: 'X', qty: 1, unitPrice: 1 }] })).body;
   for (const [body, msg] of [
-    [{ pay_status: 'x' }, 'Estado de pago inválido'],
+    [{ pay_status: 'x' }, 'El estado de cobro se calcula con los pagos; usa Registrar pago'],
     [{ delivery_status: 'x' }, 'Estado de entrega inválido'],
     [{ shipping: -1 }, 'Costo de envío inválido'],
     [{ total_price: 'abc' }, 'Total inválido'],

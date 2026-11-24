@@ -62,8 +62,8 @@ run(async () => {
   ok(r.status === 404, 'Id inválido → 404 (no 500)');
 
   // Lo que ya funcionaba: cambio de estado simple
-  r = await send(A.H, 'PATCH', '/api/orders/' + order.id, { pay_status: 'ok' });
-  ok(r.status === 200 && r.body.payStatus === 'ok' && r.body.items.length === 1, 'Cambiar solo el pago sigue igual y no toca artículos');
+  r = await send(A.H, 'PATCH', '/api/orders/' + order.id, { delivery_status: 'delivered' });
+  ok(r.status === 200 && r.body.deliveryStatus === 'delivered' && r.body.items.length === 1, 'Cambiar solo la entrega sigue igual y no toca artículos');
 
   // POST valida los artículos igual
   r = await send(A.H, 'POST', '/api/orders', { clientName: 'X', items: [{ name: 'X', qty: -1 }] });
