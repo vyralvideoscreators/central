@@ -190,7 +190,7 @@ Ver `AGENTES.md` para la guía completa. En CENTRAL se usan **siempre los agente
 | `desplegar-central` | Antes del push: veredicto de `central-deploy` y pasos para Carlos. Después: verificación de producción en solo lectura |
 | `nueva-funcionalidad` | Función nueva con Carlos: preguntas, plan aprobado, construcción, pruebas, revisión, entrega |
 
-**De la cuenta** (plugins): `engineering:*` (testing-strategy, tech-debt, architecture, debug, incident-response, documentation), `design:*` (design-critique, accessibility-review, ux-copy), `twilio-developer-kit` (WhatsApp/SMS), `cierre` (cerrar una sesión sin pendientes). Elegidas, pendientes de instalar (24-nov-2026): `frontend-design`, `finecomb` (auditoría completa de seguridad), `42crunch` (seguridad de API; necesita una especificación OpenAPI que CENTRAL aún no tiene).
+**De la cuenta** (plugins): `engineering:*` (testing-strategy, tech-debt, architecture, debug, incident-response, documentation), `design:*` (design-critique, accessibility-review, ux-copy), `twilio-developer-kit` (WhatsApp/SMS), `cierre` (cerrar una sesión sin pendientes), `frontend-design` (construir pantallas de calidad; complementa a `central-frontend`), `finecomb` (auditoría completa de código y seguridad, solo lectura; complementa a `revisor-seguridad` en auditorías periódicas), `42crunch` (seguridad de API; necesita una especificación OpenAPI que CENTRAL aún no tiene).
 
 ## Variables de entorno requeridas (producción)
 
