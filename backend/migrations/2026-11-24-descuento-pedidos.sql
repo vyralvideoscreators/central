@@ -11,17 +11,20 @@
 -- No hay relleno de datos.
 -- ══════════════════════════════════════════════════════════════
 
+SET lock_timeout = '5s';
 -- 1) Importe de descuento del pedido (en dinero, no en %). Siempre >= 0.
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount NUMERIC(10,2) NOT NULL DEFAULT 0;
 
--- 2) No se permiten descuentos negativos. NOT VALID + VALIDATE para bloquear
---    la tabla lo mínimo; solo se crea si todavía no existe.
+-- 2) No se permiten descuentos negativos. En dos pasos separados (cada uno su propia
+--    transacción corta) y con lock_timeout: si la tabla está ocupada se rinde en 5 s.
+--    NOT VALID no recorre la tabla; VALIDATE la recorre sin bloquear lecturas ni escrituras.
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'orders_discount_nonneg' AND conrelid = 'orders'::regclass) THEN
     ALTER TABLE orders ADD CONSTRAINT orders_discount_nonneg CHECK (discount >= 0) NOT VALID;
-    ALTER TABLE orders VALIDATE CONSTRAINT orders_discount_nonneg;
   END IF;
 END $$;
+ALTER TABLE orders VALIDATE CONSTRAINT orders_discount_nonneg;  -- sin efecto si ya está validado
+RESET lock_timeout;
 
 -- Comprobación (solo lectura): la columna existe y todos los pedidos antiguos tienen 0
 -- SELECT COUNT(*) total, COUNT(*) FILTER (WHERE discount <> 0) con_descuento FROM orders;

@@ -48,9 +48,32 @@ function loginRateLimit(req, res, next) {
 }
 setInterval(() => { const n = Date.now(); for (const [k, v] of loginAttempts) if (n > v.reset) loginAttempts.delete(k); }, 10 * 60000).unref();
 app.use(['/api/tenant/login', '/api/admin/login'], loginRateLimit);
-// Cambiar contraseña o correo exige la contraseña actual: mismo freno de intentos (solo PUT, para que un GET
-// con éxito no reinicie el contador)
-app.use(['/api/tenant/password', '/api/tenant/profile'], (req, res, next) => (req.method === 'PUT' ? loginRateLimit(req, res, next) : next()));
+// Cambiar contraseña o correo exige la contraseña actual. Freno propio por NEGOCIO (no por IP): solo cuentan las
+// contraseñas erróneas y nada más lo reinicia (un guardado correcto de otro campo no pone el contador a cero).
+const pwFailures = new Map();
+const PW_MAX_FAILURES = 5;
+function pwBlocked(tenantId) {
+  const rec = pwFailures.get(tenantId);
+  return !!(rec && Date.now() <= rec.reset && rec.count >= PW_MAX_FAILURES);
+}
+function pwFailed(tenantId) {
+  const now = Date.now();
+  const rec = pwFailures.get(tenantId);
+  if (!rec || now > rec.reset) pwFailures.set(tenantId, { count: 1, reset: now + 15 * 60000 });
+  else rec.count++;
+}
+setInterval(() => { const n = Date.now(); for (const [k, v] of pwFailures) if (n > v.reset) pwFailures.delete(k); }, 10 * 60000).unref();
+// Comprueba la contraseña actual con el freno. Devuelve null si es correcta, o [status, mensaje].
+async function checkCurrentPassword(tenantId, pw, hash) {
+  if (pwBlocked(tenantId)) return [429, 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.'];
+  if (!(await bcrypt.compare(pw, hash))) { pwFailed(tenantId); return [401, 'La contraseña actual no es correcta']; }
+  pwFailures.delete(tenantId);
+  return null;
+}
+// bcrypt solo usa los primeros 72 bytes: una clave más larga se rechaza en vez de recortarse sin avisar
+const PW_MAX_BYTES = 72;
+const pwTooLong = (p) => Buffer.byteLength(String(p), 'utf8') > PW_MAX_BYTES;
+const PW_TOO_LONG_MSG = 'La contraseña es demasiado larga (máximo 72 caracteres)';
 
 const PORT             = process.env.PORT || 3000;
 const GRAPH_API_VERSION = 'v21.0';
@@ -346,19 +369,46 @@ async function initDB() {
     }
 
     // Descuento por pedido. Los pedidos existentes quedan con descuento 0 (sin relleno).
-    // El CHECK se añade NOT VALID + VALIDATE (bloqueo corto) y solo si aún no existe.
+    // Cada paso va en su propia sentencia (transacción corta) y con lock_timeout: si la tabla está ocupada
+    // se rinde en 5 s en vez de dejar en cola a todas las peticiones; el siguiente arranque lo reintenta.
+    //   1) ADD COLUMN con DEFAULT constante: solo toca el catálogo (instantáneo).
+    //   2) CHECK NOT VALID: bloqueo breve, no recorre la tabla.
+    //   3) VALIDATE: recorre la tabla pero sin bloquear lecturas ni escrituras (SHARE UPDATE EXCLUSIVE).
+    {
+      const client = await pool.connect();
+      try {
+        await client.query(`SET lock_timeout = '5s'`);
+        await client.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount NUMERIC(10,2) NOT NULL DEFAULT 0`);
+        await client.query(`
+          DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'orders_discount_nonneg' AND conrelid = 'orders'::regclass) THEN
+              ALTER TABLE orders ADD CONSTRAINT orders_discount_nonneg CHECK (discount >= 0) NOT VALID;
+            END IF;
+          END $$
+        `);
+        const { rows } = await client.query(
+          `SELECT convalidated FROM pg_constraint WHERE conname = 'orders_discount_nonneg' AND conrelid = 'orders'::regclass`);
+        if (rows[0] && !rows[0].convalidated) await client.query(`ALTER TABLE orders VALIDATE CONSTRAINT orders_discount_nonneg`);
+      } catch (err) {
+        console.error('❌ Migración descuento de pedidos (sin orders.discount fallarán los descuentos):', err.message);
+      } finally {
+        await client.query('RESET lock_timeout').catch(() => {});
+        client.release();
+      }
+    }
+
+    // Índice de artículos por pedido (editar pedidos, informes, borrar). CONCURRENTLY: no bloquea escrituras
+    // mientras se construye; va fuera de transacción. Si una construcción anterior quedó a medias (índice
+    // inválido), se borra y se rehace.
     try {
-      await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount NUMERIC(10,2) NOT NULL DEFAULT 0`);
-      await pool.query(`
-        DO $$ BEGIN
-          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'orders_discount_nonneg' AND conrelid = 'orders'::regclass) THEN
-            ALTER TABLE orders ADD CONSTRAINT orders_discount_nonneg CHECK (discount >= 0) NOT VALID;
-            ALTER TABLE orders VALIDATE CONSTRAINT orders_discount_nonneg;
-          END IF;
-        END $$
-      `);
+      const { rows } = await pool.query(
+        `SELECT i.indisvalid FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid WHERE c.relname = 'order_items_tenant_order_idx'`);
+      if (rows[0] && !rows[0].indisvalid) await pool.query(`DROP INDEX CONCURRENTLY IF EXISTS order_items_tenant_order_idx`);
+      if (!rows[0] || !rows[0].indisvalid) {
+        await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS order_items_tenant_order_idx ON order_items (tenant_id, order_id)`);
+      }
     } catch (err) {
-      console.error('❌ Migración descuento de pedidos (sin orders.discount fallarán los descuentos):', err.message);
+      console.error('⚠️  Índice order_items_tenant_order_idx (la app funciona sin él, más lenta):', err.message);
     }
 
     try {
@@ -1568,6 +1618,7 @@ app.post('/api/tenant/register', async (req, res) => {
   if (password.length < 8) {
     return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres', field: 'password' });
   }
+  if (pwTooLong(password)) return res.status(400).json({ error: PW_TOO_LONG_MSG, field: 'password' });
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
 
   try {
@@ -1702,6 +1753,7 @@ app.post('/api/tenant/reset-password', async (req, res) => {
   const { token, password } = req.body;
   if (!token || !password) return res.status(400).json({ error: 'Datos incompletos' });
   if (password.length < 8)  return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
+  if (pwTooLong(password)) return res.status(400).json({ error: PW_TOO_LONG_MSG });
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   try {
     const { rows } = await pool.query(
@@ -1754,12 +1806,12 @@ app.put('/api/tenant/password', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Escribe tu contraseña actual y la nueva' });
   }
   if (newPassword.length < 8) return res.status(400).json({ error: 'La contraseña nueva debe tener al menos 8 caracteres' });
+  if (pwTooLong(newPassword)) return res.status(400).json({ error: PW_TOO_LONG_MSG });
   try {
     const { rows } = await pool.query('SELECT password_hash FROM tenants WHERE id = $1', [req.tenant.tenantId]);
     if (!rows[0]) return res.status(404).json({ error: 'Tenant no encontrado' });
-    if (!(await bcrypt.compare(currentPassword, rows[0].password_hash))) {
-      return res.status(401).json({ error: 'La contraseña actual no es correcta' });
-    }
+    const bad = await checkCurrentPassword(req.tenant.tenantId, currentPassword, rows[0].password_hash);
+    if (bad) return res.status(bad[0]).json({ error: bad[1] });
     if (newPassword === currentPassword) {
       return res.status(400).json({ error: 'La contraseña nueva debe ser distinta de la actual' });
     }
@@ -1800,7 +1852,8 @@ app.put('/api/tenant/profile', requireAuth, async (req, res) => {
       if (normEmail(req.body.email) !== normEmail(cur[0].email)) {
         const pw = req.body.currentPassword;
         if (typeof pw !== 'string' || !pw) return res.status(401).json({ error: 'Escribe tu contraseña actual para cambiar el correo' });
-        if (!(await bcrypt.compare(pw, cur[0].password_hash))) return res.status(401).json({ error: 'La contraseña actual no es correcta' });
+        const bad = await checkCurrentPassword(req.tenant.tenantId, pw, cur[0].password_hash);
+        if (bad) return res.status(bad[0]).json({ error: bad[1] });
       }
     }
     const { rows } = await pool.query(
@@ -1811,7 +1864,8 @@ app.put('/api/tenant/profile', requireAuth, async (req, res) => {
     res.json({ success: true, tenant: rows[0] });
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ error: 'Ese correo ya está en uso por otra cuenta' });
-    res.status(500).json({ error: err.message });
+    console.error('profile update error:', err);
+    res.status(500).json({ error: 'Error al guardar el perfil' });
   }
 });
 
@@ -3076,6 +3130,7 @@ app.post('/api/admin/tenants/:tenantId/reset-password', requireAdmin, async (req
   if (!newPassword || newPassword.length < 8) {
     return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
   }
+  if (pwTooLong(newPassword)) return res.status(400).json({ error: PW_TOO_LONG_MSG });
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   try {
     const hash = await bcrypt.hash(newPassword, 10);
