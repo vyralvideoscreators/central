@@ -1629,6 +1629,8 @@
   }
   .odm-step.done .odm-step-name { color: var(--accent2); font-weight: 600; }
   .odm-step.current .odm-step-name { color: var(--yellow); font-weight: 600; }
+  .odm-step.alert .odm-step-dot { background: var(--red); border-color: var(--red); color: #fff; font-weight: 800; font-size: 13px; }
+  .odm-step.alert .odm-step-name { color: var(--red); font-weight: 600; }
 
   /* two-column grid inside detail */
   .odm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -2331,6 +2333,7 @@
                   oninput="recalcTotal()" onfocus="this.select()">
               </span>
             </div>
+            <div class="total-row" id="opDiscountRow" style="display:none;"><span>Descuento</span><span id="opDiscountVal" style="color:var(--red);">—</span></div>
             <div class="total-row grand"><span>Total</span><span class="val" id="opTotal">—</span></div>
           </div>
 
@@ -2885,9 +2888,15 @@
     </div>
     <!-- /PRODUCT SELECTOR -->
 
-    <div class="form-field">
-      <div class="form-label">Total</div>
-      <input class="form-input" id="mTotal" value="$48 USD" type="text">
+    <div class="form-row">
+      <div class="form-field">
+        <div class="form-label">Descuento ($)</div>
+        <input class="form-input" id="mDiscount" type="number" min="0" step="0.01" placeholder="0.00" oninput="recalcModalTotal()">
+      </div>
+      <div class="form-field">
+        <div class="form-label">Total <span id="mTotalHint" style="text-transform:none;letter-spacing:0;font-weight:500;color:var(--red);"></span></div>
+        <input class="form-input" id="mTotal" value="$0.00" type="text" readonly tabindex="-1" style="font-weight:700;color:var(--green);cursor:default;">
+      </div>
     </div>
     <div class="form-field" style="position:relative;">
       <div class="form-label" style="margin-bottom:6px;">Dirección de entrega</div>
@@ -3058,14 +3067,18 @@
       Resumen
     </div>
     <div class="form-row" style="margin-bottom:6px;">
-      <div class="form-field">
-        <div class="form-label">Total</div>
-        <input class="form-input" id="noTotal" value="" placeholder="$0.00" type="text">
-      </div>
       <div class="form-field" id="noShippingField" style="display:none;">
         <div class="form-label">Costo de envío</div>
-        <input class="form-input" id="noShipping" value="$3.00" placeholder="$3.00" type="text">
+        <input class="form-input" id="noShipping" value="$3.00" placeholder="$3.00" type="text" oninput="nosRecalcTotal()">
       </div>
+      <div class="form-field">
+        <div class="form-label">Descuento ($)</div>
+        <input class="form-input" id="noDiscount" type="number" min="0" step="0.01" placeholder="0.00" oninput="nosRecalcTotal()">
+      </div>
+    </div>
+    <div class="form-field">
+      <div class="form-label">Total <span id="noTotalHint" style="text-transform:none;letter-spacing:0;font-weight:500;color:var(--red);"></span></div>
+      <input class="form-input" id="noTotal" value="$0.00" type="text" readonly tabindex="-1" style="font-weight:700;color:var(--green);cursor:default;">
     </div>
     <div class="form-field"><div class="form-label">Dirección de entrega</div><input class="form-input" id="noAddress" placeholder="Dirección completa..." type="text"></div>
     <div class="form-field"><div class="form-label">Notas / Descripción</div><input class="form-input" id="noNotes" placeholder="Instrucciones especiales..." type="text"></div>
@@ -3518,6 +3531,7 @@
           <div style="margin-top:10px;">
             <div class="odm-total-row"><span>Subtotal</span><span id="odmSubtotal">—</span></div>
             <div class="odm-total-row" id="odmShippingRow" style="display:none;"><span>Envío</span><span id="odmShippingVal">—</span></div>
+            <div class="odm-total-row" id="odmDiscountRow" style="display:none;"><span>Descuento</span><span id="odmDiscountVal" style="color:var(--red);">—</span></div>
             <div class="odm-total-row grand"><span>Total</span><span class="odm-total-val" id="odmTotal">—</span></div>
           </div>
         </div>
@@ -3607,9 +3621,13 @@
         <input class="form-input" id="oeShipping" type="number" min="0" step="0.01" oninput="recalcOrderEditTotal()">
       </div>
       <div class="form-field">
-        <div class="form-label">Total ($) <span id="oeTotalHint" style="text-transform:none;letter-spacing:0;font-weight:500;"></span></div>
-        <input class="form-input" id="oeTotal" type="number" min="0" step="0.01" oninput="this.dataset.manual='1';recalcOrderEditTotal()">
+        <div class="form-label">Descuento ($)</div>
+        <input class="form-input" id="oeDiscount" type="number" min="0" step="0.01" placeholder="0.00" oninput="recalcOrderEditTotal()">
       </div>
+    </div>
+    <div class="form-field">
+      <div class="form-label">Total ($) <span id="oeTotalHint" style="text-transform:none;letter-spacing:0;font-weight:500;"></span></div>
+      <input class="form-input" id="oeTotal" type="number" min="0" step="0.01" readonly tabindex="-1" style="font-weight:700;color:var(--green);" oninput="this.dataset.manual='1';recalcOrderEditTotal()">
     </div>
 
     <div class="modal-footer">
@@ -3786,8 +3804,18 @@ async function apiJson(method, path, body) {
     throw new Error('sin conexión con el servidor');
   }
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && (data.message || data.error)) || ('error ' + res.status));
+  if (!res.ok) {
+    const err = new Error((data && (data.message || data.error)) || ('error ' + res.status));
+    err.status = res.status; err.code = data && data.error;
+    throw err;
+  }
   return data;
+}
+
+// Lleva a Ajustes → Plan y facturación
+function goToPlanSettings() {
+  goView('ajustes');
+  switchSettings('plan', document.querySelector('.ssn-item[onclick*="plan"]'));
 }
 
 // El estilo del ticket que se envía como imagen lo pone el servidor (TICKET_CSS en server.js)
@@ -4209,7 +4237,28 @@ let currentDetailId = null;
 
 const orderExtras = {};
 
-const deliverySteps = ['Recibido','Pago','Preparando','Enviado','Entregado'];
+// Estados reales del pedido: lo que guarda el servidor es el pago (ok/pend) y la entrega (to_deliver/delivered/not_delivered)
+function renderOrderSteps(o) {
+  const stepsEl = document.getElementById('odmSteps');
+  if (!stepsEl || !o) return;
+  const notDelivered = o.delivery === 'not_delivered';
+  const steps = [
+    { name: 'Recibido',  done: true },
+    { name: 'Cobrado',   done: o.pay === 'ok' },
+    { name: notDelivered ? 'No entregado' : 'Entregado', done: o.delivery === 'delivered', alert: notDelivered },
+  ];
+  const cur = steps.findIndex(s => !s.done);
+  stepsEl.innerHTML = '';
+  steps.forEach((s, i) => {
+    const step = document.createElement('div');
+    step.className = 'odm-step' + (s.alert ? ' alert' : s.done ? ' done' : i === cur ? ' current' : '');
+    step.innerHTML = `
+      <div class="odm-step-dot">${s.alert ? '!' : s.done ? '<svg fill="currentColor" viewBox="0 0 20 20" style="width:10px;height:10px"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>' : ''}</div>
+      <div class="odm-step-name">${s.name}</div>
+    `;
+    stepsEl.appendChild(step);
+  });
+}
 
 function openOrderDetail(orderId) {
   const o = orders.find(o => o.id === orderId);
@@ -4233,19 +4282,7 @@ function openOrderDetail(orderId) {
   document.getElementById('odmDate').textContent = `Creado ${o.time} · ${displayDate}`;
 
   // status steps
-  const stepMap = { to_deliver: 1, delivered: 4, not_delivered: 1 };
-  const activeStep = o.delivery === 'delivered' ? 4 : (o.pay === 'ok' ? 2 : 1);
-  const stepsEl = document.getElementById('odmSteps');
-  stepsEl.innerHTML = '';
-  deliverySteps.forEach((s, i) => {
-    const step = document.createElement('div');
-    step.className = 'odm-step' + (i < activeStep ? ' done' : i === activeStep ? ' current' : '');
-    step.innerHTML = `
-      <div class="odm-step-dot">${i < activeStep ? '<svg fill="currentColor" viewBox="0 0 20 20" style="width:10px;height:10px"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>' : (i === activeStep ? '●' : '')}</div>
-      <div class="odm-step-name">${s}</div>
-    `;
-    stepsEl.appendChild(step);
-  });
+  renderOrderSteps(o);
 
   // client
   const platColors = { wa:'linear-gradient(135deg,#25D366,#128C7E)', ig:'linear-gradient(135deg,#E1306C,#fd1d1d)' };
@@ -4309,9 +4346,13 @@ function openOrderDetail(orderId) {
   // totals — use actual price, and show shipping if saved
   const num = parseFloat((o.price+'').replace(/[^0-9.]/g,'')) || 0;
   const shippingNum = ex.shipping ? parseFloat((ex.shipping+'').replace(/[^0-9.]/g,'')) || 0 : 0;
-  const subtotalNum = num - shippingNum;
+  const discountNum = ex.discount ? Number(ex.discount) || 0 : 0;
+  const subtotalNum = num - shippingNum + discountNum;
   document.getElementById('odmSubtotal').textContent = subtotalNum > 0 ? '$' + subtotalNum.toFixed(2) + ' USD' : o.price;
   document.getElementById('odmTotal').textContent = o.price;
+  const discRowEl = document.getElementById('odmDiscountRow');
+  discRowEl.style.display = discountNum > 0 ? '' : 'none';
+  document.getElementById('odmDiscountVal').textContent = '−$' + discountNum.toFixed(2) + ' USD';
 
   // shipping row — show if saved
   const shippingRowEl = document.getElementById('odmShippingRow');
@@ -4379,6 +4420,7 @@ function patchOrder(orderId, fields, undo) {
 
 // ─── EDITAR PEDIDO (cliente, artículos, pago, entrega, dirección, notas, envío, total) ───
 let _oeItems = [];
+let _oeLegacy = false; // pedido antiguo sin artículos: su total se puede escribir a mano
 const _round2 = n => Math.round((Number(n) || 0) * 100) / 100;
 
 function openOrderEdit() {
@@ -4403,9 +4445,11 @@ function openOrderEdit() {
     emoji: it.emoji || '📦', name: it.name || '', detail: it.detail || '', qty: Number(it.qty) || 1,
     unitPrice: it.unitPrice !== undefined ? Number(it.unitPrice) : moneyToNum(it.price), productId: it.productId || null,
   }));
-  if (!_oeItems.length) {
+  _oeLegacy = !_oeItems.length;
+  const discount = ex.discount ? Number(ex.discount) || 0 : 0;
+  if (_oeLegacy) {
     _oeItems = [{ emoji: ex.emoji || '📦', name: o.product || 'Producto', detail: '', qty: 1,
-      unitPrice: _round2(Math.max(0, moneyToNum(o.price) - shipping)), productId: null }];
+      unitPrice: _round2(Math.max(0, moneyToNum(o.price) - shipping + discount)), productId: null }];
   }
   renderOrderEditItems();
 
@@ -4428,12 +4472,14 @@ function openOrderEdit() {
   document.getElementById('oeAddress').value = clean(ex.address);
   document.getElementById('oeNotes').value = ex.notes || '';
   document.getElementById('oeShipping').value = shipping ? shipping.toFixed(2) : '';
+  document.getElementById('oeDiscount').value = discount ? discount.toFixed(2) : '';
 
-  // Total: si el guardado no coincide con la suma, se respeta como total manual
-  const total = moneyToNum(o.price);
+  // Total: se calcula (artículos + envío − descuento). Solo un pedido antiguo sin artículos lo deja escribir.
   const tot = document.getElementById('oeTotal');
-  tot.value = total.toFixed(2);
-  if (Math.abs(total - orderEditComputedTotal()) > 0.009) tot.dataset.manual = '1'; else delete tot.dataset.manual;
+  tot.readOnly = !_oeLegacy;
+  tot.tabIndex = _oeLegacy ? 0 : -1;
+  delete tot.dataset.manual;
+  tot.value = moneyToNum(o.price).toFixed(2);
   recalcOrderEditTotal();
 
   document.getElementById('orderDetailOverlay').classList.remove('visible');
@@ -4501,7 +4547,8 @@ function removeOrderEditItem(i) {
 
 function orderEditComputedTotal() {
   const items = _oeItems.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.unitPrice) || 0), 0);
-  return _round2(items + (parseFloat(document.getElementById('oeShipping').value) || 0));
+  const disc = Math.max(0, parseFloat(document.getElementById('oeDiscount').value) || 0);
+  return Math.max(0, _round2(items + (parseFloat(document.getElementById('oeShipping').value) || 0) - disc));
 }
 
 function recalcOrderEditTotal() {
@@ -4512,7 +4559,7 @@ function recalcOrderEditTotal() {
   const computed = orderEditComputedTotal();
   const tot = document.getElementById('oeTotal');
   if (!tot.dataset.manual) tot.value = computed.toFixed(2);
-  const differs = Math.abs((parseFloat(tot.value) || 0) - computed) > 0.009;
+  const differs = _oeLegacy && Math.abs((parseFloat(tot.value) || 0) - computed) > 0.009;
   document.getElementById('oeTotalHint').innerHTML = differs
     ? `· suma: $${computed.toFixed(2)} <a href="#" onclick="event.preventDefault();delete document.getElementById('oeTotal').dataset.manual;recalcOrderEditTotal();" style="color:var(--accent2);">usar suma</a>`
     : '';
@@ -4527,19 +4574,30 @@ async function saveOrderEdit() {
 
   const clientId = document.getElementById('oeClient').value || null;
   const clientName = document.getElementById('oeClientName').value.trim();
-  if (!clientName) { showToast('⚠ Escribe el nombre del cliente'); return; }
-  if (!_oeItems.length) { showToast('⚠ El pedido necesita al menos un artículo'); return; }
+  if (!clientName) { flagField('oeClientName'); showToast('Falta el nombre del cliente', 'error'); return; }
+  if (!_oeItems.length) { showToast('El pedido necesita al menos un artículo', 'error'); return; }
   for (const it of _oeItems) {
     if (!String(it.name || '').trim()) { showToast('⚠ Cada artículo necesita un nombre'); return; }
     if (!Number.isInteger(it.qty) || it.qty < 1) { showToast('⚠ La cantidad de "' + it.name + '" no es válida'); return; }
     if (!(it.unitPrice >= 0)) { showToast('⚠ El precio de "' + it.name + '" no es válido'); return; }
   }
-  const total = parseFloat(document.getElementById('oeTotal').value);
-  if (!(total >= 0)) { showToast('⚠ El total no es válido'); return; }
+  const shippingNum = _round2(parseFloat(document.getElementById('oeShipping').value) || 0);
+  const discountNum = _round2(Math.max(0, parseFloat(document.getElementById('oeDiscount').value) || 0));
   const items = _oeItems.map(it => ({
     emoji: (it.emoji || '').trim() || '📦', name: it.name.trim(), detail: (it.detail || '').trim(), qty: it.qty,
     unitPrice: _round2(it.unitPrice), linePrice: _round2(it.qty * it.unitPrice), productId: it.productId || null,
   }));
+  // Pedido antiguo sin artículos con total escrito a mano: el total pasa a ser el precio de su única línea
+  const totTyped = document.getElementById('oeTotal');
+  if (_oeLegacy && totTyped.dataset.manual && items.length === 1) {
+    const t = parseFloat(totTyped.value);
+    if (!(t >= 0)) { flagField('oeTotal'); showToast('El total no es válido', 'error'); return; }
+    const unit = _round2((t + discountNum - shippingNum) / items[0].qty);
+    if (unit < 0) { flagField('oeTotal'); showToast('El total no puede ser menor que el envío', 'error'); return; }
+    items[0].unitPrice = unit; items[0].linePrice = _round2(unit * items[0].qty);
+  }
+  const itemsSum = items.reduce((s, i) => s + i.linePrice, 0);
+  if (discountNum > _round2(itemsSum + shippingNum) + 0.004) { flagField('oeDiscount'); showToast('El descuento no puede ser mayor que el total', 'error'); return; }
 
   _savingOrderEdit = true;
   const btn = document.getElementById('oeSaveBtn');
@@ -4551,8 +4609,8 @@ async function saveOrderEdit() {
       client_name: clientName,
       items,
       product_summary: items.map(i => (i.qty > 1 ? i.qty + 'x ' : '') + i.name).join(' + '),
-      total_price: _round2(total),
-      shipping: _round2(parseFloat(document.getElementById('oeShipping').value) || 0),
+      shipping: shippingNum,
+      discount: discountNum,
       pay_method_label: document.getElementById('oePay').value.trim() || null,
       delivery_method_label: document.getElementById('oeDelivery').value.trim() || null,
       address: document.getElementById('oeAddress').value.trim() || null,
@@ -4585,6 +4643,7 @@ function toggleOrderDelivery() {
     renderOrders();
   });
   updateDetailDeliveryBtn(o.delivery);
+  renderOrderSteps(o);
   renderOrders();
   const labels = { to_deliver:'Por entregar', delivered:'Entregado ✓', not_delivered:'No entregado ⚠' };
   showToast(`${currentDetailId} → ${labels[o.delivery]}`);
@@ -4617,6 +4676,7 @@ async function toggleOrderPay() {
   document.getElementById('odmPayStatus').innerHTML = o.pay === 'ok'
     ? '<span style="color:var(--green);font-weight:700;">✓ Confirmado</span>'
     : '<span style="color:var(--yellow);font-weight:700;">⏳ Pendiente</span>';
+  renderOrderSteps(o);
   renderOrders();
   showToast(o.pay === 'ok' ? `Pago de ${currentDetailId} confirmado ✓` : `Pago de ${currentDetailId} marcado como pendiente`);
 }
@@ -4951,6 +5011,8 @@ function openOrderModal() {
       selectNewClient();
       document.getElementById('mClientFree').value = c.name;
       document.getElementById('mClient').value = c.name;
+      // El teléfono de una ficha nueva sale del número del chat de WhatsApp
+      if (c.platform === 'wa' && c.waId) document.getElementById('mPhone').value = '+' + c.waId;
       buildAddressDrop(null);
     }
   } else {
@@ -5065,8 +5127,33 @@ function closeModal() {
   document.getElementById('orderModal').classList.remove('visible');
 }
 function saveOrder() {
-  closeModal();
   const c = convos[currentConvo];
+  // Datos obligatorios: cliente y al menos un artículo (con talla/color si el producto los tiene)
+  const clientNameChk = document.getElementById('mClient').value.trim();
+  if (!clientNameChk) {
+    const freeOpen = document.getElementById('mClientFreeRow').style.display !== 'none';
+    flagField(freeOpen ? 'mClientFree' : 'mClientTrigger');
+    showToast(freeOpen ? 'Falta el nombre del cliente' : 'Elige un cliente o escribe el nombre de uno nuevo', 'error');
+    return;
+  }
+  if (selProduct) {
+    const sp = selProduct.product;
+    if (sp.sizes && sp.sizes.length && !selSize) { flagField('seg2-trigger'); showToast('Elige la talla de "' + sp.name + '"', 'error'); return; }
+    if (sp.colors && sp.colors.length && !selColor) { flagField('seg3-trigger'); showToast('Elige el color de "' + sp.name + '"', 'error'); return; }
+  }
+  if (!orderItems.length && !selProduct) {
+    flagField('seg1-trigger');
+    showToast('Agrega al menos un artículo al pedido', 'error');
+    return;
+  }
+  {
+    let subChk = orderItems.reduce((s, i) => s + (Number(i.linePrice) || 0), 0);
+    if (selProduct) subChk += (parseFloat((selProduct.product.price+'').replace(/[^0-9.]/g,'')) || 0) * selQty;
+    const discChk = parseFloat(document.getElementById('mDiscount').value) || 0;
+    if (discChk < 0) { flagField('mDiscount'); showToast('El descuento no puede ser negativo', 'error'); return; }
+    if (discChk > subChk + 0.004) { flagField('mDiscount'); showToast('El descuento no puede ser mayor que el total', 'error'); return; }
+  }
+  closeModal();
   // Build full items array — confirmed list + any in-progress main selection
   const allItems = [...orderItems];
 
@@ -5081,12 +5168,16 @@ function saveOrder() {
     ? allItems.map(i => `${i.qty > 1 ? i.qty + 'x ' : ''}${i.name}`).join(' + ')
     : 'Producto sin especificar';
   const productDetail = allItems.length > 0
-    ? allItems.map(i => [i.detail, i.qty > 1 ? `x${i.qty}` : null].filter(Boolean).join(' ')).filter(Boolean).join(' · ')
+    ? allItems.map(i => i.detail).filter(Boolean).join(' · ')
     : '';
   const productEmoji = allItems.length > 0 ? allItems[0].emoji : '📦';
-  // ALWAYS use the mTotal field — the user may have modified it
-  const productPrice = document.getElementById('mTotal').value.trim() || (selProduct ? selProduct.product.price : '$0');
-  const clientName   = document.getElementById('mClient').value;
+  // El total ya no se escribe: sale de los artículos (el servidor lo recalcula al guardar)
+  const subtotal     = _round2(allItems.reduce((s, i) => s + (Number(i.linePrice) || 0), 0));
+  const discount     = _round2(Math.max(0, parseFloat(document.getElementById('mDiscount').value) || 0));
+  const productPrice = '$' + subtotal.toFixed(2);
+  const clientName   = document.getElementById('mClient').value.trim();
+  const newClientPhone = (!document.getElementById('mClient').dataset.clientId && document.getElementById('mClientFreeRow').style.display !== 'none')
+    ? document.getElementById('mPhone').value.trim() : '';
   const clientId     = document.getElementById('mClient').dataset.clientId || null;
   const linkConvo    = document.getElementById('mClient').dataset.convoMatch === '1';
   const address      = document.getElementById('mAddress').value;
@@ -5098,6 +5189,7 @@ function saveOrder() {
     initials: c ? c.initials : clientName.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase(),
     grad: c ? c.avatarGrad : 'linear-gradient(135deg,#6c63ff,#a855f7)',
     productLabel, productDetail, productEmoji, productPrice, address, notes,
+    subtotal, discount, phone: newClientPhone,
     items: allItems,
     convoKey: currentConvo,
     clientId,
@@ -5153,10 +5245,9 @@ function saveOrder() {
     }).join('');
   }
 
-  const num = parseFloat((productPrice+'').replace(/[^0-9.]/g,'')) || 0;
   document.getElementById('opSubtotal').textContent = productPrice;
   document.getElementById('opShippingRow').style.display = 'none';
-  document.getElementById('opTotal').textContent    = '$' + num.toFixed(2) + ' USD';
+  recalcTotal();
   document.getElementById('opAddress').textContent  = address || '—';
   // show notes below address if present
   const notesEl = document.getElementById('opNotes');
@@ -5191,7 +5282,7 @@ async function confirmOrder() {
     (document.getElementById('opDeliveryAliadoBtn')?.classList.contains('selected') ? document.getElementById('opDeliveryAliadoBtn') : null);
   const delLabel = delSelectedBtn ? delSelectedBtn.textContent.trim() : 'Por confirmar';
 
-  const total = document.getElementById('opTotal').textContent;
+  let total = document.getElementById('opTotal').textContent; // se sustituye por el total que devuelve el servidor
   const shippingRow = document.getElementById('opShippingRow');
   const shippingVisible = shippingRow && shippingRow.style.display !== 'none';
   const shippingVal = shippingVisible ? document.getElementById('opShippingInput').value : null;
@@ -5213,9 +5304,10 @@ async function confirmOrder() {
     saved = await apiJson('POST', '/api/orders', {
       clientName: d.client,
       ...orderClientFields(d.clientId, convos[d.convoKey], d.linkConvo),
+      ...(d.phone && !isServerId(d.clientId) ? { clientPhone: d.phone } : {}),
       platform: d.platform,
       productSummary: productFull,
-      totalPrice: parseFloat((total + '').replace(/[^0-9.]/g, '')) || 0,
+      discount: d.discount || 0,
       payStatus: 'pend',
       deliveryStatus: 'to_deliver',
       payMethodLabel: payLabel,
@@ -5238,6 +5330,9 @@ async function confirmOrder() {
   }
 
   d.id = saved.orderNumber;
+  // El total que vale es el que calculó el servidor
+  total = '$' + (Number(saved.totalPrice) || 0).toFixed(2) + ' USD';
+  document.getElementById('opTotal').textContent = total;
   document.getElementById('opNum').textContent = d.id;
   if (saved.createdClient) addServerClient(saved.createdClient);
   if (d.linkConvo && convos[d.convoKey]) {
@@ -5282,6 +5377,7 @@ async function confirmOrder() {
         <div class="ticket-row"><span class="ticket-row-label">Entrega</span><span class="ticket-row-value">${escHtml(delLabel)}</span></div>
         <div class="ticket-row"><span class="ticket-row-label">Dirección</span><span class="ticket-row-value">${escHtml(d.address || '—')}</span></div>
         ${shippingVisible ? `<div class="ticket-row"><span class="ticket-row-label">Envío</span><span class="ticket-row-value">${escHtml(shippingVal)}</span></div>` : ''}
+        ${d.discount > 0 ? `<div class="ticket-row"><span class="ticket-row-label">Descuento</span><span class="ticket-row-value">−$${Number(d.discount).toFixed(2)}</span></div>` : ''}
         <div class="ticket-total"><span>Total</span><span class="ticket-total-val">${total}</span></div>
       </div>
       <div class="ticket-footer">Gracias por tu compra 🙌<br>Te avisamos cuando tu pedido esté en camino</div>
@@ -5544,9 +5640,21 @@ function recalcTotal() {
     const inp = document.getElementById('opShippingInput');
     shipping = parseFloat((inp.value+'').replace(/[^0-9.]/g,'')) || 0;
   }
-  const total = num + shipping;
+  const discount = currentDraft ? (Number(currentDraft.discount) || 0) : 0;
+  const total = Math.max(0, _round2(num + shipping - discount));
+  document.getElementById('opDiscountRow').style.display = discount > 0 ? '' : 'none';
+  document.getElementById('opDiscountVal').textContent = '−$' + discount.toFixed(2);
   document.getElementById('opTotal').textContent = '$' + total.toFixed(2) + ' USD';
   if (currentDraft) currentDraft.shipping = shipping;
+}
+// Marca un campo con borde rojo hasta que se vuelva a usar
+function flagField(el) {
+  if (typeof el === 'string') el = document.getElementById(el);
+  if (!el) return;
+  el.style.borderColor = 'var(--red)';
+  const clear = () => { el.style.borderColor = ''; el.removeEventListener('input', clear); el.removeEventListener('click', clear); };
+  el.addEventListener('input', clear); el.addEventListener('click', clear);
+  setTimeout(clear, 5000);
 }
 let _toastTimer = null;
 // type: 'ok' (por defecto) | 'error'. Un mensaje que empieza por ⚠ se muestra como error.
@@ -6282,6 +6390,9 @@ function initProductSelector() {
   if (vf) vf.style.display = 'none';
   const vi = document.getElementById('variosInlineName');
   if (vi) vi.value = '';
+  document.getElementById('mDiscount').value = '';
+  document.getElementById('mPhone').value = '';
+  recalcModalTotal();
   // build seg1 dropdown
   buildProductDrop();
   closeAllSegDrops();
@@ -6783,13 +6894,15 @@ function renderOrderItemsList() {
 }
 
 function recalcModalTotal() {
-  let total = orderItems.reduce((s, item) => s + (item.linePrice || 0), 0);
+  let sub = orderItems.reduce((s, item) => s + (Number(item.linePrice) || 0), 0);
   // add current in-progress selection (not yet confirmed)
   if (selProduct) {
     const unitPrice = parseFloat((selProduct.product.price+'').replace(/[^0-9.]/g,'')) || 0;
-    total += unitPrice * selQty;
+    sub += unitPrice * selQty;
   }
-  if (total > 0) document.getElementById('mTotal').value = '$' + total.toFixed(2);
+  const disc = Math.max(0, parseFloat(document.getElementById('mDiscount').value) || 0);
+  document.getElementById('mTotal').value = '$' + Math.max(0, _round2(sub - disc)).toFixed(2);
+  document.getElementById('mTotalHint').textContent = disc > sub + 0.004 ? '· el descuento supera el total' : '';
 }
 
 function toggleSegDrop(seg) {
@@ -7059,7 +7172,7 @@ const settingsPanels = {
           <div class="s-row-label">Ciudad / Zona</div>
           <div class="s-row-desc">Ubicación principal de tu comercio</div>
         </div>
-        <div class="s-row-action"><input class="s-input" id="s-input-city" value="${escHtml(businessProfile.city)}, ${escHtml(businessProfile.country)}" type="text"></div>
+        <div class="s-row-action"><input class="s-input" id="s-input-city" value="${escHtml([businessProfile.city, businessProfile.country].filter(Boolean).join(', '))}" type="text" placeholder="Ciudad, País"></div>
       </div>
       <div class="s-row">
         <div class="s-row-icon" style="background:var(--surface3)">📱</div>
@@ -8060,7 +8173,9 @@ function openNewOrderModal() {
   const _nosChk = document.getElementById('nosConfirmCheck');
   if (_nosRow) _nosRow.classList.remove('in-progress');
   if (_nosChk) _nosChk.style.display = 'none';
-  document.getElementById('noTotal').value = '';
+  document.getElementById('noDiscount').value = '';
+  document.getElementById('noTotal').value = '$0.00';
+  document.getElementById('noTotalHint').textContent = '';
   document.getElementById('noAddress').value = '';
   document.getElementById('noNotes').value = '';
   document.querySelectorAll('.prod-seg-drop').forEach(d => d.classList.remove('open'));
@@ -8288,10 +8403,17 @@ function noxUpdateSummary(n) {
   nosRecalcTotal();
 }
 
+function nosShippingValue() {
+  const vis = document.getElementById('noShippingField').style.display !== 'none';
+  return vis ? (parseFloat((document.getElementById('noShipping').value + '').replace(/[^0-9.]/g, '')) || 0) : 0;
+}
 function nosRecalcTotal() {
-  let total = nosItems.reduce((s,i) => s+(i.linePrice||0), 0);
-  if (nosState.product) { const u = parseFloat((nosState.product.price||'').replace(/[^0-9.]/g,'')) || 0; total += u * nosState.qty; }
-  if (total > 0) document.getElementById('noTotal').value = '$' + total.toFixed(2);
+  let sub = nosItems.reduce((s,i) => s + (Number(i.linePrice) || 0), 0);
+  if (nosState.product) { const u = parseFloat((nosState.product.price+'').replace(/[^0-9.]/g,'')) || 0; sub += u * nosState.qty; }
+  const base = sub + nosShippingValue();
+  const disc = Math.max(0, parseFloat(document.getElementById('noDiscount').value) || 0);
+  document.getElementById('noTotal').value = '$' + Math.max(0, _round2(base - disc)).toFixed(2);
+  document.getElementById('noTotalHint').textContent = disc > base + 0.004 ? '· el descuento supera el total' : '';
 }
 
 function noSelectPay(el) { document.querySelectorAll('#noPayGrid .pay-btn').forEach(b => b.classList.remove('selected')); el.classList.add('selected'); }
@@ -8300,16 +8422,29 @@ function noSelectDelivery(el) {
   document.querySelectorAll('#noDeliveryOpts .delivery-opt').forEach(d => d.classList.remove('selected')); el.classList.add('selected');
   const hasShipping = ['Motorizado','Encomienda','Delivery'].some(k => el.textContent.includes(k));
   document.getElementById('noShippingField').style.display = hasShipping ? '' : 'none';
+  nosRecalcTotal();
 }
 
 let _savingNewOrder = false;
 async function saveNewOrder() {
   if (_savingNewOrder) return;
   const clientName = document.getElementById('noClient').value || document.getElementById('noClientFree').value.trim();
-  if (!clientName) { showToast('⚠ Selecciona o escribe un cliente'); return; }
+  if (!clientName) {
+    flagField(document.getElementById('noClientFreeRow').style.display !== 'none' ? 'noClientFree' : 'noClientTrigger');
+    showToast('Falta el nombre del cliente', 'error');
+    return;
+  }
   const allItems = [...nosItems];
   if (nosState.product) { const u = parseFloat((nosState.product.price||'').replace(/[^0-9.]/g,'')) || 0; const det = [nosState.color?nosState.color.name:null, nosState.size?'Talla '+nosState.size:null].filter(Boolean).join(' · '); allItems.push({ emoji:nosState.product.emoji, name:nosState.product.name, detail:det, qty:nosState.qty, linePrice:u*nosState.qty, price:nosState.product.price }); }
-  if (allItems.length === 0) { showToast('⚠ Agrega al menos un artículo'); return; }
+  if (allItems.length === 0) { showToast('Agrega al menos un artículo', 'error'); return; }
+  if (nosState.product) {
+    const sp = nosState.product;
+    if (sp.sizes && sp.sizes.length && !nosState.size) { flagField('nos2-trigger'); showToast('Elige la talla de "' + sp.name + '"', 'error'); return; }
+    if (sp.colors && sp.colors.length && !nosState.color) { flagField('nos3-trigger'); showToast('Elige el color de "' + sp.name + '"', 'error'); return; }
+  }
+  const noDisc = _round2(Math.max(0, parseFloat(document.getElementById('noDiscount').value) || 0));
+  const noBase = allItems.reduce((s, i) => s + (Number(i.linePrice) || 0), 0) + nosShippingValue();
+  if (noDisc > noBase + 0.004) { flagField('noDiscount'); showToast('El descuento no puede ser mayor que el total', 'error'); return; }
   const productLabel = allItems.map(i=>(i.qty>1?i.qty+'x ':'')+i.name).join(' + ');
   const payEl = document.querySelector('#noPayGrid .pay-btn.selected');
   const payLabel = payEl ? payEl.textContent.trim() : '—';
@@ -8323,7 +8458,6 @@ async function saveNewOrder() {
   const now = new Date();
   const dateStr = now.toLocaleDateString('es-VE',{day:'2-digit',month:'long',year:'numeric'});
   const timeStr = now.toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});
-  const totalStr = document.getElementById('noTotal').value || '$0';
   // Primero se guarda en el servidor, que asigna el número del pedido
   _savingNewOrder = true;
   const btn = document.querySelector('[onclick="saveNewOrder()"]');
@@ -8333,7 +8467,7 @@ async function saveNewOrder() {
     saved = await apiJson('POST', '/api/orders', {
       clientName, ...orderClientFields(document.getElementById('noClient').dataset.clientId || null, null),
       platform: noClientPlatform(), productSummary: productLabel,
-      totalPrice: parseFloat((totalStr + '').replace(/[^0-9.]/g, '')) || 0,
+      discount: noDisc,
       payStatus: 'pend', deliveryStatus: 'to_deliver',
       payMethodLabel: payLabel, deliveryMethodLabel: delLabel,
       address, notes,
@@ -8501,6 +8635,14 @@ async function renderInforme(tab) {
   } catch (err) {
     if (seq !== _infReqSeq) return;
     body.style.opacity = '';
+    if (err.code === 'plan_required') {
+      body.innerHTML = `<div class="inf-chart-card" style="text-align:center;padding:48px 20px;">
+        <div style="font-size:30px;margin-bottom:10px;">📊</div>
+        <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:800;margin-bottom:6px;">Disponible desde el plan Pro</div>
+        <div style="font-size:13px;color:var(--text2);margin:0 auto 16px;max-width:380px;line-height:1.55;">Los informes de ventas, pedidos y clientes se activan con el plan Pro o Business.</div>
+        <button class="btn-primary" style="margin:0 auto;" onclick="goToPlanSettings()">Ver planes</button></div>`;
+      return;
+    }
     body.innerHTML = `<div class="inf-chart-card" style="text-align:center;padding:40px 20px;font-size:13px;">
       <div style="color:var(--red);font-weight:600;margin-bottom:6px;">⚠ No se pudo calcular el informe</div>
       <div style="color:var(--text3);margin-bottom:14px;">${escHtml(err.message)}</div>
@@ -9270,7 +9412,12 @@ async function saveProfileSettings() {
   var email   = (document.getElementById('s-input-email') || {}).value || '';
   var welcome = (document.getElementById('s-input-welcome') || {}).value || '';
   if (bName)    { businessProfile.businessName = bName.trim(); businessProfile.initials = bName.trim().split(/\s+/).map(function(w){return w[0]||'';}).join('').slice(0,2).toUpperCase(); }
-  if (cityCtry) { var p = cityCtry.split(','); businessProfile.city = (p[0]||'').trim(); businessProfile.country = (p[1]||businessProfile.country).trim(); }
+  if (cityCtry) {
+    var p = cityCtry.split(',');
+    if (p.length >= 2) { businessProfile.city = (p[0]||'').trim(); businessProfile.country = (p.slice(1).join(',')||businessProfile.country).trim(); }
+    else if (cityCtry.trim() === (businessProfile.country||'').trim()) { businessProfile.city = ''; }
+    else { businessProfile.city = cityCtry.trim(); }
+  }
   if (phone)    businessProfile.phone   = phone.trim();
   if (welcome)  businessProfile.welcome = welcome.trim();
   const oldEmail = (businessProfile.email || '').trim().toLowerCase();
@@ -9612,6 +9759,7 @@ function storeServerOrder(ro, mode) {
     pay: ro.payMethodLabel || '—', delivery: ro.deliveryMethodLabel || '—',
     address: ro.address || '—', notes: ro.notes || '',
     emoji: (items[0] && items[0].emoji) || '📦', shipping: ro.shipping ? Number(ro.shipping) : null,
+    discount: ro.discount ? Number(ro.discount) : 0,
     dateStr: new Date(ro.createdAt).toLocaleDateString('es-VE', { day:'2-digit', month:'short', year:'numeric' }),
     timeStr: new Date(ro.createdAt).toLocaleTimeString('es-VE', { hour:'2-digit', minute:'2-digit' }),
     productDetail: '',
