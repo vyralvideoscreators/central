@@ -58,8 +58,10 @@ CREATE TABLE IF NOT EXISTS order_events (
   type       TEXT NOT NULL,
   data       JSONB,
   created_by TEXT DEFAULT 'owner',
-  created_at TIMESTAMPTZ DEFAULT now()
+  created_at TIMESTAMPTZ DEFAULT now(),
+  seq        BIGINT GENERATED ALWAYS AS IDENTITY  -- orden de inserción (eventos de una misma transacción comparten created_at)
 );
+ALTER TABLE order_events ADD COLUMN IF NOT EXISTS seq BIGINT GENERATED ALWAYS AS IDENTITY;
 CREATE INDEX IF NOT EXISTS order_events_order_idx ON order_events (order_id, created_at);
 
 CREATE TABLE IF NOT EXISTS tenant_settings (

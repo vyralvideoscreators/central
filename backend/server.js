@@ -2380,7 +2380,7 @@ app.get('/api/orders/:id/events', requireAuth, async (req, res) => {
     const { rows: ord } = await pool.query('SELECT 1 FROM orders WHERE id = $1 AND tenant_id = $2', [req.params.id, tenantId]);
     if (!ord[0]) return res.status(404).json({ error: 'Pedido no encontrado' });
     const { rows } = await pool.query(
-      'SELECT id, type, data, created_by, created_at FROM order_events WHERE order_id = $1 AND tenant_id = $2 ORDER BY created_at, id LIMIT 500',
+      'SELECT id, type, data, created_by, created_at FROM order_events WHERE order_id = $1 AND tenant_id = $2 ORDER BY created_at, seq LIMIT 500',
       [req.params.id, tenantId]);
     res.json({ events: rows.map(r => ({ id: r.id, type: r.type, data: r.data, createdBy: r.created_by, createdAt: r.created_at })) });
   } catch (err) { sendApiError(res, err, 'Historial del pedido'); }

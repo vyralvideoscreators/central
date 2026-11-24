@@ -76,8 +76,11 @@ async function ensurePaymentsSchema(pool) {
         type       TEXT NOT NULL,
         data       JSONB,
         created_by TEXT DEFAULT 'owner',
-        created_at TIMESTAMPTZ DEFAULT now()
+        created_at TIMESTAMPTZ DEFAULT now(),
+        -- orden de inserción: varios eventos de una misma transacción comparten created_at (now())
+        seq        BIGINT GENERATED ALWAYS AS IDENTITY
       )`);
+    await client.query(`ALTER TABLE order_events ADD COLUMN IF NOT EXISTS seq BIGINT GENERATED ALWAYS AS IDENTITY`);
     await client.query(`CREATE INDEX IF NOT EXISTS order_events_order_idx ON order_events (order_id, created_at)`);
     await client.query(`
       CREATE TABLE IF NOT EXISTS tenant_settings (
