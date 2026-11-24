@@ -16,6 +16,7 @@ const bcrypt     = require('bcrypt');
 const jwt        = require('jsonwebtoken');
 const Stripe     = require('stripe');
 const crypto     = require('crypto');
+const { ensurePaymentsSchema, recalcOrderPayment } = require('./pagos');
 
 const app = express();
 app.use(cors());
@@ -422,6 +423,15 @@ async function initDB() {
       }
     }
 
+    // Fase 2 — pagos de verdad: tablas payments / order_events / tenant_settings, orders.amount_paid,
+    // tenants.base_currency y el relleno de una sola vez (ver pagos.js y migrations/2026-11-25-pagos.sql).
+    // Sin ellas los pedidos fallarían (amount_paid): si no se pudo, se detiene el arranque y Railway
+    // conserva la versión anterior.
+    if (!(await ensurePaymentsSchema(pool))) {
+      console.error('❌ Falta el esquema de pagos. Se detiene el arranque para reintentar.');
+      process.exit(1);
+    }
+
     try {
       await seedDefaultTenant();
     } catch (err) {
@@ -544,6 +554,8 @@ async function dbGetTenantByIgAccountId(igAccountId) {
 
 // ── DB helpers — Pedidos ─────────────────────────────────────
 
+function money2(v) { return Math.round((Number(v) || 0) * 100) / 100; }
+
 function mapOrderRow(r) {
   return {
     id:                  r.id,
@@ -561,6 +573,9 @@ function mapOrderRow(r) {
     notes:               r.notes,
     shipping:            r.shipping,
     discount:            r.discount ?? 0,
+    // Cobro: derivado de los pagos (payStatus: pend | partial | ok). amountPaid y balance en moneda base.
+    amountPaid:          money2(r.amount_paid),
+    balance:             Math.max(0, money2(Number(r.total_price || 0) - Number(r.amount_paid || 0))),
     createdAt:           r.created_at,
     updatedAt:           r.updated_at,
     items:               r.items || [],
@@ -617,7 +632,7 @@ async function dbCreateOrder(tenantId, data) {
       RETURNING *
     `, [
       tenantId, clientId, data.clientName || null, data.platform || null,
-      data.productSummary || null, total, data.payStatus || 'pend',
+      data.productSummary || null, total, 'pend', // el estado de cobro lo derivan los pagos (payStatus del body se ignora)
       data.deliveryStatus || 'to_deliver', data.payMethodLabel || null,
       data.deliveryMethodLabel || null, data.address || null, data.notes || null,
       shipping, seqRows[0].order_seq, discount,
@@ -634,6 +649,14 @@ async function dbCreateOrder(tenantId, data) {
       ]);
     }
 
+    await addOrderEvent(client, tenantId, order.id, 'created', {
+      total, items: items.length, clientName: data.clientName || null, platform: data.platform || null });
+    // Pago inicial opcional: nace en la misma transacción que el pedido (nunca se marca pagado sin pago)
+    if (data.initialPayment !== undefined && data.initialPayment !== null) {
+      if (typeof data.initialPayment !== 'object' || Array.isArray(data.initialPayment)) throw new BadRequest('El pago inicial no es válido');
+      const r = await addPaymentTx(client, tenantId, order.id, data.initialPayment);
+      Object.assign(order, r.order);
+    }
     await client.query('COMMIT');
     const { rows: itemRows } = await pool.query(
       'SELECT id, product_id, emoji, name, detail, qty, unit_price, line_price FROM order_items WHERE order_id = $1 AND tenant_id = $2 ORDER BY ctid',
@@ -770,24 +793,196 @@ function cleanOrderItems(items) {
   });
 }
 
+// ── Pagos (Fase 2) ────────────────────────────────────────────
+// Un pedido se cobra con pagos (tabla payments, solo se añaden; un error se corrige anulando).
+// orders.amount_paid / pay_status los deriva recalcOrderPayment (pagos.js) en la misma transacción.
+
+const PAY_CURRENCY_RE = /^[A-Z]{3,5}$/;
+const BASE_CURRENCIES = ['USD', 'VES', 'EUR', 'COP', 'MXN', 'PEN', 'CLP', 'ARS'];
+const centsOf = (n) => Math.round(Number(n || 0) * 100);
+
+// Ejecuta fn(client) en una transacción: COMMIT si termina, ROLLBACK si lanza
+async function inTx(fn) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const out = await fn(client);
+    await client.query('COMMIT');
+    return out;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+// Respuesta de error de las rutas de pagos: datos mal enviados → 400; lo demás → 500 sin detalles internos
+function sendApiError(res, err, label) {
+  if (err instanceof BadRequest) return res.status(400).json({ error: err.message });
+  console.error(label + ':', err.message);
+  return res.status(500).json({ error: 'No se pudo completar la operación' });
+}
+
+async function addOrderEvent(db, tenantId, orderId, type, data, createdBy = 'owner') {
+  await db.query(
+    'INSERT INTO order_events (tenant_id, order_id, type, data, created_by) VALUES ($1, $2, $3, $4, $5)',
+    [tenantId, orderId, type, JSON.stringify(data ?? null), createdBy]);
+}
+
+function mapPaymentRow(r) {
+  const out = {
+    id: r.id, orderId: r.order_id, clientId: r.client_id,
+    amount: Number(r.amount), currency: r.currency, exchangeRate: Number(r.exchange_rate), amountBase: Number(r.amount_base),
+    method: r.method, reference: r.reference, paidAt: r.paid_at, note: r.note,
+    createdAt: r.created_at, createdBy: r.created_by,
+    voided: !!r.voided_at, voidedAt: r.voided_at, voidReason: r.void_reason,
+  };
+  if (r.order_num !== undefined) {
+    out.orderNumber = '#' + String(r.order_num).padStart(4, '0');
+    out.clientName = r.client_name || null;
+  }
+  return out;
+}
+
+// Un pedido con sus artículos (mismo formato que la lista de pedidos)
+async function fetchOrderFull(db, tenantId, orderId) {
+  const { rows } = await db.query(`
+    SELECT o.*,
+      COALESCE(json_agg(json_build_object(
+        'id', oi.id, 'productId', oi.product_id, 'emoji', oi.emoji, 'name', oi.name, 'detail', oi.detail,
+        'qty', oi.qty, 'unitPrice', oi.unit_price, 'linePrice', oi.line_price)
+      ) FILTER (WHERE oi.id IS NOT NULL), '[]'::json) AS items
+    FROM orders o
+    LEFT JOIN order_items oi ON oi.order_id = o.id AND oi.tenant_id = o.tenant_id
+    WHERE o.id = $1 AND o.tenant_id = $2
+    GROUP BY o.id`, [orderId, tenantId]);
+  return rows[0] ? mapOrderRow(rows[0]) : null;
+}
+
+// Zona horaria del negocio (la del navegador solo si aún no tiene una guardada, como en /api/reports)
+async function resolveTenantTz(tenantId, queryTz) {
+  const { rows: [t] } = await pool.query('SELECT timezone FROM tenants WHERE id = $1', [tenantId]);
+  let tz = isValidTimezone(t && t.timezone) ? t.timezone : null;
+  if (!tz && isValidTimezone(queryTz)) {
+    tz = queryTz;
+    await pool.query('UPDATE tenants SET timezone = $1 WHERE id = $2 AND timezone IS NULL', [tz, tenantId]);
+  }
+  return tz || DEFAULT_TIMEZONE;
+}
+
+const isRealDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s)) && new Date(Date.parse(s)).toISOString().slice(0, 10) === s;
+const payNum = (v) => (typeof v === 'number' || (typeof v === 'string' && v.trim() !== '')) ? Number(v) : NaN;
+const payStr = (v, max, label, required) => {
+  const s = v === undefined || v === null ? '' : String(v).trim();
+  if (!s) { if (required) throw new BadRequest(label + ' obligatorio'); return null; }
+  if (s.length > max) throw new BadRequest(`${label} demasiado largo (máx. ${max} caracteres)`);
+  return s;
+};
+
+// Registra un pago (DENTRO de una transacción). Bloquea la fila del pedido para que dos pagos
+// simultáneos no superen el saldo. Devuelve { payment, order (fila ya recalculada) } o null si no existe.
+async function addPaymentTx(db, tenantId, orderId, body, createdBy = 'owner') {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new BadRequest('Datos del pago inválidos');
+  const { rows: ord } = await db.query('SELECT * FROM orders WHERE id = $1 AND tenant_id = $2 FOR UPDATE', [orderId, tenantId]);
+  if (!ord[0]) return null;
+  // KEY SHARE: un cambio de moneda base (FOR UPDATE) espera a que termine este pago, y viceversa
+  const { rows: [t] } = await db.query('SELECT base_currency, timezone FROM tenants WHERE id = $1 FOR KEY SHARE', [tenantId]);
+  const base = t.base_currency || 'USD';
+
+  const amount = payNum(body.amount);
+  if (!Number.isFinite(amount) || amount <= 0 || amount > MAX_MONEY) throw new BadRequest('Monto inválido');
+  const amountR = Math.round(amount * 100) / 100;
+  if (amountR <= 0) throw new BadRequest('Monto inválido');
+  const currency = body.currency === undefined || body.currency === null || body.currency === '' ? base : String(body.currency).trim().toUpperCase();
+  if (!PAY_CURRENCY_RE.test(currency)) throw new BadRequest('Moneda inválida');
+  const foreign = currency !== base;
+  let rate = 1, amountBaseC = centsOf(amountR);
+  if (foreign) {
+    rate = payNum(body.exchangeRate);
+    if (!Number.isFinite(rate) || rate <= 0 || rate > 1e9) throw new BadRequest('Indica la tasa de cambio (mayor que 0)');
+    rate = Math.round(rate * 1e6) / 1e6;
+    if (rate <= 0) throw new BadRequest('Indica la tasa de cambio (mayor que 0)');
+    amountBaseC = Math.round(amountR / rate * 100);
+    if (amountBaseC < 1) throw new BadRequest('El monto es demasiado pequeño para esa tasa');
+  }
+  const method = payStr(body.method, 60, 'Método de pago', true);
+  const reference = payStr(body.reference, 80, 'Referencia', false);
+  const note = payStr(body.note, 300, 'Nota', false);
+
+  let paidAt = null;
+  if (body.paidAt !== undefined && body.paidAt !== null && body.paidAt !== '') {
+    const raw = String(body.paidAt).trim();
+    const tz = isValidTimezone(t.timezone) ? t.timezone : DEFAULT_TIMEZONE;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      if (!isRealDate(raw)) throw new BadRequest('Fecha del pago inválida');
+      // Fecha sin hora: mediodía en la zona del negocio (así cae en el día correcto en los informes)
+      paidAt = (await db.query(`SELECT (($1::date + time '12:00') AT TIME ZONE $2) AS ts`, [raw, tz])).rows[0].ts;
+    } else {
+      paidAt = new Date(raw);
+      if (isNaN(paidAt.getTime())) throw new BadRequest('Fecha del pago inválida');
+    }
+    if (paidAt.getTime() > Date.now() + 86400000) throw new BadRequest('La fecha del pago no puede ser futura');
+    if (paidAt.getFullYear() < 2000) throw new BadRequest('Fecha del pago inválida');
+  }
+
+  const totalC = centsOf(ord[0].total_price), balanceC = totalC - centsOf(ord[0].amount_paid);
+  if (totalC <= 0) throw new BadRequest('El pedido no tiene monto por cobrar');
+  if (balanceC <= 0) throw new BadRequest('El pedido ya está pagado por completo');
+  if (amountBaseC > balanceC) {
+    // En otra moneda el redondeo puede dejar un centavo de más al cobrar el saldo exacto: se ajusta al saldo
+    if (foreign && amountBaseC - balanceC <= 1) amountBaseC = balanceC;
+    else throw new BadRequest(`El pago supera el saldo pendiente ($${(balanceC / 100).toFixed(2)})`);
+  }
+
+  const { rows } = await db.query(`
+    INSERT INTO payments (tenant_id, order_id, client_id, amount, currency, exchange_rate, amount_base,
+                          method, reference, paid_at, note, created_by)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10::timestamptz, now()), $11, $12) RETURNING *
+  `, [tenantId, orderId, ord[0].client_id, amountR, currency, rate, amountBaseC / 100, method, reference, paidAt, note, createdBy]);
+  await addOrderEvent(db, tenantId, orderId, 'payment_added', {
+    paymentId: rows[0].id, amount: amountR, currency, amountBase: amountBaseC / 100, method, reference }, createdBy);
+  const order = await recalcOrderPayment(db, tenantId, orderId);
+  return { payment: mapPaymentRow(rows[0]), order };
+}
+
+// Anula un pago (DENTRO de una transacción). Devuelve null si no existe en este negocio.
+async function voidPaymentTx(db, tenantId, paymentId, reason, createdBy = 'owner') {
+  const why = payStr(reason, 200, 'Motivo', true);
+  const { rows: pr } = await db.query('SELECT order_id FROM payments WHERE id = $1 AND tenant_id = $2', [paymentId, tenantId]);
+  if (!pr[0]) return null;
+  // Mismo orden de bloqueo que addPaymentTx: primero el pedido
+  await db.query('SELECT 1 FROM orders WHERE id = $1 AND tenant_id = $2 FOR UPDATE', [pr[0].order_id, tenantId]);
+  const { rows } = await db.query(
+    'UPDATE payments SET voided_at = now(), void_reason = $3 WHERE id = $1 AND tenant_id = $2 AND voided_at IS NULL RETURNING *',
+    [paymentId, tenantId, why]);
+  if (!rows[0]) throw new BadRequest('Este pago ya fue anulado');
+  await addOrderEvent(db, tenantId, rows[0].order_id, 'payment_voided', {
+    paymentId, amountBase: Number(rows[0].amount_base), method: rows[0].method, reason: why }, createdBy);
+  const order = await recalcOrderPayment(db, tenantId, rows[0].order_id);
+  return { payment: mapPaymentRow(rows[0]), order };
+}
+
 // Actualiza un pedido (campos en snake_case). Con `items` reemplaza todos sus artículos;
 // con `client_id` lo pasa a otra ficha del mismo negocio (null = sin ficha). Todo o nada.
 async function dbUpdateOrder(tenantId, orderId, fields) {
   if (!dbReady) return null;
   if (!UUID_RE.test(String(orderId))) return null;
-  const allowed = ['pay_status', 'delivery_status', 'pay_method_label', 'delivery_method_label',
+  // El estado de cobro lo derivan los pagos (POST /api/orders/:id/payments): ya no se acepta por aquí
+  if (fields.pay_status !== undefined) throw new BadRequest('El estado de cobro se calcula con los pagos; usa Registrar pago');
+  const allowed = ['delivery_status', 'pay_method_label', 'delivery_method_label',
     'address', 'notes', 'client_name', 'product_summary', 'total_price', 'shipping', 'discount'];
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const { rows: found } = await client.query('SELECT id, shipping, discount FROM orders WHERE id = $1 AND tenant_id = $2 FOR UPDATE', [orderId, tenantId]);
+    const { rows: found } = await client.query('SELECT * FROM orders WHERE id = $1 AND tenant_id = $2 FOR UPDATE', [orderId, tenantId]);
     if (!found[0]) { await client.query('ROLLBACK'); return null; }
 
     const sets = [];
     const values = [];
     let newShipping, newDiscount, sentTotal;
-    const FIELD_LABELS = { pay_status: 'Estado de pago', delivery_status: 'Estado de entrega', total_price: 'Total', shipping: 'Costo de envío', discount: 'Descuento' };
-    const ENUMS = { pay_status: ['ok', 'pend'], delivery_status: ['to_deliver', 'delivered', 'not_delivered'] };
+    const FIELD_LABELS = { delivery_status: 'Estado de entrega', total_price: 'Total', shipping: 'Costo de envío', discount: 'Descuento' };
+    const ENUMS = { delivery_status: ['to_deliver', 'delivered', 'not_delivered'] };
     for (const [key, raw] of Object.entries(fields)) {
       if (!allowed.includes(key)) continue;
       let val = raw;
@@ -837,10 +1032,15 @@ async function dbUpdateOrder(tenantId, orderId, fields) {
 
     sets.push('updated_at = NOW()');
     values.push(orderId, tenantId);
-    const { rows } = await client.query(
+    let { rows } = await client.query(
       `UPDATE orders SET ${sets.join(', ')} WHERE id = $${values.length - 1} AND tenant_id = $${values.length} RETURNING *`,
       values
     );
+    // Nunca por debajo de lo ya cobrado; si el total cambió, el estado de cobro se vuelve a derivar
+    const paidCents = Math.round(Number(rows[0].amount_paid || 0) * 100);
+    const totalCents = Math.round(Number(rows[0].total_price || 0) * 100);
+    if (totalCents < paidCents) throw new BadRequest(`El total no puede quedar por debajo de lo ya cobrado ($${(paidCents / 100).toFixed(2)})`);
+    if (String(rows[0].total_price) !== String(found[0].total_price)) rows = [await recalcOrderPayment(client, tenantId, orderId)];
     if (items) {
       await client.query('DELETE FROM order_items WHERE order_id = $1 AND tenant_id = $2', [orderId, tenantId]);
       for (const it of items) {
@@ -851,6 +1051,19 @@ async function dbUpdateOrder(tenantId, orderId, fields) {
         `, [orderId, tenantId, it.productId, it.emoji, it.name, it.detail, it.qty, it.unitPrice, it.linePrice]);
       }
     }
+    // Historial: la entrega va como status_changed; el resto de cambios como edited
+    const clip = (v) => v === null || v === undefined ? null : String(v).slice(0, 200);
+    const changes = {};
+    for (const k of ['delivery_status', 'pay_method_label', 'delivery_method_label', 'address', 'notes', 'client_name',
+      'product_summary', 'total_price', 'shipping', 'discount', 'client_id']) {
+      if (String(found[0][k] ?? '') !== String(rows[0][k] ?? '')) changes[k] = { from: clip(found[0][k]), to: clip(rows[0][k]) };
+    }
+    if (items) changes.items = { count: items.length };
+    if (changes.delivery_status) {
+      await addOrderEvent(client, tenantId, orderId, 'status_changed', changes.delivery_status);
+      delete changes.delivery_status;
+    }
+    if (Object.keys(changes).length) await addOrderEvent(client, tenantId, orderId, 'edited', { fields: Object.keys(changes), changes });
     const { rows: itemRows } = await client.query(
       'SELECT id, product_id, emoji, name, detail, qty, unit_price, line_price FROM order_items WHERE order_id = $1 AND tenant_id = $2 ORDER BY ctid',
       [orderId, tenantId]
@@ -887,6 +1100,9 @@ function mapClientRow(r) {
     notes:          r.notes,
     isVip:          r.is_vip,
     convoKey:       r.convo_key || null,
+    // Saldo por cobrar (moneda base): Σ (total − cobrado) de sus pedidos con saldo
+    balance:           money2(r.balance),
+    ordersWithBalance: Number(r.orders_with_balance) || 0,
     createdAt:      r.created_at,
     updatedAt:      r.updated_at,
   };
@@ -894,10 +1110,15 @@ function mapClientRow(r) {
 
 async function dbGetClients(tenantId) {
   if (!dbReady) return [];
-  const { rows } = await pool.query(
-    'SELECT * FROM clients WHERE tenant_id = $1 ORDER BY created_at DESC',
-    [tenantId]
-  );
+  const { rows } = await pool.query(`
+    SELECT c.*, COALESCE(b.balance, 0) AS balance, COALESCE(b.n, 0) AS orders_with_balance
+    FROM clients c
+    LEFT JOIN (
+      SELECT client_id, SUM(total_price - amount_paid) AS balance, COUNT(*) AS n
+      FROM orders WHERE tenant_id = $1 AND client_id IS NOT NULL AND total_price > amount_paid
+      GROUP BY client_id
+    ) b ON b.client_id = c.id
+    WHERE c.tenant_id = $1 ORDER BY c.created_at DESC`, [tenantId]);
   return rows.map(mapClientRow);
 }
 
@@ -922,7 +1143,10 @@ async function dbUpsertClient(tenantId, data) {
     // Los pedidos de la ficha muestran su nombre actual
     await pool.query('UPDATE orders SET client_name = $1 WHERE client_id = $2 AND tenant_id = $3 AND client_name IS DISTINCT FROM $1',
       [rows[0].name, rows[0].id, tenantId]);
-    return mapClientRow(rows[0]);
+    const { rows: [bal] } = await pool.query(
+      'SELECT COALESCE(SUM(total_price - amount_paid), 0) AS balance, COUNT(*) AS orders_with_balance FROM orders WHERE tenant_id = $1 AND client_id = $2 AND total_price > amount_paid',
+      [tenantId, rows[0].id]);
+    return mapClientRow({ ...rows[0], ...bal });
   }
   const convoKey = typeof data.convoKey === 'string' && CONVO_KEY_RE.test(data.convoKey) ? data.convoKey : null;
   // Si ese chat ya tiene ficha, la nueva se guarda sin chat (nunca un error por el índice único)
@@ -1150,6 +1374,9 @@ const DEMO_ALLOWED_ROUTES = new Set([
   'GET /api/tenant/auto-reply', 'PUT /api/tenant/auto-reply',
   'GET /api/conversations', 'GET /api/conversations/:waId',
   'GET /api/orders', 'POST /api/orders', 'PATCH /api/orders/:id',
+  'GET /api/orders/:id/payments', 'POST /api/orders/:id/payments', 'POST /api/payments/:id/void',
+  'GET /api/payments', 'GET /api/orders/:id/events',
+  'GET /api/tenant/settings', 'PUT /api/tenant/settings',
   'GET /api/reports',
   'GET /api/clients', 'POST /api/clients', 'PATCH /api/clients/:id', 'DELETE /api/clients/:id',
   'GET /api/catalog', 'POST /api/catalog', 'PATCH /api/catalog/:id', 'DELETE /api/catalog/:id',
@@ -1158,7 +1385,7 @@ const DEMO_ALLOWED_ROUTES = new Set([
 ]);
 const DEMO_MAX_BODY = 1024 * 1024;
 const DEMO_ROW_LIMITS = {
-  'POST /api/orders': ['orders', 300], 'POST /api/clients': ['clients', 300], 'POST /api/catalog': ['catalog_products', 100],
+  'POST /api/orders': ['orders', 300], 'POST /api/orders/:id/payments': ['payments', 600], 'POST /api/clients': ['clients', 300], 'POST /api/catalog': ['catalog_products', 100],
   'POST /api/send': ['messages', 600], 'POST /api/send-media': ['messages', 600],
   'POST /api/send-ticket': ['messages', 600], 'POST /api/send-instagram': ['messages', 600],
 };
@@ -2055,6 +2282,199 @@ app.patch('/api/orders/:id', requireAuth, async (req, res) => {
   }
 });
 
+// ── Pagos de un pedido ────────────────────────────────────────
+
+app.get('/api/orders/:id/payments', requireAuth, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  if (!UUID_RE.test(req.params.id)) return res.status(404).json({ error: 'Pedido no encontrado' });
+  const tenantId = req.tenant.tenantId;
+  try {
+    const { rows: ord } = await pool.query('SELECT * FROM orders WHERE id = $1 AND tenant_id = $2', [req.params.id, tenantId]);
+    if (!ord[0]) return res.status(404).json({ error: 'Pedido no encontrado' });
+    const { rows } = await pool.query(
+      'SELECT * FROM payments WHERE order_id = $1 AND tenant_id = $2 ORDER BY paid_at, created_at', [req.params.id, tenantId]);
+    const o = mapOrderRow(ord[0]);
+    res.json({ payments: rows.map(mapPaymentRow), amountPaid: o.amountPaid, balance: o.balance, payStatus: o.payStatus });
+  } catch (err) { sendApiError(res, err, 'Pagos del pedido'); }
+});
+
+app.post('/api/orders/:id/payments', requireAuth, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  if (!UUID_RE.test(req.params.id)) return res.status(404).json({ error: 'Pedido no encontrado' });
+  const tenantId = req.tenant.tenantId;
+  try {
+    const out = await inTx(async (c) => {
+      const r = await addPaymentTx(c, tenantId, req.params.id, req.body);
+      return r && { payment: r.payment, order: await fetchOrderFull(c, tenantId, req.params.id) };
+    });
+    if (!out) return res.status(404).json({ error: 'Pedido no encontrado' });
+    res.json(out);
+  } catch (err) { sendApiError(res, err, 'Registrar pago'); }
+});
+
+app.post('/api/payments/:id/void', requireAuth, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  if (!UUID_RE.test(req.params.id)) return res.status(404).json({ error: 'Pago no encontrado' });
+  const tenantId = req.tenant.tenantId;
+  try {
+    const out = await inTx(async (c) => {
+      const r = await voidPaymentTx(c, tenantId, req.params.id, req.body && req.body.reason);
+      return r && { payment: r.payment, order: await fetchOrderFull(c, tenantId, r.order.id) };
+    });
+    if (!out) return res.status(404).json({ error: 'Pago no encontrado' });
+    res.json(out);
+  } catch (err) { sendApiError(res, err, 'Anular pago'); }
+});
+
+// Cobros del periodo (por día en la zona horaria del negocio). Incluye anulados (con flag `voided`);
+// los totales solo cuentan los no anulados, en moneda base.
+const PAYMENTS_LIST_LIMIT = 500;
+app.get('/api/payments', requireAuth, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  const tenantId = req.tenant.tenantId;
+  try {
+    const tz = await resolveTenantTz(tenantId, req.query.tz);
+    const { rows: [n] } = await pool.query("SELECT to_char(NOW() AT TIME ZONE $1, 'YYYY-MM-DD') AS today", [tz]);
+    const to = req.query.to ? String(req.query.to) : n.today;
+    const start = req.query.from ? String(req.query.from) : to;
+    if (!isRealDate(start) || !isRealDate(to)) return res.status(400).json({ error: 'Fechas inválidas (formato YYYY-MM-DD)' });
+    if (start > to) return res.status(400).json({ error: 'La fecha inicial debe ser anterior a la final' });
+    if ((Date.parse(to) - Date.parse(start)) / 86400000 > 366) return res.status(400).json({ error: 'El rango máximo es de un año' });
+    let method = null;
+    if (req.query.method !== undefined && req.query.method !== '') {
+      method = String(req.query.method);
+      if (method.length > 60) return res.status(400).json({ error: 'Método inválido' });
+    }
+    const endExclusive = new Date(Date.parse(to) + 86400000).toISOString().slice(0, 10);
+    const W = `p.tenant_id = $1 AND p.paid_at >= ($3::timestamp AT TIME ZONE $2) AND p.paid_at < ($4::timestamp AT TIME ZONE $2)
+               AND ($5::text IS NULL OR p.method = $5)`;
+    const P = [tenantId, tz, start, endExclusive, method];
+    const [list, totals, cnt, base] = await Promise.all([
+      pool.query(`
+        SELECT p.*, COALESCE(o.tenant_order_number, o.order_number) AS order_num, o.client_name
+        FROM payments p JOIN orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
+        WHERE ${W} ORDER BY p.paid_at DESC, p.created_at DESC LIMIT ${PAYMENTS_LIST_LIMIT + 1}`, P),
+      pool.query(`
+        SELECT p.method, COALESCE(SUM(p.amount_base), 0)::float AS total, COUNT(*)::int AS n
+        FROM payments p WHERE ${W} AND p.voided_at IS NULL GROUP BY p.method ORDER BY total DESC, p.method`, P),
+      pool.query(`SELECT COUNT(*)::int AS n FROM payments p WHERE ${W}`, P),
+      pool.query('SELECT base_currency FROM tenants WHERE id = $1', [tenantId]),
+    ]);
+    const truncated = list.rows.length > PAYMENTS_LIST_LIMIT;
+    const byMethod = totals.rows.map(r => ({ method: r.method, total: money2(r.total), count: r.n }));
+    res.json({
+      timezone: tz, from: start, to, baseCurrency: base.rows[0] ? base.rows[0].base_currency : 'USD',
+      payments: list.rows.slice(0, PAYMENTS_LIST_LIMIT).map(mapPaymentRow),
+      truncated, limit: PAYMENTS_LIST_LIMIT, totalCount: cnt.rows[0].n,
+      totals: { total: money2(byMethod.reduce((a, r) => a + r.total, 0)), count: byMethod.reduce((a, r) => a + r.count, 0), byMethod },
+    });
+  } catch (err) { sendApiError(res, err, 'Cobros'); }
+});
+
+// Historial del pedido (creado, editado, entrega, pagos…), del más antiguo al más reciente
+app.get('/api/orders/:id/events', requireAuth, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  if (!UUID_RE.test(req.params.id)) return res.status(404).json({ error: 'Pedido no encontrado' });
+  const tenantId = req.tenant.tenantId;
+  try {
+    const { rows: ord } = await pool.query('SELECT 1 FROM orders WHERE id = $1 AND tenant_id = $2', [req.params.id, tenantId]);
+    if (!ord[0]) return res.status(404).json({ error: 'Pedido no encontrado' });
+    const { rows } = await pool.query(
+      'SELECT id, type, data, created_by, created_at FROM order_events WHERE order_id = $1 AND tenant_id = $2 ORDER BY created_at, id LIMIT 500',
+      [req.params.id, tenantId]);
+    res.json({ events: rows.map(r => ({ id: r.id, type: r.type, data: r.data, createdBy: r.created_by, createdAt: r.created_at })) });
+  } catch (err) { sendApiError(res, err, 'Historial del pedido'); }
+});
+
+// ── Ajustes del negocio: métodos de pago, entrega y moneda base ──
+
+function cleanPaymentMethods(v) {
+  if (!Array.isArray(v)) throw new BadRequest('Los métodos de pago deben ser una lista');
+  if (v.length > 20) throw new BadRequest('Máximo 20 métodos de pago');
+  const seen = new Set();
+  return v.map(m => {
+    if (!m || typeof m !== 'object' || Array.isArray(m)) throw new BadRequest('Método de pago inválido');
+    const id = String(m.id ?? '').trim();
+    if (!/^[A-Za-z0-9_-]{1,40}$/.test(id)) throw new BadRequest('Método de pago: id inválido');
+    if (seen.has(id)) throw new BadRequest('Método de pago: id repetido');
+    seen.add(id);
+    const name = String(m.name ?? '').trim();
+    if (!name || name.length > 60) throw new BadRequest('Método de pago: el nombre es obligatorio (máx. 60 caracteres)');
+    if (m.enabled !== undefined && typeof m.enabled !== 'boolean') throw new BadRequest('Método de pago: "enabled" debe ser verdadero o falso');
+    const details = {};
+    if (m.details !== undefined && m.details !== null) {
+      if (typeof m.details !== 'object' || Array.isArray(m.details)) throw new BadRequest('Método de pago: detalles inválidos');
+      const entries = Object.entries(m.details);
+      if (entries.length > 12) throw new BadRequest('Método de pago: demasiados detalles');
+      for (const [k, val] of entries) {
+        if (k.length > 40 || typeof val !== 'string' || val.length > 200) throw new BadRequest('Método de pago: cada detalle es texto de hasta 200 caracteres');
+        details[k] = val;
+      }
+    }
+    return { id, name, enabled: m.enabled !== false, details };
+  });
+}
+
+function cleanDeliveryMethods(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) throw new BadRequest('Los métodos de entrega deben ser un objeto');
+  if (JSON.stringify(v).length > 10 * 1024) throw new BadRequest('Los métodos de entrega son demasiado grandes (máx. 10 KB)');
+  return v;
+}
+
+app.get('/api/tenant/settings', requireAuth, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  const tenantId = req.tenant.tenantId;
+  try {
+    const { rows } = await pool.query(`
+      SELECT t.base_currency, s.payment_methods, s.delivery_methods,
+             EXISTS (SELECT 1 FROM payments p WHERE p.tenant_id = t.id) AS has_payments
+      FROM tenants t LEFT JOIN tenant_settings s ON s.tenant_id = t.id WHERE t.id = $1`, [tenantId]);
+    const r = rows[0] || {};
+    res.json({
+      baseCurrency: r.base_currency || 'USD', paymentMethods: r.payment_methods || [], deliveryMethods: r.delivery_methods || {},
+      canChangeBaseCurrency: !r.has_payments, currencies: BASE_CURRENCIES,
+    });
+  } catch (err) { sendApiError(res, err, 'Ajustes'); }
+});
+
+app.put('/api/tenant/settings', requireAuth, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  const tenantId = req.tenant.tenantId;
+  const b = req.body && typeof req.body === 'object' ? req.body : {};
+  try {
+    const pm = b.paymentMethods !== undefined ? cleanPaymentMethods(b.paymentMethods) : null;
+    const dm = b.deliveryMethods !== undefined ? cleanDeliveryMethods(b.deliveryMethods) : null;
+    let cur = null;
+    if (b.baseCurrency !== undefined) {
+      cur = String(b.baseCurrency).trim().toUpperCase();
+      if (!BASE_CURRENCIES.includes(cur)) throw new BadRequest('Moneda base inválida');
+    }
+    if (pm === null && dm === null && cur === null) throw new BadRequest('No hay cambios para guardar');
+    const out = await inTx(async (c) => {
+      const { rows: [t] } = await c.query('SELECT base_currency FROM tenants WHERE id = $1 FOR UPDATE', [tenantId]);
+      if (cur && cur !== t.base_currency) {
+        const { rows: [has] } = await c.query('SELECT EXISTS (SELECT 1 FROM payments WHERE tenant_id = $1) AS x', [tenantId]);
+        if (has.x) throw new BadRequest('No se puede cambiar la moneda base: ya hay pagos registrados');
+        await c.query('UPDATE tenants SET base_currency = $1 WHERE id = $2', [cur, tenantId]);
+      }
+      const { rows: [s] } = await c.query(`
+        INSERT INTO tenant_settings (tenant_id, payment_methods, delivery_methods)
+        VALUES ($1, COALESCE($2::jsonb, '[]'::jsonb), COALESCE($3::jsonb, '{}'::jsonb))
+        ON CONFLICT (tenant_id) DO UPDATE SET
+          payment_methods  = COALESCE($2::jsonb, tenant_settings.payment_methods),
+          delivery_methods = COALESCE($3::jsonb, tenant_settings.delivery_methods),
+          updated_at = now()
+        RETURNING payment_methods, delivery_methods`,
+        [tenantId, pm === null ? null : JSON.stringify(pm), dm === null ? null : JSON.stringify(dm)]);
+      const { rows: [has] } = await c.query('SELECT EXISTS (SELECT 1 FROM payments WHERE tenant_id = $1) AS x', [tenantId]);
+      return { baseCurrency: cur || t.base_currency, paymentMethods: s.payment_methods, deliveryMethods: s.delivery_methods,
+        canChangeBaseCurrency: !has.x, currencies: BASE_CURRENCIES };
+    });
+    res.json(out);
+  } catch (err) { sendApiError(res, err, 'Guardar ajustes'); }
+});
+
+
 // ══════════════════════════════════════════════════════════════
 // API — Reports
 // ══════════════════════════════════════════════════════════════
@@ -2177,7 +2597,15 @@ app.get('/api/reports', requireAuth, async (req, res) => {
     const { kind, buckets } = reportBuckets(period, now, from, to);
     const bucketFmt = { hour: 'YYYY-MM-DD"T"HH24', day: 'YYYY-MM-DD', month: 'YYYY-MM' }[kind];
 
-    const [kpi, pays, tops, encRows, series, newCli] = await Promise.all([
+    // Cobros reales: pagos no anulados cuya FECHA DE PAGO cae en el periodo (zona del negocio), en moneda base
+    const cobros = pool.query(`
+      SELECT p.method, COALESCE(SUM(p.amount_base), 0)::float AS total
+      FROM payments p JOIN orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
+      WHERE p.tenant_id = $1 AND p.voided_at IS NULL
+        AND p.paid_at >= ($3::timestamp AT TIME ZONE $2) AND ($4::timestamp IS NULL OR p.paid_at < ($4::timestamp AT TIME ZONE $2))
+        AND ${canalCond}
+      GROUP BY p.method ORDER BY total DESC, p.method`, P);
+    const [kpi, pays, tops, encRows, series, newCli, cobrosRows] = await Promise.all([
       pool.query(`
         SELECT COALESCE(SUM(o.total_price), 0)::float AS ventas,
                COUNT(*)::int AS pedidos,
@@ -2218,6 +2646,7 @@ app.get('/api/reports', requireAuth, async (req, res) => {
       pool.query(`
         SELECT COUNT(*)::int AS n FROM clients c
         WHERE c.tenant_id = $1 AND ${inPeriod('c.created_at')} AND ($5 = 'todos' OR c.channel = $5)`, P),
+      cobros,
     ]);
 
     const k = kpi.rows[0];
@@ -2236,6 +2665,8 @@ app.get('/api/reports', requireAuth, async (req, res) => {
       timezone: tz,
       period, canal, from: startLocal, to: endExclusive ? to : ymd,
       ventas: money(k.ventas),
+      cobrado: money(cobrosRows.rows.reduce((a, r) => a + r.total, 0)),
+      cobrosPorMetodo: cobrosRows.rows.map(r => [r.method, money(r.total)]),
       pedidos: k.pedidos,
       entregados: k.entregados,
       pendientes: k.pendientes,
