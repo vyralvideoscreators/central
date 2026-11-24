@@ -530,6 +530,10 @@
   }
   .op-ok { background: var(--green-dim); color: var(--green); }
   .op-pend { background: var(--yellow-dim); color: var(--yellow); }
+  .op-part { background: var(--yellow-dim); color: var(--yellow); line-height: 1.25; }
+  .op-part small { display: block; font-size: 9.5px; font-weight: 600; opacity: .85; }
+  .or-pay.clickable { cursor: pointer; }
+  .or-pay.clickable:hover { filter: brightness(1.2); }
 
   /* DELIVERY STATUS BADGE */
   .del-badge {
@@ -1388,6 +1392,7 @@
   .cc-tag.vip { background: rgba(245,200,66,0.15); color: var(--yellow); }
   .cc-tag.new { background: var(--accent-glow); color: var(--accent2); }
   .cc-tag.recurrent { background: var(--green-dim); color: var(--green); }
+  .cc-tag.debt { background: var(--red-dim); color: var(--red); }
 
   /* ── CLIENT PROFILE MODAL ── */
   .profile-overlay {
@@ -1931,6 +1936,56 @@
   .pag-stats { width: 100%; max-width: 720px; margin-bottom: 12px; text-align: left; }
   .pag-wip-title { font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 800; }
   .pag-wip-sub { font-size: 13px; color: var(--text2); line-height: 1.6; max-width: 420px; }
+  /* Pagos: registro de cobros */
+  .pagr-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 16px 26px 24px; }
+  .pagr-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; }
+  .pagr-card-title { font-size: 13px; font-weight: 700; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .pagr-card-title small { font-size: 11px; color: var(--text3); font-weight: 500; }
+  .pagr-method { display: grid; grid-template-columns: 130px 1fr auto; gap: 12px; align-items: center; padding: 5px 0; font-size: 12.5px; }
+  .pagr-bar { height: 8px; border-radius: 4px; background: var(--surface3); overflow: hidden; }
+  .pagr-bar > div { height: 100%; background: var(--accent); border-radius: 4px; }
+  .pagr-row { display: grid; grid-template-columns: 112px 64px minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr) 110px; gap: 12px; align-items: center; padding: 10px 6px; border-top: 1px solid var(--border); font-size: 12.5px; cursor: pointer; border-radius: 8px; }
+  .pagr-row:hover { background: var(--surface2); }
+  .pagr-row.head { cursor: default; font-size: 10.5px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: .6px; border-top: none; padding-top: 0; }
+  .pagr-row.head:hover { background: none; }
+  .pagr-row > div { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pagr-row .amt { text-align: right; font-weight: 700; color: var(--green); }
+  .pagr-row.voided > div { text-decoration: line-through; opacity: .55; }
+  .pagr-row.voided .amt { color: var(--text3); }
+  .pagr-sub { font-size: 10.5px; color: var(--text3); font-weight: 500; }
+  .pagr-notice { background: var(--yellow-dim); color: var(--yellow); border-radius: 10px; padding: 9px 12px; font-size: 12px; font-weight: 600; }
+  .pagr-empty { text-align: center; padding: 28px 10px; font-size: 13px; color: var(--text3); }
+  .pagr-filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 26px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; }
+  /* Detalle del pedido: cobro e historial */
+  .odm-cobro-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .odm-cobro-tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .odm-cobro-tile .k { font-size: 10.5px; color: var(--text3); font-weight: 600; margin-bottom: 3px; }
+  .odm-cobro-tile .v { font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 800; }
+  .odm-pay-item { display: flex; align-items: center; gap: 10px; padding: 9px 2px; border-top: 1px solid var(--border); }
+  .odm-pay-item:first-child { border-top: none; }
+  .odm-pay-item .opi-main { flex: 1; min-width: 0; }
+  .odm-pay-item .opi-title { font-size: 12.5px; font-weight: 600; }
+  .odm-pay-item .opi-sub { font-size: 11px; color: var(--text3); margin-top: 1px; overflow-wrap: anywhere; }
+  .odm-pay-item .opi-amt { text-align: right; font-size: 13px; font-weight: 700; color: var(--green); flex-shrink: 0; }
+  .odm-pay-item .opi-amt small { display: block; font-size: 10.5px; font-weight: 500; color: var(--text3); }
+  .odm-pay-item.voided .opi-title, .odm-pay-item.voided .opi-amt { text-decoration: line-through; opacity: .6; }
+  .odm-pay-item.voided .opi-amt { color: var(--text3); }
+  .odm-pay-void { font-size: 11px; padding: 4px 9px; }
+  .odm-hist-toggle { display: flex; align-items: center; justify-content: space-between; cursor: pointer; font-size: 9.5px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: 0.8px; }
+  .odm-hist-toggle svg { width: 12px; height: 12px; transition: transform .2s; }
+  .odm-hist-toggle.open svg { transform: rotate(180deg); }
+  .odm-hist-item { display: flex; gap: 12px; padding: 7px 0; border-top: 1px solid var(--border); font-size: 12.5px; }
+  .odm-hist-item:first-child { border-top: none; }
+  .odm-hist-item .t { width: 104px; flex-shrink: 0; font-size: 11px; color: var(--text3); padding-top: 1px; }
+  .odm-hist-item .x { flex: 1; min-width: 0; color: var(--text2); line-height: 1.5; overflow-wrap: anywhere; }
+  .inf-kpi-row.k5 { grid-template-columns: repeat(5, 1fr); }
+  /* Ventana de registrar pago */
+  .pd-hint { font-size: 11.5px; color: var(--text3); margin-top: 4px; min-height: 14px; }
+  .pd-balance { display: flex; align-items: center; justify-content: space-between; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 9px 12px; margin: 10px 0 12px; font-size: 12.5px; color: var(--text2); }
+  .pd-balance b { font-family: 'Syne', sans-serif; font-size: 16px; color: var(--yellow); }
+  .cobro-box { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-top: 10px; }
+  .cobro-box .form-row { margin-top: 8px; }
+  .cobro-box .form-input { padding: 7px 9px; font-size: 12.5px; }
   .pag-kpi-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; }
   .pag-kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; position: relative; overflow: hidden; }
   .pag-kpi-accent { border-left: 3px solid var(--green); }
@@ -2231,6 +2286,7 @@
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg> WhatsApp
               </span>
               <span id="chatOnline"></span>
+              <span class="cc-tag debt" id="chatDebt" style="display:none;margin-left:6px;"></span>
             </div>
           </div>
           <div class="chat-actions">
@@ -2341,6 +2397,25 @@
             </div>
             <div class="total-row" id="opDiscountRow" style="display:none;"><span>Descuento</span><span id="opDiscountVal" style="color:var(--red);">—</span></div>
             <div class="total-row grand"><span>Total</span><span class="val" id="opTotal">—</span></div>
+          </div>
+
+          <!-- cobro al crear -->
+          <div class="section" style="flex-shrink:0;">
+            <div class="cobro-box">
+      <div class="form-label" style="margin-bottom:6px;">Cobro al crear</div>
+      <select class="form-input" id="opCobroMode" onchange="onCobroModeChange('op')">
+        <option value="none">Sin cobro</option>
+        <option value="full">Pagó completo</option>
+        <option value="partial">Dejó un abono de…</option>
+      </select>
+      <div id="opCobroFields" style="display:none;">
+        <div class="form-row">
+          <div class="form-field" id="opCobroAmtField"><div class="form-label">Monto</div><input class="form-input" id="opCobroAmt" type="number" min="0" step="0.01" placeholder="0.00"></div>
+          <div class="form-field"><div class="form-label">Método</div><select class="form-input" id="opCobroMethod"></select></div>
+        </div>
+        <div class="form-field" style="margin-top:8px;"><div class="form-label">Referencia (opcional)</div><input class="form-input" id="opCobroRef" maxlength="80" placeholder="Nº de referencia o comprobante" autocomplete="off"></div>
+      </div>
+    </div>
           </div>
 
           <!-- dirección -->
@@ -2647,17 +2722,35 @@
           <div style="font-size:12px;color:var(--text2);margin-top:2px;">Registro de cobros y abonos</div>
         </div>
       </div>
-      <div class="pag-wip">
-        <div class="stats-row pag-stats">
-          <div class="stat-card"><div class="stat-label">Cobrado</div><div class="stat-val" id="pagCobrado">$0.00</div><div class="stat-change" id="pagCobradoN">0 pedidos</div></div>
-          <div class="stat-card"><div class="stat-label">Por cobrar</div><div class="stat-val" id="pagPorCobrar">$0.00</div><div class="stat-change sc-warn" id="pagPorCobrarN">0 pedidos</div></div>
-          <div class="stat-card"><div class="stat-label">Entregados sin cobrar</div><div class="stat-val" id="pagEntregadoSin">0</div><div class="stat-change sc-red">Revisar</div></div>
+      <div class="pagr-filters">
+        <span style="font-size:11px;font-weight:700;color:var(--text3);">PERÍODO</span>
+        <div class="inf-filter-group" id="pagPeriodBtns">
+          <div class="inf-filter-btn active" onclick="setPagPeriod('hoy',this)">Hoy</div>
+          <div class="inf-filter-btn" onclick="setPagPeriod('ayer',this)">Ayer</div>
+          <div class="inf-filter-btn" onclick="setPagPeriod('7dias',this)">7 días</div>
+          <div class="inf-filter-btn" onclick="setPagPeriod('mes',this)">Este mes</div>
+          <div class="inf-filter-btn" id="pagRangeBtn" onclick="setPagPeriod('rango',this)">Rango</div>
         </div>
-        <div class="pag-wip-icon"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M11.42 15.17 17.25 21A2.652 2.652 0 0 0 21 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 1 1-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 0 0 4.486-6.336l-3.276 3.277a3.004 3.004 0 0 1-2.25-2.25l3.276-3.276a4.5 4.5 0 0 0-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085"/></svg></div>
-        <div class="pag-wip-title">Registro de cobros en construcción</div>
-        <div class="pag-wip-sub">Aquí llevarás el registro de los cobros y abonos de tus pedidos: quién pagó, cuánto y cuánto falta por cobrar. Estará disponible pronto.</div>
-        <div class="pag-wip-sub">Mientras tanto, marca cada pedido como cobrado o pendiente desde la vista Pedidos.</div>
-        <button class="btn-primary" onclick="goView('pedidos')">Ir a Pedidos</button>
+        <div id="pagRangeBox" style="display:none;align-items:center;gap:6px;">
+          <input type="date" id="pagDateFrom" class="form-input" style="padding:6px 9px;font-size:12px;width:140px;">
+          <span style="color:var(--text3);">→</span>
+          <input type="date" id="pagDateTo" class="form-input" style="padding:6px 9px;font-size:12px;width:140px;">
+          <button class="btn-primary" style="padding:6px 12px;font-size:12px;" onclick="applyPagRange()">Aplicar</button>
+        </div>
+        <div class="inf-divider"></div>
+        <span style="font-size:11px;font-weight:700;color:var(--text3);">MÉTODO</span>
+        <select class="form-input" id="pagMethodSel" style="padding:6px 10px;font-size:12px;width:auto;min-width:140px;" onchange="setPagMethod(this.value)">
+          <option value="">Todos</option>
+        </select>
+      </div>
+      <div class="stats-row" id="pagStats">
+        <div class="stat-card"><div class="stat-label">Cobrado del período</div><div class="stat-val" id="pagCobrado">$0.00</div><div class="stat-change" id="pagCobradoN">—</div></div>
+        <div class="stat-card"><div class="stat-label">Nº de pagos</div><div class="stat-val" id="pagCount">0</div><div class="stat-change" id="pagCountN">—</div></div>
+        <div class="stat-card"><div class="stat-label">Por cobrar total</div><div class="stat-val" id="pagPorCobrar">$0.00</div><div class="stat-change sc-warn" id="pagPorCobrarN">0 pedidos</div></div>
+        <div class="stat-card"><div class="stat-label">Entregados sin cobrar</div><div class="stat-val" id="pagEntregadoSin">0</div><div class="stat-change sc-red">Revisar</div></div>
+      </div>
+      <div class="pagr-body" id="pagrBody">
+        <div class="pagr-card"><div class="pagr-empty">Cargando pagos…</div></div>
       </div>
     </div>
     <!-- / PAGOS VIEW -->
@@ -3093,6 +3186,21 @@
     </div>
     <div class="form-field"><div class="form-label">Dirección de entrega</div><input class="form-input" id="noAddress" placeholder="Dirección completa..." type="text"></div>
     <div class="form-field"><div class="form-label">Notas / Descripción</div><input class="form-input" id="noNotes" placeholder="Instrucciones especiales..." type="text"></div>
+    <div class="form-field"><div class="cobro-box">
+      <div class="form-label" style="margin-bottom:6px;">Cobro al crear</div>
+      <select class="form-input" id="noCobroMode" onchange="onCobroModeChange('no')">
+        <option value="none">Sin cobro</option>
+        <option value="full">Pagó completo</option>
+        <option value="partial">Dejó un abono de…</option>
+      </select>
+      <div id="noCobroFields" style="display:none;">
+        <div class="form-row">
+          <div class="form-field" id="noCobroAmtField"><div class="form-label">Monto</div><input class="form-input" id="noCobroAmt" type="number" min="0" step="0.01" placeholder="0.00"></div>
+          <div class="form-field"><div class="form-label">Método</div><select class="form-input" id="noCobroMethod"></select></div>
+        </div>
+        <div class="form-field" style="margin-top:8px;"><div class="form-label">Referencia (opcional)</div><input class="form-input" id="noCobroRef" maxlength="80" placeholder="Nº de referencia o comprobante" autocomplete="off"></div>
+      </div>
+    </div></div>
 
     <div class="modal-footer">
       <button class="btn-ghost" onclick="closeNewOrderModal()">Cancelar</button>
@@ -3547,6 +3655,31 @@
           </div>
         </div>
 
+        <!-- Cobro -->
+        <div class="odm-card full">
+          <div class="odm-card-label" style="justify-content:space-between;">
+            <span style="display:flex;align-items:center;gap:6px;">
+              <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              Cobro
+            </span>
+          </div>
+          <div class="odm-cobro-row">
+            <div class="odm-cobro-tile"><div class="k">Total</div><div class="v" id="odmCobTotal">—</div></div>
+            <div class="odm-cobro-tile"><div class="k">Cobrado</div><div class="v" id="odmCobPaid" style="color:var(--green);">—</div></div>
+            <div class="odm-cobro-tile"><div class="k">Saldo</div><div class="v" id="odmCobBalance">—</div></div>
+          </div>
+          <div id="odmPayList" style="margin-top:10px;"></div>
+        </div>
+
+        <!-- Historial -->
+        <div class="odm-card full">
+          <div class="odm-card-label odm-hist-toggle" id="odmHistToggle" onclick="toggleOrderHistory()" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleOrderHistory();}" aria-expanded="false" style="margin-bottom:0;">
+            <span>Historial</span>
+            <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
+          </div>
+          <div id="odmHistBody" style="display:none;margin-top:10px;"></div>
+        </div>
+
         <!-- Notas -->
         <div class="odm-card full">
           <div class="odm-card-label">
@@ -3565,9 +3698,9 @@
         <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="width:13px;height:13px"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12"/></svg>
         Cambiar estado entrega
       </div>
-      <button class="btn-ghost" onclick="toggleOrderPay()">
+      <button class="btn-ghost" id="odmRegPayBtn" onclick="openPaymentDialog(currentDetailId)" style="color:var(--green);border-color:rgba(34,211,160,0.3);">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:13px;height:13px"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z"/></svg>
-        Marcar pago
+        Registrar pago
       </button>
       <button class="btn-ghost" onclick="openOrderEdit()">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:13px;height:13px"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"/></svg>
@@ -3866,22 +3999,7 @@ function goView(v) {
   if (v === 'ajustes')  { document.getElementById('nav-ajustes').classList.add('active'); switchSettings('perfil', document.querySelector('.ssn-item')); }
   if (v === 'clientes') { document.getElementById('nav-clientes').classList.add('active'); renderClients(); }
   if (v === 'informes') { document.getElementById('nav-informes').classList.add('active'); renderInforme('ventas'); }
-  if (v === 'pagos')    { document.getElementById('nav-pagos').classList.add('active'); renderPagosResumen(); }
-}
-
-// Pagos: resumen de cobros a partir de los pedidos (estado cobrado / pendiente)
-function renderPagosResumen() {
-  const money = o => parseFloat(String(o.price || '').replace(/[^0-9.]/g, '')) || 0;
-  let cob = 0, cobN = 0, pend = 0, pendN = 0, entSin = 0;
-  orders.forEach(o => {
-    if (o.pay === 'ok') { cob += money(o); cobN++; }
-    else { pend += money(o); pendN++; if (o.delivery === 'delivered') entSin++; }
-  });
-  const set = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
-  const n = k => k + (k === 1 ? ' pedido' : ' pedidos');
-  set('pagCobrado', '$' + cob.toFixed(2)); set('pagCobradoN', n(cobN));
-  set('pagPorCobrar', '$' + pend.toFixed(2)); set('pagPorCobrarN', n(pendN));
-  set('pagEntregadoSin', String(entSin));
+  if (v === 'pagos')    { document.getElementById('nav-pagos').classList.add('active'); loadPagos(); }
 }
 
 // ─── CONVERSATIONS ────────────────────────────────────────────
@@ -4021,6 +4139,7 @@ function loadChat(key) {
   document.getElementById('chatOnline').textContent = c.online;
   document.getElementById('chatAvatar').textContent = c.initials;
   document.getElementById('chatAvatar').style.background = c.avatarGrad;
+  updateChatDebt();
 
   // platform tag
   const tag = document.getElementById('chatPlatformTag');
@@ -4268,6 +4387,550 @@ async function sendFile(input) {
   }
 }
 
+// ─── PAGOS (Fase 2): registrar pagos, saldo, historial, ajustes de cobro ───
+const fmtMoney = n => '$' + (Number(n) || 0).toFixed(2);
+const PAY_METHOD_NAMES = { pagoMovil:'Pago Móvil', zelle:'Zelle', binance:'Binance', efectivo:'Efectivo', transferencia:'Transferencia', divisas:'Divisas' };
+const BASIC_PAY_METHODS = ['Efectivo', 'Zelle', 'Pago Móvil', 'Transferencia', 'Binance', 'Otro'];
+// Ajustes del negocio que guarda el servidor (métodos de pago, entrega, moneda base)
+let tenantSettings = null;
+
+function baseCurrency() { return (tenantSettings && tenantSettings.baseCurrency) || 'USD'; }
+// Métodos que se ofrecen al registrar un pago: los activos en Ajustes; si no hay, la lista básica
+function payMethodNames() {
+  const list = tenantSettings && Array.isArray(tenantSettings.paymentMethods) ? tenantSettings.paymentMethods : [];
+  const names = list.filter(m => m && m.enabled !== false && m.name).map(m => String(m.name));
+  return names.length ? names : BASIC_PAY_METHODS.slice();
+}
+function todayLocalIso() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function fmtWhen(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return '—';
+  return d.toLocaleDateString('es-VE', { day: '2-digit', month: 'short' }) + ' ' + d.toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' });
+}
+
+// Convierte lo que antes guardaba el navegador (central_pagos) al formato del servidor
+function legacyPayToList(saved) {
+  return PAY_GRID_META.map(m => {
+    const s = saved[m.id] || {};
+    const data = Object.assign({}, (PAY_DEFAULTS[m.id] || {}).data || {}, s.data || {});
+    const details = {};
+    Object.keys(data).forEach(k => { if (typeof data[k] === 'string') details[k] = data[k].slice(0, 200); });
+    return { id: m.id, name: PAY_METHOD_NAMES[m.id] || m.label, enabled: s.on !== undefined ? !!s.on : m.defOn, details };
+  });
+}
+
+// Una sola vez por navegador: si el servidor aún no tiene ajustes y este navegador sí, los sube y los borra de aquí
+async function migrateLocalSettings() {
+  const read = k => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } };
+  const rawPay = read('central_pagos'), rawDel = read('central_delivery');
+  const body = {}, migrated = [];
+  const noPay = !Array.isArray(tenantSettings.paymentMethods) || !tenantSettings.paymentMethods.length;
+  const noDel = !tenantSettings.deliveryMethods || !Object.keys(tenantSettings.deliveryMethods).length;
+  const isFull = v => v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length;
+  if (isFull(rawPay) && noPay) { body.paymentMethods = legacyPayToList(rawPay); migrated.push('central_pagos'); }
+  if (isFull(rawDel) && noDel) { body.deliveryMethods = rawDel; migrated.push('central_delivery'); }
+  if (!migrated.length) return;
+  try {
+    tenantSettings = await apiJson('PUT', '/api/tenant/settings', body);
+    migrated.forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+  } catch (err) {
+    showToast('⚠ No se pudieron subir tus ajustes de pago y entrega guardados en este navegador (' + err.message + '). Se reintentará al recargar.', 'error');
+  }
+}
+
+// Vuelve a pintar el panel de Ajustes abierto si es uno de los que dependen de estos ajustes
+function rerenderSettingsPanel() {
+  const p = window._settingsPanel;
+  const el = document.getElementById('settingsContent');
+  if (el && (p === 'pagos' || p === 'entrega') && settingsPanels[p] && document.getElementById('v-ajustes')?.classList.contains('active')) el.innerHTML = settingsPanels[p]();
+}
+
+async function loadTenantSettings() {
+  try {
+    tenantSettings = await apiJson('GET', '/api/tenant/settings');
+    await migrateLocalSettings();
+    try { renderPayGrids(); renderDeliveryOpts(); } catch (e) {}
+    rerenderSettingsPanel();
+    return true;
+  } catch (err) {
+    console.warn('No se pudieron cargar los ajustes:', err.message);
+    notifyLoadError('los ajustes de cobro y entrega');
+    return false;
+  }
+}
+
+// Lista completa de métodos (los conocidos + los que ya tenga el servidor) con su estado actual
+function effectivePayList() {
+  const cur = (tenantSettings && Array.isArray(tenantSettings.paymentMethods)) ? tenantSettings.paymentMethods : [];
+  const byId = {};
+  cur.forEach(m => { byId[m.id] = m; });
+  const out = PAY_GRID_META.map(m => {
+    const c = byId[m.id];
+    return { id: m.id, name: (c && c.name) || PAY_METHOD_NAMES[m.id] || m.label, enabled: c ? c.enabled !== false : m.defOn, details: Object.assign({}, c && c.details) };
+  });
+  cur.forEach(m => { if (!PAY_GRID_META.some(g => g.id === m.id)) out.push({ id: m.id, name: m.name, enabled: m.enabled !== false, details: Object.assign({}, m.details) }); });
+  return out;
+}
+async function savePayMethods(list) {
+  try {
+    const s = await apiJson('PUT', '/api/tenant/settings', { paymentMethods: list });
+    tenantSettings = Object.assign({}, tenantSettings, s);
+    return true;
+  } catch (err) {
+    showToast('⚠ No se guardó el método de pago (' + err.message + ')');
+    return false;
+  }
+}
+
+let _baseCurBusy = false;
+async function changeBaseCurrency(sel) {
+  if (_baseCurBusy) return;
+  _baseCurBusy = true; sel.disabled = true;
+  try {
+    tenantSettings = Object.assign({}, tenantSettings, await apiJson('PUT', '/api/tenant/settings', { baseCurrency: sel.value }));
+    showToast('Moneda base: ' + sel.value + ' ✓');
+  } catch (err) {
+    showToast('⚠ No se cambió la moneda base (' + err.message + ')');
+  } finally {
+    _baseCurBusy = false;
+    rerenderSettingsPanel();
+  }
+}
+
+// ── Qué se refresca cuando cambia el cobro de un pedido ──
+function refreshAfterOrderChange(id) {
+  renderOrders();
+  const det = document.getElementById('orderDetailOverlay');
+  if (currentDetailId === id && det && det.classList.contains('visible')) openOrderDetail(id);
+  if (document.getElementById('v-pagos')?.classList.contains('active')) loadPagos();
+  if (document.getElementById('v-clientes')?.classList.contains('active')) renderClients();
+  const hist = document.getElementById('op-history');
+  if (convos[currentConvo] && hist && hist.style.display === 'flex') showConvoHistory(currentConvo);
+}
+
+// Saldo que debe cada cliente, a partir de los pedidos cargados ({ idDeFicha: saldo })
+function clientBalanceMap() {
+  const m = {};
+  orders.forEach(o => { if (o.clientId && o.balance > 0) m[o.clientId] = (m[o.clientId] || 0) + o.balance; });
+  return m;
+}
+function updateChatDebt() {
+  const el = document.getElementById('chatDebt');
+  if (!el) return;
+  const c = convos[currentConvo];
+  const cl = c && findClientForConvo(c);
+  const debt = cl ? (clientBalanceMap()[cl.id] || 0) : 0;
+  if (debt > 0.004) { el.textContent = 'Debe ' + fmtMoney(debt); el.style.display = ''; }
+  else el.style.display = 'none';
+}
+
+// ── Ventana "Registrar pago" ──
+function openPaymentDialog(orderId) {
+  const o = orders.find(x => x.id === orderId);
+  if (!o) return Promise.resolve(false);
+  const realId = orderRealIds[orderId];
+  if (!realId) { showToast('⚠ El pedido ' + orderId + ' no está guardado en el servidor', 'error'); return Promise.resolve(false); }
+  if (!(o.total > 0)) { showToast('El pedido no tiene monto por cobrar', 'error'); return Promise.resolve(false); }
+  if (!(o.balance > 0.004)) { showToast('El pedido ya está cobrado por completo'); return Promise.resolve(false); }
+  return new Promise(async resolve => {
+    if (!tenantSettings) await loadTenantSettings(); // sin ajustes se usan los métodos básicos y la moneda USD
+    const base = baseCurrency();
+    const currencies = (tenantSettings && tenantSettings.currencies && tenantSettings.currencies.length) ? tenantSettings.currencies : [base];
+    const curList = [base].concat(currencies.filter(c => c !== base));
+    const today = todayLocalIso();
+    let busy = false, done = false;
+    const finish = v => { if (done) return; done = true; d.close(); resolve(v); };
+    const d = _openDialog(
+      '<div class="modal-title">Registrar pago</div>' +
+      '<div class="modal-sub">Pedido ' + escHtml(o.id) + ' · ' + escHtml(o.client) + '</div>' +
+      '<div class="pd-balance"><span>Saldo pendiente</span><b>' + fmtMoney(o.balance) + '</b></div>' +
+      '<div class="form-row">' +
+        '<div class="form-field"><div class="form-label">Monto</div><input class="form-input" data-f="amount" type="number" min="0" step="0.01" inputmode="decimal" value="' + o.balance.toFixed(2) + '"></div>' +
+        '<div class="form-field"><div class="form-label">Método</div><select class="form-input" data-f="method">' + payMethodNames().map(n => '<option value="' + escHtml(n) + '">' + escHtml(n) + '</option>').join('') + '</select></div>' +
+      '</div>' +
+      '<div class="form-row">' +
+        '<div class="form-field"' + (curList.length > 1 ? '' : ' style="display:none"') + '><div class="form-label">Moneda</div><select class="form-input" data-f="currency">' + curList.map(c => '<option value="' + escHtml(c) + '">' + escHtml(c) + '</option>').join('') + '</select></div>' +
+        '<div class="form-field" data-rate-field style="display:none;"><div class="form-label" data-rate-label>Tasa</div><input class="form-input" data-f="rate" type="number" min="0" step="any" inputmode="decimal" placeholder="Ej: 36.50"></div>' +
+      '</div>' +
+      '<div class="pd-hint" data-hint></div>' +
+      '<div class="form-row">' +
+        '<div class="form-field"><div class="form-label">Referencia</div><input class="form-input" data-f="reference" maxlength="80" autocomplete="off" placeholder="Opcional"></div>' +
+        '<div class="form-field"><div class="form-label">Fecha</div><input class="form-input" data-f="date" type="date" max="' + today + '" value="' + today + '"></div>' +
+      '</div>' +
+      '<div class="form-field"><div class="form-label">Nota</div><input class="form-input" data-f="note" maxlength="300" autocomplete="off" placeholder="Opcional"></div>' +
+      '<div class="dlg-error" data-err></div>' +
+      '<div class="modal-footer"><button class="btn-ghost" data-act="no">Cancelar</button><button class="btn-primary" data-act="yes">Registrar pago</button></div>',
+      () => { if (!busy) finish(false); }, '[data-f="amount"]');
+    const q = k => d.ov.querySelector('[data-f="' + k + '"]');
+    const err = d.ov.querySelector('[data-err]'), yes = d.ov.querySelector('[data-act="yes"]'), no = d.ov.querySelector('[data-act="no"]');
+    const hint = d.ov.querySelector('[data-hint]');
+    const rateField = d.ov.querySelector('[data-rate-field]');
+    const updateHint = () => {
+      const amount = parseFloat(q('amount').value), cur = q('currency').value;
+      const foreign = cur !== base;
+      rateField.style.display = foreign ? '' : 'none';
+      d.ov.querySelector('[data-rate-label]').textContent = 'Tasa (' + cur + ' por 1 ' + base + ')';
+      if (!(amount > 0)) { hint.textContent = ''; return; }
+      let inBase = amount;
+      if (foreign) {
+        const rate = parseFloat(q('rate').value);
+        if (!(rate > 0)) { hint.textContent = 'Indica la tasa para ver el equivalente en ' + base; return; }
+        inBase = Math.round(amount / rate * 100) / 100;
+      }
+      const left = _round2(o.balance - inBase);
+      hint.textContent = (foreign ? 'Equivale a ' + fmtMoney(inBase) + ' ' + base + ' · ' : '') +
+        (left > 0.004 ? 'Quedará un saldo de ' + fmtMoney(left) : left < -0.004 ? 'Supera el saldo en ' + fmtMoney(-left) : 'Saldará el pedido');
+    };
+    q('currency').addEventListener('change', () => { if (q('currency').value !== base) q('amount').value = ''; else if (!q('amount').value) q('amount').value = o.balance.toFixed(2); updateHint(); });
+    ['amount', 'rate'].forEach(k => q(k).addEventListener('input', updateHint));
+    updateHint();
+    const submit = async () => {
+      if (busy) return;
+      err.textContent = '';
+      const amount = parseFloat(q('amount').value);
+      if (!(amount > 0)) { err.textContent = 'Escribe un monto mayor que 0'; return; }
+      const method = q('method').value;
+      if (!method) { err.textContent = 'Elige el método de pago'; return; }
+      const body = { amount, method };
+      const cur = q('currency').value;
+      if (cur && cur !== base) {
+        const rate = parseFloat(q('rate').value);
+        if (!(rate > 0)) { err.textContent = 'Indica la tasa de cambio (mayor que 0)'; return; }
+        body.currency = cur; body.exchangeRate = rate;
+      }
+      const ref = q('reference').value.trim(), note = q('note').value.trim(), date = q('date').value;
+      if (ref) body.reference = ref;
+      if (note) body.note = note;
+      if (date && date !== today) body.paidAt = date; // hoy: el servidor pone la hora actual
+      busy = true; yes.disabled = true; no.disabled = true;
+      try {
+        const r = await apiJson('POST', '/api/orders/' + realId + '/payments', body);
+        if (!r || !r.order) throw new Error('respuesta inesperada del servidor');
+        storeServerOrder(r.order, 'replace');
+        if (tenantSettings) tenantSettings.canChangeBaseCurrency = false; // con un pago registrado la moneda base queda fija
+        finish(true);
+        refreshAfterOrderChange(orderId);
+        showToast('Pago registrado ✓');
+      } catch (e) {
+        err.textContent = (e && e.message) || 'No se pudo registrar el pago';
+        busy = false; yes.disabled = false; no.disabled = false;
+      }
+    };
+    no.onclick = () => { if (!busy) finish(false); };
+    yes.onclick = submit;
+    d.ov.querySelectorAll('input').forEach(i => i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }));
+  });
+}
+
+// ── Anular un pago ──
+async function voidPayment(paymentId) {
+  const p = _odmPayments.find(x => x.id === paymentId);
+  const orderId = currentDetailId;
+  if (!p || p.voided || !orderId) return;
+  const yes = await askConfirm({
+    title: '¿Anular este pago?',
+    text: 'Se quitarán ' + fmtMoney(p.amountBase) + ' (' + p.method + ') de lo cobrado en ' + orderId + '. El pago queda en el historial como anulado.',
+    confirmLabel: 'Continuar', danger: true,
+  });
+  if (!yes) return;
+  const ok = await openFormDialog({
+    title: 'Motivo de la anulación',
+    sub: 'Escribe por qué se anula este pago. Queda registrado en el historial.',
+    confirmLabel: 'Anular pago',
+    fields: [{ id: 'reason', label: 'Motivo', placeholder: 'Ej: referencia equivocada' }],
+    onSubmit: async v => {
+      const reason = (v.reason || '').trim();
+      if (!reason) throw new Error('Escribe el motivo de la anulación');
+      const r = await apiJson('POST', '/api/payments/' + encodeURIComponent(paymentId) + '/void', { reason });
+      if (!r || !r.order) throw new Error('respuesta inesperada del servidor');
+      storeServerOrder(r.order, 'replace');
+    },
+  });
+  if (ok) { refreshAfterOrderChange(orderId); showToast('Pago anulado'); }
+}
+
+// ── Detalle del pedido: lista de pagos ──
+let _odmPaySeq = 0, _odmPayments = [];
+async function loadOrderPayments(orderId) {
+  const box = document.getElementById('odmPayList');
+  if (!box) return;
+  const realId = orderRealIds[orderId];
+  const seq = ++_odmPaySeq;
+  _odmPayments = [];
+  if (!realId) { box.innerHTML = ''; return; }
+  box.innerHTML = '<div class="pagr-empty" style="padding:10px;">Cargando pagos…</div>';
+  try {
+    const r = await apiJson('GET', '/api/orders/' + encodeURIComponent(realId) + '/payments');
+    if (seq !== _odmPaySeq || currentDetailId !== orderId) return;
+    _odmPayments = r.payments || [];
+    renderOrderPayments();
+  } catch (err) {
+    if (seq !== _odmPaySeq) return;
+    box.innerHTML = '<div style="font-size:12px;color:var(--red);padding:6px 2px;">⚠ No se pudieron cargar los pagos (' + escHtml(err.message) + ') ' +
+      '<button class="btn-ghost" style="margin-left:6px;" onclick="loadOrderPayments(currentDetailId)">Reintentar</button></div>';
+  }
+}
+function renderOrderPayments() {
+  const box = document.getElementById('odmPayList');
+  if (!box) return;
+  if (!_odmPayments.length) { box.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:6px 2px;">Aún no hay pagos registrados.</div>'; return; }
+  const base = baseCurrency();
+  box.innerHTML = _odmPayments.map(p => {
+    const foreign = p.currency && p.currency !== base;
+    const sub = [p.reference ? 'Ref. ' + escHtml(p.reference) : '', p.note ? escHtml(p.note) : ''].filter(Boolean).join(' · ');
+    return '<div class="odm-pay-item' + (p.voided ? ' voided' : '') + '">' +
+      '<div class="opi-main"><div class="opi-title">' + escHtml(p.method) + ' · ' + escHtml(fmtWhen(p.paidAt)) + '</div>' +
+      (sub ? '<div class="opi-sub">' + sub + '</div>' : '') +
+      (p.voided ? '<div class="opi-sub" style="color:var(--red);">Anulado' + (p.voidReason ? ': ' + escHtml(p.voidReason) : '') + '</div>' : '') + '</div>' +
+      '<div class="opi-amt">' + fmtMoney(p.amountBase) +
+        (foreign ? '<small>' + (Number(p.amount) || 0).toFixed(2) + ' ' + escHtml(p.currency) + ' · tasa ' + escHtml(p.exchangeRate) + '</small>' : '') + '</div>' +
+      (p.voided ? '' : '<button class="btn-ghost odm-pay-void" onclick="voidPayment(' + escJsAttr(p.id) + ')">Anular</button>') +
+    '</div>';
+  }).join('');
+}
+
+// ── Detalle del pedido: historial (se carga al abrirlo) ──
+let _histFor = null, _histOpen = false, _histSeq = 0;
+function syncHistoryToggle() {
+  const t = document.getElementById('odmHistToggle'), b = document.getElementById('odmHistBody');
+  if (!t || !b) return;
+  t.classList.toggle('open', _histOpen);
+  t.setAttribute('aria-expanded', _histOpen ? 'true' : 'false');
+  b.style.display = _histOpen ? '' : 'none';
+}
+function toggleOrderHistory() {
+  _histOpen = !_histOpen;
+  syncHistoryToggle();
+  if (_histOpen) loadOrderHistory(currentDetailId);
+}
+const EDIT_FIELD_LABELS = { total_price: 'Total', shipping: 'Envío', discount: 'Descuento', client_name: 'Cliente', address: 'Dirección',
+  pay_method_label: 'Método de pago', delivery_method_label: 'Tipo de entrega' };
+const DELIVERY_STATUS_LABELS = { to_deliver: 'Por entregar', delivered: 'Entregado', not_delivered: 'No entregado' };
+function describeOrderEvent(ev) {
+  const dta = ev.data || {};
+  const base = baseCurrency();
+  const money = v => fmtMoney(v);
+  switch (ev.type) {
+    case 'created': return 'Pedido creado' + (dta.total !== undefined ? ' · total ' + money(dta.total) : '');
+    case 'status_changed':
+      return 'Entrega: ' + escHtml(DELIVERY_STATUS_LABELS[dta.from] || dta.from || '—') + ' → ' + escHtml(DELIVERY_STATUS_LABELS[dta.to] || dta.to || '—');
+    case 'payment_added': {
+      const foreign = dta.currency && dta.currency !== base;
+      return 'Pago registrado: ' + (foreign ? (Number(dta.amount) || 0).toFixed(2) + ' ' + escHtml(dta.currency) + ' (' + money(dta.amountBase) + ')' : money(dta.amountBase !== undefined ? dta.amountBase : dta.amount)) +
+        (dta.method ? ' · ' + escHtml(dta.method) : '') + (dta.reference ? ' · ref ' + escHtml(dta.reference) : '');
+    }
+    case 'payment_voided':
+      return 'Pago anulado: ' + money(dta.amountBase) + (dta.method ? ' · ' + escHtml(dta.method) : '') + (dta.reason ? ' · motivo: ' + escHtml(dta.reason) : '');
+    case 'migrated': return 'Registrado antes de la Fase 2' + (dta.amountBase ? ' · cobrado ' + money(dta.amountBase) : '');
+    case 'edited': {
+      const ch = dta.changes || {};
+      const lines = [];
+      Object.keys(ch).forEach(k => {
+        const c = ch[k] || {};
+        if (k === 'items') lines.push('Artículos editados');
+        else if (k === 'product_summary') { if (!ch.items) lines.push('Resumen de artículos editado'); }
+        else if (k === 'notes') lines.push('Notas editadas');
+        else if (k === 'client_id') lines.push('Ficha de cliente actualizada');
+        else if (k === 'total_price' || k === 'shipping' || k === 'discount')
+          lines.push(EDIT_FIELD_LABELS[k] + ' cambiado de ' + money(c.from) + ' a ' + money(c.to));
+        else if (EDIT_FIELD_LABELS[k])
+          lines.push(EDIT_FIELD_LABELS[k] + ': ' + escHtml(c.from || '—') + ' → ' + escHtml(c.to || '—'));
+      });
+      return lines.length ? lines.join('<br>') : 'Pedido editado';
+    }
+    default: return escHtml(ev.type || 'Cambio');
+  }
+}
+async function loadOrderHistory(orderId) {
+  const box = document.getElementById('odmHistBody');
+  const realId = orderRealIds[orderId];
+  if (!box) return;
+  const seq = ++_histSeq;
+  if (!realId) { box.innerHTML = '<div style="font-size:12px;color:var(--text3);">Sin historial.</div>'; return; }
+  box.innerHTML = '<div class="pagr-empty" style="padding:10px;">Cargando historial…</div>';
+  try {
+    const r = await apiJson('GET', '/api/orders/' + encodeURIComponent(realId) + '/events');
+    if (seq !== _histSeq || currentDetailId !== orderId) return;
+    const evs = (r.events || []).slice().reverse(); // lo más reciente arriba
+    box.innerHTML = evs.length
+      ? evs.map(ev => '<div class="odm-hist-item"><div class="t">' + escHtml(fmtWhen(ev.createdAt)) + '</div><div class="x">' + describeOrderEvent(ev) + '</div></div>').join('')
+      : '<div style="font-size:12px;color:var(--text3);">Sin movimientos registrados.</div>';
+  } catch (err) {
+    if (seq !== _histSeq) return;
+    box.innerHTML = '<div style="font-size:12px;color:var(--red);">⚠ No se pudo cargar el historial (' + escHtml(err.message) + ') ' +
+      '<button class="btn-ghost" style="margin-left:6px;" onclick="loadOrderHistory(currentDetailId)">Reintentar</button></div>';
+  }
+}
+
+// ── Cobro al crear un pedido (chat y pedido manual) ──
+function onCobroModeChange(p) {
+  const mode = document.getElementById(p + 'CobroMode').value;
+  document.getElementById(p + 'CobroFields').style.display = mode === 'none' ? 'none' : '';
+  document.getElementById(p + 'CobroAmtField').style.display = mode === 'partial' ? '' : 'none';
+}
+function resetCobroBlock(p) {
+  const m = document.getElementById(p + 'CobroMode');
+  if (!m) return;
+  m.value = 'none';
+  document.getElementById(p + 'CobroAmt').value = '';
+  document.getElementById(p + 'CobroRef').value = '';
+  onCobroModeChange(p);
+}
+function refreshCobroMethods() {
+  ['op', 'no'].forEach(p => {
+    const sel = document.getElementById(p + 'CobroMethod');
+    if (!sel) return;
+    const prev = sel.value;
+    sel.innerHTML = payMethodNames().map(n => '<option value="' + escHtml(n) + '">' + escHtml(n) + '</option>').join('');
+    if (prev) sel.value = prev;
+  });
+}
+// Devuelve el pago inicial a enviar con el pedido (o null). Lanza Error si el abono no es válido.
+function readCobro(p, total) {
+  const mode = document.getElementById(p + 'CobroMode').value;
+  if (mode === 'none') return null;
+  let amount = total;
+  if (mode === 'partial') {
+    amount = parseFloat(document.getElementById(p + 'CobroAmt').value);
+    if (!(amount > 0)) { flagField(p + 'CobroAmt'); throw new Error('Escribe el monto del abono'); }
+    if (amount > total + 0.004) { flagField(p + 'CobroAmt'); throw new Error('El abono no puede superar el total (' + fmtMoney(total) + ')'); }
+  }
+  if (!(amount > 0)) throw new Error('El pedido no tiene monto por cobrar');
+  const out = { amount: _round2(amount), method: document.getElementById(p + 'CobroMethod').value };
+  const ref = document.getElementById(p + 'CobroRef').value.trim();
+  if (ref) out.reference = ref;
+  return out;
+}
+
+// ── Pantalla Pagos: registro de cobros por período ──
+let pagPeriod = 'hoy', pagMethod = '', pagRange = { from: '', to: '' }, _pagSeq = 0;
+const pagKnownMethods = new Set();
+function setPagPeriod(p, el) {
+  pagPeriod = p;
+  document.querySelectorAll('#pagPeriodBtns .inf-filter-btn').forEach(b => b.classList.remove('active'));
+  if (el) el.classList.add('active');
+  const box = document.getElementById('pagRangeBox');
+  box.style.display = p === 'rango' ? 'flex' : 'none';
+  if (p === 'rango') {
+    const to = todayLocalIso(), f = new Date(); f.setDate(f.getDate() - 6);
+    const from = f.getFullYear() + '-' + String(f.getMonth() + 1).padStart(2, '0') + '-' + String(f.getDate()).padStart(2, '0');
+    const fi = document.getElementById('pagDateFrom'), ti = document.getElementById('pagDateTo');
+    if (!fi.value) fi.value = from;
+    if (!ti.value) ti.value = to;
+    ti.max = fi.max = to;
+    pagRange = { from: fi.value, to: ti.value };
+  }
+  loadPagos();
+}
+function applyPagRange() {
+  const from = document.getElementById('pagDateFrom').value, to = document.getElementById('pagDateTo').value;
+  if (!from || !to) { showToast('Elige las dos fechas del rango', 'error'); return; }
+  if (from > to) { showToast('La fecha inicial debe ser anterior a la final', 'error'); return; }
+  pagRange = { from, to };
+  loadPagos();
+}
+function setPagMethod(m) { pagMethod = m; loadPagos(); }
+function pagDates() {
+  const iso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const t = new Date();
+  if (pagPeriod === 'ayer') { const y = new Date(t); y.setDate(y.getDate() - 1); return { from: iso(y), to: iso(y) }; }
+  if (pagPeriod === '7dias') { const s = new Date(t); s.setDate(s.getDate() - 6); return { from: iso(s), to: iso(t) }; }
+  if (pagPeriod === 'mes') return { from: iso(new Date(t.getFullYear(), t.getMonth(), 1)), to: iso(t) };
+  if (pagPeriod === 'rango') return pagRange;
+  return {}; // hoy: el servidor usa el día de la zona horaria del negocio
+}
+function rebuildPagMethodSelect() {
+  const sel = document.getElementById('pagMethodSel');
+  if (!sel) return;
+  const names = new Set(payMethodNames());
+  pagKnownMethods.forEach(n => names.add(n));
+  if (pagMethod) names.add(pagMethod);
+  sel.innerHTML = '<option value="">Todos</option>' + [...names].map(n => '<option value="' + escHtml(n) + '">' + escHtml(n) + '</option>').join('');
+  sel.value = pagMethod;
+}
+// Por cobrar y entregados sin cobrar: salen de los pedidos cargados
+function renderPagosResumen() {
+  let pend = 0, pendN = 0, entSin = 0;
+  orders.forEach(o => {
+    if (o.pay !== 'ok' && o.balance > 0.004) { pend += o.balance; pendN++; if (o.delivery === 'delivered') entSin++; }
+  });
+  const set = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
+  set('pagPorCobrar', fmtMoney(pend)); set('pagPorCobrarN', pendN + (pendN === 1 ? ' pedido' : ' pedidos'));
+  set('pagEntregadoSin', String(entSin));
+}
+async function loadPagos() {
+  const body = document.getElementById('pagrBody');
+  if (!body) return;
+  renderPagosResumen();
+  const seq = ++_pagSeq;
+  if (!tenantSettings) loadTenantSettings().then(() => { if (seq === _pagSeq) rebuildPagMethodSelect(); });
+  rebuildPagMethodSelect();
+  const q = new URLSearchParams();
+  const dt = pagDates();
+  if (dt.from) q.set('from', dt.from);
+  if (dt.to) q.set('to', dt.to);
+  if (pagMethod) q.set('method', pagMethod);
+  try { const tz = Intl.DateTimeFormat().resolvedOptions().timeZone; if (tz) q.set('tz', tz); } catch (e) {}
+  const set = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
+  let d;
+  try {
+    d = await apiJson('GET', '/api/payments' + (q.toString() ? '?' + q.toString() : ''));
+  } catch (err) {
+    if (seq !== _pagSeq) return;
+    set('pagCobrado', '—'); set('pagCobradoN', ''); set('pagCount', '—'); set('pagCountN', '');
+    body.innerHTML = '<div class="pagr-card" style="text-align:center;"><div style="color:var(--red);font-weight:600;margin-bottom:6px;font-size:13px;">⚠ No se pudieron cargar los pagos</div>' +
+      '<div style="color:var(--text3);font-size:12.5px;margin-bottom:12px;">' + escHtml(err.message) + '</div><button class="btn-ghost" onclick="loadPagos()">Reintentar</button></div>';
+    return;
+  }
+  if (seq !== _pagSeq) return;
+  const list = d.payments || [];
+  const tot = d.totals || { total: 0, count: 0, byMethod: [] };
+  (tot.byMethod || []).forEach(m => pagKnownMethods.add(m.method));
+  list.forEach(p => pagKnownMethods.add(p.method));
+  rebuildPagMethodSelect();
+  const label = { hoy: 'Hoy', ayer: 'Ayer', '7dias': 'Últimos 7 días', mes: 'Este mes', rango: (d.from || '') + ' → ' + (d.to || '') }[pagPeriod];
+  const voidedN = list.filter(p => p.voided).length;
+  set('pagCobrado', fmtMoney(tot.total)); set('pagCobradoN', label + (pagMethod ? ' · ' + pagMethod : ''));
+  set('pagCount', String(tot.count)); set('pagCountN', voidedN ? voidedN + (voidedN === 1 ? ' anulado' : ' anulados') : 'sin anulados');
+  const base = d.baseCurrency || baseCurrency();
+  let html = '';
+  if (d.truncated) html += '<div class="pagr-notice">Se muestran los primeros ' + escHtml(d.limit || list.length) + ' de ' + escHtml(d.totalCount) + ' pagos. Acota el período o filtra por método para ver el resto. Los totales incluyen todos.</div>';
+  if ((tot.byMethod || []).length) {
+    const max = Math.max.apply(null, tot.byMethod.map(m => m.total)) || 1;
+    html += '<div class="pagr-card"><div class="pagr-card-title">Total por método <small>' + escHtml(label) + '</small></div>' +
+      tot.byMethod.map(m => '<div class="pagr-method"><div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml(m.method) + '</div>' +
+        '<div class="pagr-bar"><div style="width:' + Math.max(2, Math.round(m.total / max * 100)) + '%"></div></div>' +
+        '<div style="font-weight:700;text-align:right;">' + fmtMoney(m.total) + ' <span class="pagr-sub">· ' + m.count + (m.count === 1 ? ' pago' : ' pagos') + '</span></div></div>').join('') + '</div>';
+  }
+  html += '<div class="pagr-card"><div class="pagr-card-title">Pagos <small>' + escHtml(list.length) + (d.truncated ? ' de ' + escHtml(d.totalCount) : '') + '</small></div>';
+  if (!list.length) {
+    html += '<div class="pagr-empty">No hay pagos registrados en este período.</div>';
+  } else {
+    html += '<div class="pagr-row head"><div>Fecha</div><div>Pedido</div><div>Cliente</div><div>Método</div><div>Referencia</div><div style="text-align:right;">Monto</div></div>';
+    html += list.map(p => {
+      const foreign = p.currency && p.currency !== base;
+      return '<div class="pagr-row' + (p.voided ? ' voided' : '') + '" onclick="openPagoOrder(' + escJsAttr(p.orderNumber) + ')"' +
+        (p.voided && p.voidReason ? ' title="' + escHtml('Anulado: ' + p.voidReason) + '"' : '') + '>' +
+        '<div>' + escHtml(fmtWhen(p.paidAt)) + '</div>' +
+        '<div style="font-weight:700;color:var(--text3);">' + escHtml(p.orderNumber) + '</div>' +
+        '<div>' + escHtml(p.clientName || '—') + '</div>' +
+        '<div>' + escHtml(p.method) + (p.voided ? ' <span class="cc-tag debt" style="display:inline-block;">Anulado</span>' : '') + '</div>' +
+        '<div>' + escHtml(p.reference || '—') + '</div>' +
+        '<div class="amt">' + fmtMoney(p.amountBase) + (foreign ? '<div class="pagr-sub">' + (Number(p.amount) || 0).toFixed(2) + ' ' + escHtml(p.currency) + '</div>' : '') + '</div>' +
+      '</div>';
+    }).join('');
+  }
+  html += '</div>';
+  body.innerHTML = html;
+}
+function openPagoOrder(num) {
+  if (orders.some(o => o.id === num)) openOrderDetail(num);
+  else showToast('Ese pedido no está en la lista cargada. Recarga la página.', 'error');
+}
+
 // ─── ORDER DETAIL MODAL ───────────────────────────────────────
 let currentDetailId = null;
 
@@ -4278,9 +4941,15 @@ function renderOrderSteps(o) {
   const stepsEl = document.getElementById('odmSteps');
   if (!stepsEl || !o) return;
   const notDelivered = o.delivery === 'not_delivered';
+  // Cobro: Cobrado, Abonado $X (parcial) o Falta cobrar (entregado sin cobrar completo)
+  let payStep;
+  if (o.pay === 'ok') payStep = { name: 'Cobrado', done: true };
+  else if (o.delivery === 'delivered') payStep = { name: 'Falta cobrar' + (o.pay === 'partial' ? ' ' + fmtMoney(o.balance) : ''), done: false, alert: true };
+  else if (o.pay === 'partial') payStep = { name: 'Abonado ' + fmtMoney(o.paid), done: false };
+  else payStep = { name: 'Cobrado', done: false };
   const steps = [
     { name: 'Recibido',  done: true },
-    { name: (o.pay !== 'ok' && o.delivery === 'delivered') ? 'Falta cobrar' : 'Cobrado', done: o.pay === 'ok', alert: o.pay !== 'ok' && o.delivery === 'delivered' },
+    payStep,
     { name: notDelivered ? 'No entregado' : 'Entregado', done: o.delivery === 'delivered', alert: notDelivered },
   ];
   const cur = steps.findIndex(s => !s.done);
@@ -4309,7 +4978,7 @@ function openOrderDetail(orderId) {
   // pay badge
   const payBadge = document.getElementById('odmPayBadge');
   payBadge.className = 'odm-pay-badge ' + (o.pay === 'ok' ? 'odm-pay-ok' : 'odm-pay-pend');
-  payBadge.textContent = o.pay === 'ok' ? 'Cobrado ✓' : 'Pago pendiente';
+  payBadge.textContent = o.pay === 'ok' ? 'Cobrado ✓' : o.pay === 'partial' ? 'Abonado ' + fmtMoney(o.paid) : 'Pago pendiente';
 
   // date — use saved or fallback to now
   const now = new Date();
@@ -4332,8 +5001,10 @@ function openOrderDetail(orderId) {
   // pay & delivery
   document.getElementById('odmPayMethod').textContent = ex.pay;
   document.getElementById('odmPayStatus').innerHTML = o.pay === 'ok'
-    ? '<span style="color:var(--green);font-weight:700;">✓ Confirmado</span>'
-    : '<span style="color:var(--yellow);font-weight:700;">⏳ Pendiente</span>';
+    ? '<span style="color:var(--green);font-weight:700;">✓ Cobrado</span>'
+    : o.pay === 'partial'
+      ? '<span style="color:var(--yellow);font-weight:700;">Abonado · saldo ' + fmtMoney(o.balance) + '</span>'
+      : '<span style="color:var(--yellow);font-weight:700;">⏳ Pendiente</span>';
   document.getElementById('odmDelivery').textContent = ex.delivery;
 
   // address
@@ -4407,6 +5078,19 @@ function openOrderDetail(orderId) {
 
   // delivery button
   updateDetailDeliveryBtn(o.delivery);
+
+  // cobro: total, cobrado, saldo y lista de pagos
+  document.getElementById('odmCobTotal').textContent = fmtMoney(o.total);
+  document.getElementById('odmCobPaid').textContent = fmtMoney(o.paid);
+  const balEl = document.getElementById('odmCobBalance');
+  balEl.textContent = fmtMoney(o.balance);
+  balEl.style.color = o.balance > 0.004 ? 'var(--yellow)' : 'var(--green)';
+  document.getElementById('odmRegPayBtn').style.display = (o.total > 0 && o.balance > 0.004) ? '' : 'none';
+  loadOrderPayments(orderId);
+  // historial: plegado; si ya estaba abierto para este pedido, se recarga
+  if (_histFor !== orderId) { _histFor = orderId; _histOpen = false; document.getElementById('odmHistBody').innerHTML = ''; }
+  syncHistoryToggle();
+  if (_histOpen) loadOrderHistory(orderId);
 
   document.getElementById('orderDetailOverlay').classList.add('visible');
 }
@@ -4692,38 +5376,6 @@ function toggleOrderDelivery() {
   showToast(`${currentDetailId} → ${labels[o.delivery]}`);
 }
 
-async function toggleOrderPay() {
-  let o = orders.find(o => o.id === currentDetailId);
-  if (!o) return;
-  if (o.pay === 'ok') {
-    const id = o.id;
-    const yes = await askConfirm({
-      title: '¿Marcar el pago como pendiente?',
-      text: 'El pedido ' + id + ' dejará de contar como cobrado.',
-      confirmLabel: 'Marcar pendiente', danger: true,
-    });
-    if (!yes) return;
-    o = orders.find(x => x.id === id);
-    if (!o || o.pay !== 'ok' || currentDetailId !== id) return;
-  }
-  const prevPay = o.pay;
-  o.pay = o.pay === 'ok' ? 'pend' : 'ok';
-  patchOrder(o.id, { pay_status: o.pay }, () => {
-    o.pay = prevPay;
-    if (currentDetailId === o.id && document.getElementById('orderDetailOverlay').classList.contains('visible')) openOrderDetail(o.id);
-    renderOrders();
-  });
-  const payBadge = document.getElementById('odmPayBadge');
-  payBadge.className = 'odm-pay-badge ' + (o.pay === 'ok' ? 'odm-pay-ok' : 'odm-pay-pend');
-  payBadge.textContent = o.pay === 'ok' ? 'Cobrado ✓' : 'Pago pendiente';
-  document.getElementById('odmPayStatus').innerHTML = o.pay === 'ok'
-    ? '<span style="color:var(--green);font-weight:700;">✓ Confirmado</span>'
-    : '<span style="color:var(--yellow);font-weight:700;">⏳ Pendiente</span>';
-  renderOrderSteps(o);
-  renderOrders();
-  showToast(o.pay === 'ok' ? `Pago de ${currentDetailId} confirmado ✓` : `Pago de ${currentDetailId} marcado como pendiente`);
-}
-
 function printOrder() {
   const o = orders.find(o => o.id === currentDetailId);
   if (!o) return;
@@ -4733,7 +5385,7 @@ function printOrder() {
   const timeStr = now.toLocaleTimeString('es-VE', { hour:'2-digit', minute:'2-digit' });
   const num = parseFloat((o.price+'').replace(/[^0-9.]/g,'')) || 0;
   const total = '$' + (num).toFixed(2) + ' USD';
-  const payStatus = o.pay === 'ok' ? '✓ Confirmado' : '⏳ Pendiente';
+  const payStatus = o.pay === 'ok' ? '✓ Cobrado' : o.pay === 'partial' ? 'Abonado ' + fmtMoney(o.paid) + ' · Saldo ' + fmtMoney(o.balance) : '⏳ Pendiente';
   const delStatus = o.delivery === 'delivered' ? '✓ Entregado' : o.delivery === 'not_delivered' ? '⚠ No entregado' : '🚀 Por entregar';
   const payClass = o.pay === 'ok' ? 's-ok' : 's-pend';
   const delClass2 = o.delivery === 'delivered' ? 's-done' : o.delivery === 'not_delivered' ? 's-warn' : 's-deliver';
@@ -4819,9 +5471,12 @@ function renderOrders() {
       ? `<span style="width:6px;height:6px;border-radius:50%;background:var(--wa);display:inline-block;box-shadow:0 0 4px rgba(37,211,102,0.5)"></span>`
       : `<span style="width:6px;height:6px;border-radius:50%;background:var(--ig);display:inline-block;box-shadow:0 0 4px rgba(225,48,108,0.4)"></span>`;
     const platName = o.platform === 'wa' ? 'WhatsApp' : 'Instagram';
+    const payClick = ` clickable" onclick="event.stopPropagation();openPaymentDialog(${escJsAttr(o.id)})" title="Registrar pago">`;
     const payBadge = o.pay === 'ok'
       ? `<div class="or-pay op-ok">Cobrado ✓</div>`
-      : `<div class="or-pay op-pend">Pend. pago</div>`;
+      : o.pay === 'partial'
+        ? `<div class="or-pay op-part${payClick}Abonado<small>Saldo ${fmtMoney(o.balance)}</small></div>`
+        : `<div class="or-pay op-pend${payClick}Pend. pago</div>`;
     let delClass, delIcon, delLabel;
     if (o.delivery === 'delivered') {
       delClass = 'db-delivered'; delIcon = `<svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`; delLabel = 'Entregado';
@@ -4852,6 +5507,7 @@ function renderOrders() {
     row.onclick = () => openOrderDetail(o.id);
     list.appendChild(row);
   });
+  updateChatDebt();
 }
 
 function cycleDelivery(el, orderId) {
@@ -4868,9 +5524,10 @@ function cycleDelivery(el, orderId) {
 
 function updateOrderCounts() {
   const counts = { to_deliver: 0, delivered: 0, not_delivered: 0, pending_pay: 0 };
+  let owed = 0;
   orders.forEach(o => {
     counts[o.delivery]++;
-    if (o.pay === 'pend') counts.pending_pay++;
+    if (o.pay === 'pend' || o.pay === 'partial') { counts.pending_pay++; owed += o.balance; }
   });
   document.getElementById('count-to_deliver').textContent = counts.to_deliver;
   document.getElementById('count-delivered').textContent = counts.delivered;
@@ -4884,7 +5541,7 @@ function updateOrderCounts() {
     ppChange.textContent = '✓ Todo cobrado';
     ppChange.className = 'stat-change sc-up';
   } else {
-    ppChange.textContent = '💳 Por cobrar';
+    ppChange.textContent = '💳 Por cobrar ' + fmtMoney(owed);
     ppChange.className = 'stat-change sc-warn';
   }
 
@@ -5304,6 +5961,7 @@ function saveOrder() {
   // reset pay/delivery selections
   document.querySelectorAll('#opPayGrid .pay-btn').forEach(b => b.classList.remove('selected'));
   document.querySelectorAll('#opDeliveryOpts .delivery-opt').forEach(b => b.classList.remove('selected'));
+  resetCobroBlock('op');
 
   showToast('Pedido preparado — elige pago y entrega 👆');
 }
@@ -5339,6 +5997,11 @@ async function confirmOrder() {
   const address = d.address || document.getElementById('mAddress')?.value || '—';
   const notes = d.notes || document.getElementById('mNotes')?.value || '';
 
+  // Cobro al crear (opcional): el pago nace junto con el pedido
+  let initialPayment = null;
+  try { initialPayment = readCobro('op', moneyToNum(total)); }
+  catch (e) { showToast(e.message, 'error'); return; }
+
   // Primero se guarda en el servidor: el número del pedido (el que verá el cliente en el
   // ticket) lo asigna él. Si falla, no se crea nada y el pedido queda listo para reintentar.
   _confirmingOrder = true;
@@ -5353,7 +6016,7 @@ async function confirmOrder() {
       platform: d.platform,
       productSummary: productFull,
       discount: d.discount || 0,
-      payStatus: 'pend',
+      ...(initialPayment ? { initialPayment } : {}),
       deliveryStatus: 'to_deliver',
       payMethodLabel: payLabel,
       deliveryMethodLabel: delLabel,
@@ -5419,6 +6082,7 @@ async function confirmOrder() {
         ${d.notes ? `<div class="ticket-row"><span class="ticket-row-label">Notas</span><span class="ticket-row-value" style="font-style:italic;">${escHtml(d.notes)}</span></div>` : ''}
         <div class="ticket-divider"></div>
         <div class="ticket-row"><span class="ticket-row-label">Pago</span><span class="ticket-row-value">${escHtml(payLabel)}</span></div>
+        ${Number(saved.amountPaid) > 0 && Number(saved.balance) > 0 ? `<div class="ticket-row"><span class="ticket-row-label">Abonado</span><span class="ticket-row-value">${fmtMoney(saved.amountPaid)} · Saldo ${fmtMoney(saved.balance)}</span></div>` : ''}
         <div class="ticket-row"><span class="ticket-row-label">Entrega</span><span class="ticket-row-value">${escHtml(delLabel)}</span></div>
         <div class="ticket-row"><span class="ticket-row-label">Dirección</span><span class="ticket-row-value">${escHtml(d.address || '—')}</span></div>
         ${Number(saved.shipping) > 0 ? `<div class="ticket-row"><span class="ticket-row-label">Envío</span><span class="ticket-row-value">$${Number(saved.shipping).toFixed(2)} USD</span></div>` : ''}
@@ -5561,7 +6225,7 @@ function showConvoHistory(key) {
     return;
   }
 
-  const payIcons = { ok: '✅', pend: '⏳' };
+  const payIcons = { ok: '✅', pend: '⏳', partial: '💵' };
   const deliveryLabels = { to_deliver: 'Por entregar', delivered: 'Entregado', in_transit: 'En camino' };
 
   clientOrders.forEach(o => {
@@ -7361,7 +8025,10 @@ const settingsPanels = {
       { id:'transferencia',icon:'🏦',name:'Transferencia bancaria', desc:'Banco Venezuela / Mercantil / BNC',      on:false, fields:[{key:'banco',label:'Banco',placeholder:'Ej: Banco Venezuela'},{key:'cuenta',label:'Nro. de cuenta',placeholder:'Ej: 0102-0000-00-0000000000'}], data:{banco:'',cuenta:''} },
       { id:'divisas',     icon:'💰', name:'Divisas (EUR / COP)',    desc:'Otras monedas extranjeras',              on:false, fields:[{key:'tipos',label:'Tipos de divisa',placeholder:'Ej: EUR, COP'},{key:'instrucciones',label:'Instrucciones',placeholder:'Ej: Tasa acordada al momento'}], data:{tipos:'',instrucciones:''} },
     ];
-    const saved = JSON.parse(localStorage.getItem('central_pagos') || 'null') || {};
+    const saved = _getPayData();
+    const cur = baseCurrency();
+    const canChangeCur = !!(tenantSettings && tenantSettings.canChangeBaseCurrency);
+    const curList = (tenantSettings && tenantSettings.currencies && tenantSettings.currencies.length) ? tenantSettings.currencies : [cur];
     const methods = DEFAULTS.map(m => ({ ...m, on: saved[m.id]?.on ?? m.on, data: { ...m.data, ...(saved[m.id]?.data || {}) } }));
 
     function summary(m) {
@@ -7371,6 +8038,17 @@ const settingsPanels = {
     return `
     <div class="sc-title">Métodos de pago</div>
     <div class="sc-sub">Configura cómo recibes pagos de tus clientes</div>
+
+    <div class="s-card">
+      <div class="s-card-title">💱 Moneda base</div>
+      <div class="s-row">
+        <div class="s-row-info">
+          <div class="s-row-label">Moneda de tus totales y saldos</div>
+          <div class="s-row-desc">${canChangeCur ? 'Los pagos en otra moneda se convierten a esta con la tasa que indiques al registrarlos.' : (tenantSettings ? 'No se puede cambiar: ya hay pagos registrados.' : 'Cargando ajustes…')}</div>
+        </div>
+        <div class="s-row-action"><select class="s-input" id="baseCurSel" ${canChangeCur ? '' : 'disabled'} onchange="changeBaseCurrency(this)">${curList.map(c => `<option value="${escHtml(c)}" ${c === cur ? 'selected' : ''}>${escHtml(c)}</option>`).join('')}</select></div>
+      </div>
+    </div>
 
     <div class="s-card">
       <div class="s-card-title">💳 Métodos activos</div>
@@ -7900,8 +8578,10 @@ function switchSettings(panel, el) {
   el.classList.add('active');
   const content = document.getElementById('settingsContent');
   if (settingsPanels[panel]) {
+    window._settingsPanel = panel;
     content.innerHTML = settingsPanels[panel]();
     if (panel === 'canales') loadCanalWaStatus();
+    if (panel === 'pagos' || panel === 'entrega') loadTenantSettings(); // refresca, p. ej., si ya se puede cambiar la moneda base
     if (panel === 'plan')    loadBillingStatus();
   }
 }
@@ -7926,6 +8606,7 @@ function renderClients() {
   );
 
   grid.innerHTML = '';
+  const debtMap = clientBalanceMap();
 
   if (filtered.length === 0) {
     grid.innerHTML = `<div style="text-align:center;padding:48px;color:var(--text3);font-size:13px;">No se encontraron clientes</div>`;
@@ -7943,7 +8624,9 @@ function renderClients() {
         const o = orders.find(o => o.id === oid);
         return sum + (o ? parseFloat((o.price+'').replace(/[^0-9.]/g,'')) || 0 : 0);
       }, 0);
+      const debt = debtMap[c.id] || 0;
       const tags = [
+        debt > 0.004 ? `<span class="cc-tag debt">Debe ${fmtMoney(debt)}</span>` : '',
         c.isVip    ? `<span class="cc-tag vip">⭐ VIP</span>` : '',
         c.isNew    ? `<span class="cc-tag new">Nuevo</span>` : '',
         c.orders.length > 1 ? `<span class="cc-tag recurrent">Recurrente</span>` : '',
@@ -8061,7 +8744,9 @@ function populateProfileModal(client) {
 
   const platLabel = client.channel === 'wa' ? '📱 WhatsApp' : client.channel === 'ig' ? '📸 Instagram' : '📱📸 WA + IG';
   const tags = [client.isVip ? '⭐ VIP' : '', client.orders.length > 0 ? `${client.orders.length} pedido(s)` : ''].filter(Boolean).join(' · ');
-  document.getElementById('pmSub').innerHTML = `<span>${platLabel}</span>${tags ? `<span style="color:var(--text3)">·</span><span style="color:var(--text2)">${tags}</span>` : ''}`;
+  const pmDebt = clientBalanceMap()[client.id] || 0;
+  document.getElementById('pmSub').innerHTML = `<span>${platLabel}</span>${tags ? `<span style="color:var(--text3)">·</span><span style="color:var(--text2)">${tags}</span>` : ''}` +
+    (pmDebt > 0.004 ? `<span style="color:var(--text3)">·</span><span class="cc-tag debt">Debe ${fmtMoney(pmDebt)}</span>` : '');
 
   // fields
   document.getElementById('pmFieldName').value    = client.name;
@@ -8247,6 +8932,7 @@ function openNewOrderModal() {
   renderDeliveryOpts();
   document.querySelectorAll('#noPayGrid .pay-btn').forEach(b => b.classList.remove('selected'));
   document.querySelectorAll('#noDeliveryOpts .delivery-opt').forEach(d => d.classList.remove('selected'));
+  resetCobroBlock('no');
   document.getElementById('noShippingField').style.display = 'none';
   const _nosRow = document.getElementById('nosProdSelectorRow');
   const _nosChk = document.getElementById('nosConfirmCheck');
@@ -8533,6 +9219,9 @@ async function saveNewOrder() {
   const notes = document.getElementById('noNotes').value.trim();
   const shippingVisible = document.getElementById('noShippingField').style.display !== 'none';
   const shippingVal = shippingVisible ? document.getElementById('noShipping').value : null;
+  let initialPayment = null;
+  try { initialPayment = readCobro('no', moneyToNum(document.getElementById('noTotal').value)); }
+  catch (e) { showToast(e.message, 'error'); return; }
   const firstEmoji = allItems[0]?.emoji || '📦';
   const now = new Date();
   const dateStr = now.toLocaleDateString('es-VE',{day:'2-digit',month:'long',year:'numeric'});
@@ -8547,7 +9236,8 @@ async function saveNewOrder() {
       clientName, ...orderClientFields(document.getElementById('noClient').dataset.clientId || null, null),
       platform: noClientPlatform(), productSummary: productLabel,
       discount: noDisc,
-      payStatus: 'pend', deliveryStatus: 'to_deliver',
+      ...(initialPayment ? { initialPayment } : {}),
+      deliveryStatus: 'to_deliver',
       payMethodLabel: payLabel, deliveryMethodLabel: delLabel,
       address, notes,
       shipping: shippingVal ? (parseFloat((shippingVal + '').replace(/[^0-9.]/g, '')) || 0) : 0,
@@ -8737,8 +9427,9 @@ async function renderInforme(tab) {
   if (tab === 'ventas') {
     body.innerHTML = `
       <!-- KPIs -->
-      <div class="inf-kpi-row">
+      <div class="inf-kpi-row k5">
         <div class="inf-kpi"><div class="inf-kpi-label">💰 Ventas totales</div><div class="inf-kpi-val">$${d.ventas.toLocaleString()}</div><div class="inf-kpi-sub inf-kpi-neutral">${periodLabel}</div></div>
+        <div class="inf-kpi"><div class="inf-kpi-label">💵 Cobrado</div><div class="inf-kpi-val">$${(Number(d.cobrado) || 0).toLocaleString()}</div><div class="inf-kpi-sub inf-kpi-neutral">Pagos recibidos ${periodLabel}</div></div>
         <div class="inf-kpi"><div class="inf-kpi-label">📦 Pedidos</div><div class="inf-kpi-val">${d.pedidos}</div><div class="inf-kpi-sub inf-kpi-neutral">${periodLabel}</div></div>
         <div class="inf-kpi"><div class="inf-kpi-label">💵 Ticket promedio</div><div class="inf-kpi-val">$${d.pedidos > 0 ? (d.ventas/d.pedidos).toFixed(0) : '0'}</div><div class="inf-kpi-sub inf-kpi-neutral">Por pedido</div></div>
         <div class="inf-kpi"><div class="inf-kpi-label">✅ Tasa de entrega</div><div class="inf-kpi-val">${d.pedidos > 0 ? Math.round(d.entregados/d.pedidos*100) : 0}%</div><div class="inf-kpi-sub inf-kpi-neutral">${periodLabel}</div></div>
@@ -8772,6 +9463,12 @@ async function renderInforme(tab) {
             : '<div style="padding:20px 0;text-align:center;font-size:12px;color:var(--text3);">Sin datos aún</div>'}
         </div>
       </div>
+      ${(d.cobrosPorMetodo || []).length > 0 ? `
+      <div class="inf-chart-card">
+        <div class="inf-chart-title">Cobros por método</div>
+        <div class="inf-chart-sub">Dinero recibido ${periodLabel}</div>
+        ${renderBarChart(d.cobrosPorMetodo.map(p=>p[1]), d.cobrosPorMetodo.map(p=>escHtml(p[0])), 'green', 60)}
+      </div>` : ''}
     `;
 
   } else if (tab === 'pedidos') {
@@ -9614,7 +10311,7 @@ applyPlanNavigation(activePlan);
   try { renderPayGrids(); } catch(e) {}
 })();
 // El historial de la conversación necesita pedidos y fichas de cliente: se esperan los dos
-const ordersReady = loadRealOrders().then(() => loadRealClients());
+const ordersReady = loadRealOrders().then(() => loadRealClients()).then(r => { updateChatDebt(); return r; });
 loadRealConversations().then(() => {
   const firstKey = Object.keys(convos)[0];
   if (firstKey) {
@@ -9625,6 +10322,7 @@ loadRealConversations().then(() => {
 });
 loadRealCatalog();
 loadAutoReplyConfig();
+loadTenantSettings();
 // Venía de registrarse con un plan de pago: abre Ajustes → Plan una sola vez, con el aviso de pago
 try {
   const pp = sessionStorage.getItem('central_pending_plan');
@@ -9844,6 +10542,8 @@ function storeServerOrder(ro, mode) {
     id: legacyId, client: ro.clientName, clientId: ro.clientId || null, product: ro.productSummary,
     platform: ro.platform, price: '$' + (Number(ro.totalPrice) || 0).toFixed(2),
     pay: ro.payStatus, delivery: ro.deliveryStatus, time: timeAgo(ro.createdAt),
+    total: Number(ro.totalPrice) || 0, paid: Number(ro.amountPaid) || 0,
+    balance: ro.balance !== undefined ? Number(ro.balance) || 0 : Math.max(0, (Number(ro.totalPrice) || 0) - (Number(ro.amountPaid) || 0)),
     items, createdAt: ro.createdAt,
   };
   orderExtras[legacyId] = {
@@ -10337,20 +11037,28 @@ function _getDelivery() {
     encomienda:  { enabled: true,  label: 'Encomienda', items: ['MRW','Tealca','Zoom','Domesa'] },
     plataformas: { enabled: true,  label: 'Plataformas de delivery externo', items: ['Ridery','Yummy','PedidosYA'] }
   };
-  try {
-    const saved = JSON.parse(localStorage.getItem('central_delivery') || 'null');
-    if (saved) {
-      // merge so new defaults survive
-      Object.keys(defaults).forEach(k => {
-        if (saved[k] !== undefined) defaults[k] = Object.assign({}, defaults[k], saved[k]);
-      });
-    }
-  } catch(e) {}
+  const saved = tenantSettings && tenantSettings.deliveryMethods;
+  if (saved && typeof saved === 'object') {
+    // merge so new defaults survive
+    Object.keys(defaults).forEach(k => {
+      if (saved[k] !== undefined) defaults[k] = Object.assign({}, defaults[k], saved[k]);
+    });
+  }
   return defaults;
 }
 
+// Se muestra al momento y se guarda en el servidor; si falla se avisa y se vuelve a lo que tiene el servidor
+let _dlvSeq = 0;
 function _saveDelivery(d) {
-  localStorage.setItem('central_delivery', JSON.stringify(d));
+  tenantSettings = Object.assign({}, tenantSettings || {}, { deliveryMethods: d });
+  const seq = ++_dlvSeq;
+  apiJson('PUT', '/api/tenant/settings', { deliveryMethods: d }).catch(async err => {
+    showToast('⚠ No se guardaron las opciones de entrega (' + err.message + ')');
+    if (seq !== _dlvSeq) return;
+    try { tenantSettings = await apiJson('GET', '/api/tenant/settings'); } catch (e) {}
+    renderDeliveryOpts();
+    rerenderSettingsPanel();
+  });
 }
 
 function toggleDeliveryMethod(id, toggleEl) {
@@ -10622,8 +11330,12 @@ const PAY_DEFAULTS = {
   divisas:      { fields:['tipos','instrucciones'], data:{tipos:'',instrucciones:''}, desc:'Otras monedas extranjeras' },
 };
 
+// Estado de los métodos de pago tal como lo guarda el servidor: { id: { on, data } }
 function _getPayData() {
-  return JSON.parse(localStorage.getItem('central_pagos') || '{}');
+  const out = {};
+  const list = tenantSettings && tenantSettings.paymentMethods;
+  if (Array.isArray(list)) list.forEach(m => { out[m.id] = { on: m.enabled !== false, data: Object.assign({}, m.details || {}) }; });
+  return out;
 }
 
 function openPayEdit(id) {
@@ -10636,29 +11348,40 @@ function closePayEdit(id) {
   document.getElementById('pmedit_' + id).style.display = '';
 }
 
-function savePayEdit(id) {
-  const saved = _getPayData();
-  if (!saved[id]) saved[id] = { on: true, data: {} };
+let _payBusy = false;
+async function savePayEdit(id) {
+  if (_payBusy) return;
+  const list = effectivePayList();
+  const m = list.find(x => x.id === id);
+  if (!m) return;
   const fields = PAY_DEFAULTS[id].fields;
   fields.forEach(f => {
     const inp = document.getElementById('pminput_' + id + '_' + f);
-    if (inp) saved[id].data[f] = inp.value.trim();
+    if (inp) m.details[f] = inp.value.trim().slice(0, 200);
   });
-  localStorage.setItem('central_pagos', JSON.stringify(saved));
-  const summary = fields.map(f => saved[id].data[f]).filter(Boolean).join(' · ') || PAY_DEFAULTS[id].desc;
+  _payBusy = true;
+  const ok = await savePayMethods(list);
+  _payBusy = false;
+  if (!ok) return;
+  const summary = fields.map(f => m.details[f]).filter(Boolean).join(' · ') || PAY_DEFAULTS[id].desc;
   const desc = document.getElementById('pmdesc_' + id);
   if (desc) desc.textContent = summary;
   closePayEdit(id);
   showToast('Método de pago guardado');
 }
 
-function togglePayMethod(id, toggleEl) {
-  toggleEl.classList.toggle('on');
-  const on = toggleEl.classList.contains('on');
-  const saved = _getPayData();
-  if (!saved[id]) saved[id] = { data: {} };
-  saved[id].on = on;
-  localStorage.setItem('central_pagos', JSON.stringify(saved));
+async function togglePayMethod(id, toggleEl) {
+  if (_payBusy) return;
+  const on = !toggleEl.classList.contains('on');
+  toggleEl.classList.toggle('on', on);
+  const list = effectivePayList();
+  const m = list.find(x => x.id === id);
+  if (!m) { toggleEl.classList.toggle('on', !on); return; }
+  m.enabled = on;
+  _payBusy = true;
+  const ok = await savePayMethods(list);
+  _payBusy = false;
+  if (!ok) { toggleEl.classList.toggle('on', !on); return; }
   const editBtn = document.getElementById('pmedit_' + id);
   const form = document.getElementById('pmform_' + id);
   if (editBtn) editBtn.style.display = on ? '' : 'none';
@@ -10695,6 +11418,7 @@ function renderPayGrids() {
       `<div class="pay-btn" onclick="${selectFn}(this)">${m.svg}${m.label}</div>`
     ).join('');
   });
+  refreshCobroMethods();
 }
 
 // ── Plantilla de métodos de pago ─────────────────────────────
@@ -10707,7 +11431,7 @@ function buildPaymentTemplate() {
     { id:'transferencia',icon:'🏦', name:'Transferencia Bancaria', fields:['banco','cuenta'],           labels:['Banco','Nro. de cuenta'],         def:{banco:'',cuenta:''},                                                    defOn:false },
     { id:'divisas',      icon:'💰', name:'Divisas (EUR / COP)',    fields:['tipos','instrucciones'],    labels:['Tipos','Instrucciones'],           def:{tipos:'',instrucciones:''},                                             defOn:false },
   ];
-  const saved = JSON.parse(localStorage.getItem('central_pagos') || '{}');
+  const saved = _getPayData();
   const nombre = businessProfile.businessName || 'Mi Tienda';
 
   let lines = [];
