@@ -6,6 +6,10 @@
 -- Este archivo sirve para revisarlo o aplicarlo a mano ANTES del deploy, después
 -- de hacer el respaldo de la base con backend/scripts/respaldo-produccion.ps1 (pg_dump).
 --
+-- Diferencias del servidor: reintenta la columna hasta 4 veces (espera 1, 2, 4 s) si la tabla
+-- está ocupada; si la columna sigue sin existir, sale con process.exit(1) (los pedidos fallarían
+-- sin ella). Si solo falla el CHECK, arranca igual y lo reintenta en el siguiente arranque.
+--
 -- Nada de esto borra ni modifica datos existentes: añade una columna con valor
 -- por defecto 0 (todos los pedidos actuales quedan sin descuento) y un CHECK.
 -- No hay relleno de datos.

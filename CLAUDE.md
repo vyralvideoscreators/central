@@ -69,6 +69,9 @@ AGENTES.md                            ← Guía de uso de agentes Claude
 - En producción el servidor no arranca sin `JWT_SECRET`. `WEBHOOK_VERIFY_TOKEN` no tiene valor por defecto.
 - SPA: todo dato de clientes/contactos/productos que vaya a `innerHTML` pasa por `escHtml()` (y `escJsAttr()` dentro de `onclick`). Mantenerlo en código nuevo.
 - `/api/media/:id` solo entrega archivos de mensajes del propio tenant; el SPA los descarga con `fetch` + token (`loadAuthedMedia`).
+- Contraseñas: `PUT /api/tenant/password {currentPassword,newPassword}` (no está en `DEMO_ALLOWED_ROUTES`). Cambiar el correo en `PUT /api/tenant/profile` exige `currentPassword`. Ambas pasan por `checkCurrentPassword`: freno por negocio de 5 fallos/15 min → 429; el intento se cuenta **antes** del `compare` para que peticiones en paralelo no lo esquiven. bcrypt solo lee 72 bytes: toda ruta que fija una contraseña rechaza más con `pwTooLong` (400), nunca la recorta.
+- Plan: `POST /api/tenant/register` crea siempre la cuenta en `basic` y devuelve `requestedPlan` (`'pro'|'business'|null`); `requireAuth` lee el plan de la BD (no del JWT). `GET /api/reports` responde 403 `{error:'plan_required'}` en `basic`.
+- Arranque: `initDB` no debe construir índices grandes. Esos van en `BACKGROUND_INDEXES` y `ensureIndexes()` los crea con `CREATE INDEX CONCURRENTLY` **después de `listen`**, con advisory lock (una réplica a la vez); un índice inválido se borra y se rehace. Hoy: `order_items_order_idx`. La migración de `orders.discount` hace `process.exit(1)` si la columna no queda creada (los pedidos fallarían sin ella).
 
 ## Convenciones de código
 
@@ -80,6 +83,7 @@ AGENTES.md                            ← Guía de uso de agentes Claude
 - Las funciones `db*` de pedidos, clientes y catálogo devuelven **camelCase** a la API (la BD es snake_case)
 - Variables de entorno: todas documentadas en `backend/.env.example`
 
+- Índices grandes (tablas que crecen): añadirlos a `BACKGROUND_INDEXES`, no a `initDB` (ver "Seguridad del servidor → Arranque"); su `.sql` en `migrations/` los documenta con `CONCURRENTLY`.
 - Errores de datos del cliente: `throw new BadRequest('…')` → 400. Ids que no son UUID → 404 (`UUID_RE`). Nunca un 500 por un dato mal enviado.
 - Varias escrituras relacionadas → transacción; un choque esperable dentro de ella → `SAVEPOINT`.
 
@@ -87,7 +91,9 @@ AGENTES.md                            ← Guía de uso de agentes Claude
 - `BACKEND_URL = location.origin` (SPA, login y API se sirven desde el mismo servidor). Cabeceras: `apiAuthHeader()` / `apiHeaders()`.
 - Código nuevo habla con la API con **`apiJson(method, path, body)`** (lanza Error con el mensaje del servidor).
 - Los objetos locales usan el **id del servidor** (`id`); un id temporal (`c123`, `p123`) nunca se envía (`isServerId`).
-- Cargas: `loadRealX()` async; si fallan → `notifyLoadError('…')` (aviso al usuario). **No hay datos de ejemplo de respaldo** en cuentas reales.
+- Cargas: `loadRealX()` async; si fallan → `notifyLoadError('…')` (aviso al usuario). **No hay datos de ejemplo de respaldo** en cuentas reales (tampoco en Inbox ni Pagos).
+- Diálogos y avisos: `askConfirm()`, `openFormDialog()` y `showToast(msg,'error')`; no usar `confirm()`/`alert()`/`prompt()` del navegador.
+- `central_profile` (localStorage) lleva `tenantId`; si no coincide con el del JWT se descarta. Tras registrarse con plan de pago, el SPA guarda `central_pending_plan` en sessionStorage y abre Ajustes → Plan para pagar.
 - Arranque: `loadRealOrders()` → `loadRealClients()` (en cadena, `ordersReady`), `loadRealConversations()`, `loadRealCatalog()`; el historial del chat espera a pedidos y clientes.
 - Diseño: imitar el layout existente (indicadores en fila, mismo tamaño; repartir la información en la tarjeta); colores solo con variables CSS.
 
@@ -147,6 +153,8 @@ AGENTES.md                            ← Guía de uso de agentes Claude
 **Pedidos:** el número visible (`#0001`) es `orders.tenant_order_number`, propio de cada negocio (contador `tenants.order_seq`). `order_number` (BIGSERIAL global) queda solo como respaldo. El SPA **primero guarda en el servidor** y usa el número que este devuelve (también en el ticket); nunca inventa números. `storeServerOrder()` es la única forma de meter un pedido del servidor en `orders`.
 - **Pedido ↔ cliente por ficha (`orders.client_id`), nunca por nombre.** `POST /api/orders` acepta `clientId` (se comprueba que sea del negocio) o, si no hay ficha, `clientConvoKey`/`clientPhone` y el servidor la crea (`createdClient` en la respuesta). `clients.convo_key` une la ficha a su chat (waId o `ig_…`). En el SPA: `findClientForConvo()`, `relinkClientOrders()`. Renombrar una ficha actualiza `client_name` de sus pedidos.
 - **Editar pedido:** `PATCH /api/orders/:id` (snake_case) acepta además `items` (reemplaza todos, validados con `cleanOrderItems`) y `client_id`; todo en una transacción. Errores de datos → `BadRequest` → 400.
+- **Total y descuento:** `orders.discount` (NUMERIC ≥ 0, CHECK `orders_discount_nonneg`) llega como `discount` en POST (camelCase) y PATCH (snake_case). Con artículos el **servidor** calcula el total (`computeOrderTotal`: `linePrice = unitPrice×qty`, total = Σ líneas + envío − descuento) e ignora `totalPrice` del cliente; sin artículos respeta el total enviado. Descuento > total → 400.
+- **Pagos (SPA):** muestra un resumen de cobros (`renderPagosResumen`); el registro de abonos está «en construcción».
 - **Guardados:** usar `apiJson()` (lanza Error con el mensaje del servidor). Altas y bajas esperan al servidor; cambios de estado son instantáneos y se deshacen si fallan (`patchOrder(id, fields, undo)`). Nada debe fallar en silencio.
 - **Tickets:** el estilo (`TICKET_CSS`) vive en server.js; el SPA manda solo el contenido. En chats de Instagram se envía `igId` y el servidor publica la imagen en `/api/ticket-image/:token` (aleatorio, caduca a los 15 min) para que Meta la descargue.
 
