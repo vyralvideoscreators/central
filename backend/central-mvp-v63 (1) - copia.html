@@ -619,7 +619,27 @@
   }
   .toast.visible { display: flex; }
   @keyframes tIn { from { opacity:0; transform: translateY(10px); } to { opacity:1; transform: translateY(0); } }
-  .toast svg { width: 15px; height: 15px; }
+  .toast svg { width: 15px; height: 15px; flex-shrink: 0; }
+  .toast .ico-err { display: none; }
+  .toast.error { border-color: var(--red); color: var(--red); max-width: min(420px, 90vw); }
+  .toast.error .ico-ok { display: none; }
+  .toast.error .ico-err { display: block; }
+
+  /* VENTANAS DE CONFIRMACIÓN / FORMULARIO PROPIAS (debajo del aviso .toast, encima de cualquier modal) */
+  .dlg-overlay {
+    position: fixed; inset: 0; z-index: 900; display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.72); backdrop-filter: blur(10px);
+  }
+  .dlg-overlay .modal { width: 400px; }
+  .dlg-text { font-size: 13px; color: var(--text2); line-height: 1.55; margin-bottom: 4px; white-space: pre-line; }
+  .dlg-error { font-size: 12px; color: var(--red); min-height: 16px; margin: 2px 0 0; }
+  .btn-danger {
+    padding: 7px 15px; border-radius: 9px; background: var(--red); border: none;
+    color: #fff; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .btn-danger:hover { filter: brightness(1.1); transform: translateY(-1px); }
+  .btn-primary:disabled, .btn-danger:disabled { opacity: .55; cursor: default; transform: none; }
 
   /* BACK BTN */
   .back-btn {
@@ -3603,8 +3623,9 @@
 </div>
 
 <!-- TOAST -->
-<div class="toast" id="toast">
-  <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+<div class="toast" id="toast" role="status" aria-live="polite">
+  <svg class="ico-ok" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+  <svg class="ico-err" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0 3.75h.008M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
   <span id="toastMsg"></span>
 </div>
 
@@ -4569,9 +4590,20 @@ function toggleOrderDelivery() {
   showToast(`${currentDetailId} → ${labels[o.delivery]}`);
 }
 
-function toggleOrderPay() {
-  const o = orders.find(o => o.id === currentDetailId);
+async function toggleOrderPay() {
+  let o = orders.find(o => o.id === currentDetailId);
   if (!o) return;
+  if (o.pay === 'ok') {
+    const id = o.id;
+    const yes = await askConfirm({
+      title: '¿Marcar el pago como pendiente?',
+      text: 'El pedido ' + id + ' dejará de contar como cobrado.',
+      confirmLabel: 'Marcar pendiente', danger: true,
+    });
+    if (!yes) return;
+    o = orders.find(x => x.id === id);
+    if (!o || o.pay !== 'ok' || currentDetailId !== id) return;
+  }
   const prevPay = o.pay;
   o.pay = o.pay === 'ok' ? 'pend' : 'ok';
   patchOrder(o.id, { pay_status: o.pay }, () => {
@@ -5516,11 +5548,102 @@ function recalcTotal() {
   document.getElementById('opTotal').textContent = '$' + total.toFixed(2) + ' USD';
   if (currentDraft) currentDraft.shipping = shipping;
 }
-function showToast(msg) {
+let _toastTimer = null;
+// type: 'ok' (por defecto) | 'error'. Un mensaje que empieza por ⚠ se muestra como error.
+function showToast(msg, type) {
   const t = document.getElementById('toast');
-  document.getElementById('toastMsg').textContent = msg;
+  msg = String(msg == null ? '' : msg);
+  const isErr = type === 'error' || (type == null && /^\s*⚠/.test(msg));
+  document.getElementById('toastMsg').textContent = isErr ? msg.replace(/^\s*⚠\uFE0F?\s*/, '') : msg;
+  t.classList.toggle('error', isErr);
   t.classList.add('visible');
-  setTimeout(() => t.classList.remove('visible'), 3500);
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => t.classList.remove('visible'), isErr ? 6500 : 3500);
+}
+
+// ── Ventanas propias de la app ────────────────────────────────
+// askConfirm({title, text, confirmLabel, cancelLabel, danger}) → Promise<boolean>
+function _openDialog(inner, onCancel, focusSel) {
+  const ov = document.createElement('div');
+  ov.className = 'dlg-overlay';
+  ov.innerHTML = '<div class="modal" role="dialog" aria-modal="true">' + inner + '</div>';
+  const prevFocus = document.activeElement;
+  const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); onCancel(); } };
+  document.addEventListener('keydown', onKey, true);
+  ov.addEventListener('mousedown', e => { if (e.target === ov) onCancel(); });
+  document.body.appendChild(ov);
+  const f = ov.querySelector(focusSel || 'button');
+  if (f) setTimeout(() => f.focus(), 30);
+  return { ov, close() { document.removeEventListener('keydown', onKey, true); ov.remove(); try { prevFocus && prevFocus.focus && prevFocus.focus(); } catch (e) {} } };
+}
+function askConfirm(opts) {
+  opts = opts || {};
+  return new Promise(resolve => {
+    let done = false;
+    const finish = v => { if (done) return; done = true; d.close(); resolve(v); };
+    const d = _openDialog(
+      '<div class="modal-title">' + escHtml(opts.title || '¿Confirmar?') + '</div>' +
+      (opts.text ? '<div class="dlg-text" style="margin-top:10px;">' + escHtml(opts.text) + '</div>' : '') +
+      '<div class="modal-footer">' +
+        '<button class="btn-ghost" data-act="no">' + escHtml(opts.cancelLabel || 'Cancelar') + '</button>' +
+        '<button class="' + (opts.danger ? 'btn-danger' : 'btn-primary') + '" data-act="yes">' + escHtml(opts.confirmLabel || 'Confirmar') + '</button>' +
+      '</div>',
+      () => finish(false), '[data-act="no"]');
+    d.ov.querySelector('[data-act="no"]').onclick = () => finish(false);
+    d.ov.querySelector('[data-act="yes"]').onclick = () => finish(true);
+  });
+}
+// openFormDialog({title, sub, fields:[{id,label,type,autocomplete,placeholder}], confirmLabel, onSubmit(values)})
+// onSubmit puede lanzar Error: el mensaje sale en la ventana y queda abierta. Resuelve true si se guardó.
+function openFormDialog(opts) {
+  return new Promise(resolve => {
+    let busy = false, done = false;
+    const finish = v => { if (done) return; done = true; d.close(); resolve(v); };
+    const fields = (opts.fields || []).map(f =>
+      '<div class="form-field"><div class="form-label">' + escHtml(f.label) + '</div>' +
+      '<input class="form-input" data-f="' + escHtml(f.id) + '" type="' + escHtml(f.type || 'text') + '" autocomplete="' + escHtml(f.autocomplete || 'off') + '" placeholder="' + escHtml(f.placeholder || '') + '"></div>').join('');
+    const d = _openDialog(
+      '<div class="modal-title">' + escHtml(opts.title || '') + '</div>' +
+      '<div class="modal-sub">' + escHtml(opts.sub || '') + '</div>' + fields +
+      '<div class="dlg-error" data-err></div>' +
+      '<div class="modal-footer"><button class="btn-ghost" data-act="no">Cancelar</button>' +
+      '<button class="btn-primary" data-act="yes">' + escHtml(opts.confirmLabel || 'Guardar') + '</button></div>',
+      () => { if (!busy) finish(false); }, '.form-input');
+    const err = d.ov.querySelector('[data-err]');
+    const yes = d.ov.querySelector('[data-act="yes"]');
+    const submit = async () => {
+      if (busy) return;
+      const values = {};
+      d.ov.querySelectorAll('[data-f]').forEach(i => { values[i.dataset.f] = i.value; });
+      busy = true; yes.disabled = true; err.textContent = '';
+      try { await opts.onSubmit(values); finish(true); }
+      catch (e) { err.textContent = (e && e.message) || 'No se pudo guardar'; busy = false; yes.disabled = false; }
+    };
+    d.ov.querySelector('[data-act="no"]').onclick = () => { if (!busy) finish(false); };
+    yes.onclick = submit;
+    d.ov.querySelectorAll('.form-input').forEach(i => i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }));
+  });
+}
+
+// Cambiar contraseña (Ajustes → Seguridad)
+function openChangePassword() {
+  openFormDialog({
+    title: 'Cambiar contraseña',
+    sub: 'Escribe tu contraseña actual y elige una nueva de al menos 8 caracteres.',
+    confirmLabel: 'Cambiar contraseña',
+    fields: [
+      { id: 'cur', label: 'Contraseña actual', type: 'password', autocomplete: 'current-password' },
+      { id: 'new1', label: 'Contraseña nueva', type: 'password', autocomplete: 'new-password' },
+      { id: 'new2', label: 'Repetir contraseña nueva', type: 'password', autocomplete: 'new-password' },
+    ],
+    onSubmit: async v => {
+      if (!v.cur) throw new Error('Escribe tu contraseña actual');
+      if (v.new1.length < 8) throw new Error('La contraseña nueva debe tener al menos 8 caracteres');
+      if (v.new1 !== v.new2) throw new Error('Las contraseñas nuevas no coinciden');
+      if (v.new1 === v.cur) throw new Error('La contraseña nueva debe ser distinta de la actual');
+      await apiJson('PUT', '/api/tenant/password', { currentPassword: v.cur, newPassword: v.new1 });
+    },
+  }).then(ok => { if (ok) showToast('Contraseña cambiada ✓'); });
 }
 
 // close modal on bg click
@@ -5913,16 +6036,27 @@ async function saveCatProduct() {
   renderCatalog();
 }
 
+let _deletingProduct = false;
 async function deleteProduct(catKey, prodId) {
+  if (_deletingProduct) return;
   const cat = catalog.find(c => c.key === catKey);
   const prod = cat && cat.products.find(p => p.id === prodId);
   if (!prod) return;
+  _deletingProduct = true;
   try {
-    await apiJson('DELETE', '/api/catalog/' + prodId);
-  } catch (err) {
-    showToast('⚠ No se eliminó "' + prod.name + '" (' + err.message + ')');
-    return;
-  }
+    const yes = await askConfirm({
+      title: '¿Eliminar "' + prod.name + '"?',
+      text: 'Se quitará del catálogo. Los pedidos que ya lo incluyen no cambian.',
+      confirmLabel: 'Eliminar', danger: true,
+    });
+    if (!yes) return;
+    try {
+      await apiJson('DELETE', '/api/catalog/' + prodId);
+    } catch (err) {
+      showToast('⚠ No se eliminó "' + prod.name + '" (' + err.message + ')');
+      return;
+    }
+  } finally { _deletingProduct = false; }
   cat.products = cat.products.filter(p => p.id !== prodId);
   showToast(`"${prod.name}" eliminado`);
   renderCatalog();
@@ -5931,7 +6065,12 @@ async function deleteProduct(catKey, prodId) {
 async function deleteCategory(catKey, catName) {
   const cat = catalog.find(c => c.key === catKey);
   if (cat.products.length > 0) {
-    if (!confirm(`¿Eliminar la categoría "${catName}" y sus ${cat.products.length} artículo(s)? Esta acción no se puede deshacer.`)) return;
+    const yes = await askConfirm({
+      title: '¿Eliminar la categoría "' + catName + '"?',
+      text: 'Se eliminarán también sus ' + cat.products.length + ' artículo(s). Esta acción no se puede deshacer.',
+      confirmLabel: 'Eliminar', danger: true,
+    });
+    if (!yes) return;
   }
   // Se borra cada artículo en el servidor; los que fallen se quedan en la categoría
   const results = await Promise.allSettled(cat.products.map(p => apiJson('DELETE', '/api/catalog/' + p.id)));
@@ -7414,14 +7553,19 @@ async function openStripePortal() {
 
 async function confirmCancelSubscription() {
   if (window.__DEMO_MODE__) { showToast('En la demo no hay suscripción ni cobros.'); return; }
-  if (!confirm('¿Cancelar tu suscripción? Seguirás teniendo acceso hasta el final del período actual.')) return;
+  const yes = await askConfirm({
+    title: '¿Cancelar tu suscripción?',
+    text: 'Seguirás teniendo acceso hasta el final del período actual.',
+    confirmLabel: 'Cancelar suscripción', cancelLabel: 'Mantenerla', danger: true,
+  });
+  if (!yes) return;
   try {
     const res  = await fetch(BACKEND_URL + '/api/billing/cancel', { method:'POST', headers: apiHeaders() });
     const data = await res.json();
-    if (!res.ok) { showToast(data.error || 'Error'); return; }
+    if (!res.ok) { showToast('⚠ ' + (data.error || 'No se pudo cancelar la suscripción')); return; }
     showToast(data.message || 'Suscripción cancelada');
     loadBillingStatus();
-  } catch { showToast('Error de conexión'); }
+  } catch { showToast('⚠ Error de conexión'); }
 }
 
 // Detectar ?payment= en la URL al cargar
@@ -7841,17 +7985,31 @@ async function saveClientProfile() {
   if (document.getElementById('v-clientes').classList.contains('active')) renderClients();
 }
 
+let _deletingClient = false;
 async function deleteClient() {
+  if (_deletingClient) return;
   const c = clientsDB.find(c => c.id === currentClientId);
   if (!c) return;
-  if (!c._unsaved) {
-    try {
-      await apiJson('DELETE', '/api/clients/' + c.id);
-    } catch (err) {
-      showToast('⚠ No se eliminó la ficha de ' + c.name + ' (' + err.message + ')');
-      return;
+  _deletingClient = true;
+  try {
+    const n = orders.filter(o => o.clientId === c.id).length;
+    const yes = await askConfirm({
+      title: '¿Eliminar la ficha de ' + c.name + '?',
+      text: n
+        ? 'Tiene ' + n + ' pedido' + (n === 1 ? '' : 's') + ': se conservan, pero quedarán sin ficha de cliente.'
+        : 'Se eliminará la ficha del cliente.',
+      confirmLabel: 'Eliminar ficha', danger: true,
+    });
+    if (!yes) return;
+    if (!c._unsaved) {
+      try {
+        await apiJson('DELETE', '/api/clients/' + c.id);
+      } catch (err) {
+        showToast('⚠ No se eliminó la ficha de ' + c.name + ' (' + err.message + ')');
+        return;
+      }
     }
-  }
+  } finally { _deletingClient = false; }
   clientsDB = clientsDB.filter(cl => cl.id !== c.id);
   // Sus pedidos se conservan, sin ficha (como en el servidor)
   orders.forEach(o => { if (o.clientId === c.id) o.clientId = null; });
@@ -9105,7 +9263,7 @@ function logout() {
   window.location.href = '/central-registro.html';
 }
 
-function saveProfileSettings() {
+async function saveProfileSettings() {
   var bName   = (document.getElementById('s-input-business') || {}).value || '';
   var cityCtry= (document.getElementById('s-input-city') || {}).value || '';
   var phone   = (document.getElementById('s-input-phone') || {}).value || '';
@@ -9114,19 +9272,53 @@ function saveProfileSettings() {
   if (bName)    { businessProfile.businessName = bName.trim(); businessProfile.initials = bName.trim().split(/\s+/).map(function(w){return w[0]||'';}).join('').slice(0,2).toUpperCase(); }
   if (cityCtry) { var p = cityCtry.split(','); businessProfile.city = (p[0]||'').trim(); businessProfile.country = (p[1]||businessProfile.country).trim(); }
   if (phone)    businessProfile.phone   = phone.trim();
-  if (email)    businessProfile.email   = email.trim();
   if (welcome)  businessProfile.welcome = welcome.trim();
-  try { localStorage.setItem('central_profile', JSON.stringify(businessProfile)); } catch(e) {}
-  applyBrandingGlobal();
-  showToast('Perfil guardado correctamente ✓');
-
-  // Guardar también en el backend real (si falla, se avisa), para que Central Admin refleje los cambios
-  apiJson('PUT', '/api/tenant/profile', {
+  const oldEmail = (businessProfile.email || '').trim().toLowerCase();
+  const newEmail = email.trim();
+  const emailChanged = !!newEmail && newEmail.toLowerCase() !== oldEmail && !window.__DEMO_MODE__;
+  if (newEmail && !emailChanged) businessProfile.email = newEmail;
+  const body = {
     business_name: businessProfile.businessName,
-    email: businessProfile.email,
     country: businessProfile.country,
     whatsapp_number: businessProfile.phone,
-  }).catch(err => showToast('⚠ El perfil se guardó en este dispositivo pero no en el servidor (' + err.message + ')'));
+  };
+  if (!window.__DEMO_MODE__) body.email = emailChanged ? newEmail : businessProfile.email;
+  const persist = () => {
+    try { localStorage.setItem('central_profile', JSON.stringify(businessProfile)); } catch(e) {}
+    applyBrandingGlobal();
+  };
+  if (emailChanged) {
+    // Cambiar el correo de acceso exige la contraseña actual; la ventana queda abierta si el servidor la rechaza
+    const ok = await openFormDialog({
+      title: 'Confirma tu contraseña',
+      sub: 'Para cambiar el correo de acceso a ' + newEmail + ' escribe tu contraseña actual.',
+      confirmLabel: 'Guardar cambios',
+      fields: [{ id: 'pw', label: 'Contraseña actual', type: 'password', autocomplete: 'current-password' }],
+      onSubmit: async v => {
+        if (!v.pw) throw new Error('Escribe tu contraseña actual');
+        await apiJson('PUT', '/api/tenant/profile', Object.assign({}, body, { currentPassword: v.pw }));
+      },
+    });
+    if (ok) {
+      businessProfile.email = newEmail;
+      persist();
+      showToast('Perfil guardado correctamente ✓');
+      return;
+    }
+    // Se canceló: el resto del perfil se guarda y el correo no cambia
+    body.email = businessProfile.email;
+    persist();
+    try { await apiJson('PUT', '/api/tenant/profile', body); showToast('Perfil guardado; el correo de acceso no se cambió'); }
+    catch (err) { showToast('⚠ El perfil no se guardó en el servidor (' + err.message + ')'); }
+    return;
+  }
+  persist();
+  try {
+    await apiJson('PUT', '/api/tenant/profile', body);
+    showToast('Perfil guardado correctamente ✓');
+  } catch (err) {
+    showToast('⚠ El perfil se guardó en este dispositivo pero no en el servidor (' + err.message + ')');
+  }
 }
 
 function applyBrandingGlobal() {
