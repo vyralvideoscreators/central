@@ -79,6 +79,7 @@ AGENTES.md                            ← Guía de uso de agentes Claude
 - Todas las funciones de BD siguen el patrón `dbNombreFuncion(tenantId, data)`
 - Los endpoints usan `requireAuth` middleware que inyecta `req.tenant.tenantId`
 - **Siempre filtrar por `tenant_id`** — es multi-tenant; una query sin filtro expone datos de otros negocios
+- **Pagos:** `PATCH /api/orders/:id` ya NO acepta `pay_status` (400). El estado de cobro (`pay_status` pend|partial|ok y `orders.amount_paid`, en moneda base) lo deriva el servidor de `payments` con `recalcOrderPayment` (pagos.js), con una SUM dentro de la misma transacción, nunca por incremento. `POST /api/orders` ignora `payStatus` y acepta `initialPayment {amount | full:true, method, …}`.
 - El body de POST usa **camelCase** (`clientName`, `payStatus`, `deliveryStatus`). Excepción: `PATCH /api/orders/:id` recibe **snake_case** (`delivery_status`, `pay_status`…), que es lo que envía el SPA
 - Las funciones `db*` de pedidos, clientes y catálogo devuelven **camelCase** a la API (la BD es snake_case)
 - Variables de entorno: todas documentadas en `backend/.env.example`
@@ -143,9 +144,11 @@ AGENTES.md                            ← Guía de uso de agentes Claude
 | Inbox (conversaciones) | `convos` | `loadRealConversations()` | `GET /api/conversations` |
 | Pedidos | `orders` | `loadRealOrders()` | `GET/POST /api/orders`, `PATCH /api/orders/:id` |
 | Catálogo | `catalog` | `loadRealCatalog()` | `GET/POST /api/catalog`, `PATCH/DELETE /api/catalog/:id` |
-| Clientes | `clientsDB` | `loadRealClients()` | `GET/POST /api/clients`, `PATCH/DELETE /api/clients/:id` |
-| Informes | `fetchInfData()` | `renderInforme(tab)` (asíncrono) | `GET /api/reports?period=&canal=&from=&to=&tz=` — lo calcula el servidor en la zona horaria del negocio |
+| Clientes | `clientsDB` | `loadRealClients()` | `GET/POST /api/clients`, `PATCH/DELETE /api/clients/:id` (cada ficha trae `balance`: saldo por cobrar) |
+| Informes | `fetchInfData()` | `renderInforme(tab)` (asíncrono) | `GET /api/reports?period=&canal=&from=&to=&tz=` — lo calcula el servidor en la zona horaria del negocio; incluye `cobrado` y `cobrosPorMetodo` |
 | Ajustes | `businessProfile` | al cargar tenant | `GET/PUT /api/tenant/profile` |
+| Ajustes de cobro y entrega | `tenantSettings` | al cargar tenant | `GET/PUT /api/tenant/settings` (`paymentMethods`, `deliveryMethods` con lista blanca, `baseCurrency`) |
+| Pagos | pantalla Pagos + modal del pedido | al abrir | `GET /api/payments?period=` o `from=&to=` más `&method=`; `GET/POST /api/orders/:id/payments`; `POST /api/payments/:id/void`; `GET /api/orders/:id/events` |
 | Horario + respuesta automática | `autoReplyCfg` | `loadAutoReplyConfig()` | `GET/PUT /api/tenant/auto-reply` |
 
 **Respuesta automática fuera de horario:** la envía el **servidor** (`maybeSendAutoReply` en el webhook), una vez por conversación y día en la zona horaria del negocio (`tenants.timezone`). Apagada por defecto (`auto_reply_enabled`). Llega al SPA como `message_sent` con `auto: true`.
@@ -157,6 +160,16 @@ AGENTES.md                            ← Guía de uso de agentes Claude
 - **Pagos (SPA):** muestra un resumen de cobros (`renderPagosResumen`); el registro de abonos está «en construcción».
 - **Guardados:** usar `apiJson()` (lanza Error con el mensaje del servidor). Altas y bajas esperan al servidor; cambios de estado son instantáneos y se deshacen si fallan (`patchOrder(id, fields, undo)`). Nada debe fallar en silencio.
 - **Tickets:** el estilo (`TICKET_CSS`) vive en server.js; el SPA manda solo el contenido. En chats de Instagram se envía `igId` y el servidor publica la imagen en `/api/ticket-image/:token` (aleatorio, caduca a los 15 min) para que Meta la descargue.
+
+**Pagos (Fase 2):** pagos parciales, anulaciones e historial por pedido. Reglas contables (no romper):
+- **El dinero no se edita, se registra.** Los pagos solo se añaden o se anulan (`voided_at` + `void_reason`); nunca DELETE ni UPDATE de importes. Un error se corrige anulando y registrando de nuevo.
+- No se cobra más que el saldo (`addPaymentTx`; pago completo = `full:true`) y no se baja el total de un pedido por debajo de lo cobrado (400).
+- **Moneda base por negocio** (`tenants.base_currency`, por defecto USD): totales y saldos van en ella; no se puede cambiar si ya hay pagos. Un pago en otra moneda guarda `exchange_rate` y `amount_base`; solo `amount_base` cuenta para el saldo.
+- Nombres de método **canónicos** (`normalizeMethodName` en pagos.js: "Pago móvil" = "Pago Móvil", "Efectivo $" = "Efectivo"): se normalizan al leer, para agrupar y filtrar.
+- **Ajustes de métodos de pago y entrega en el servidor** (`tenant_settings`), no en localStorage. El SPA migra los viejos una sola vez (`migrateLocalSettings`), solo si el navegador los marcó antes como de este negocio (`central_last_tenant`); si no, los descarta. Entrega: lista blanca `DELIVERY_KEYS`.
+- Historial: `order_events` (se ordena por `seq`, no solo por fecha).
+- **Arranque:** `ensurePaymentsSchema` (solo DDL, con advisory lock, sin DDL si ya existe; 4 reintentos; `process.exit(1)` si falta el esquema) y `runPaymentsBackfill` (relleno por lotes de pedidos 'ok' antiguos sin pago). Sin la marca en `schema_migrations` espera antes de escuchar (primer despliegue); después corre en segundo plano tras `listen` y a los 10 min, para recoger lo que la versión vieja marque como pagado durante el solape. Índice `orders_legacy_paid_id_idx` en `BACKGROUND_INDEXES`.
+- Demos: rutas de pagos en la lista blanca; topes `payments` 600 y `order_events` 5000; `wipeDemoData` borra `payments`, `order_events` y `tenant_settings`.
 
 **Correos de acceso:** siempre en minúsculas (`normEmail`), comparados con `lower(email)`; índice único `tenants_email_lower_uniq`.
 

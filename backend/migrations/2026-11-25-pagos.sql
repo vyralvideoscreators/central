@@ -1,29 +1,34 @@
 -- ══════════════════════════════════════════════════════════════
 -- CENTRAL — Fase 2: pagos de verdad (25-nov-2026)
 --
--- server.js hace ESTO MISMO automáticamente al arrancar (initDB → ensurePaymentsSchema en
--- backend/pagos.js): (a) DDL en una transacción corta con pg_advisory_xact_lock y lock_timeout 5 s, sin
--- ejecutar ningún ALTER/CREATE si ya existe; (b) relleno de datos APARTE, por lotes de 1000 pedidos, en
--- CADA arranque (porque la versión vieja puede crear pedidos 'ok' sin pago durante el despliegue).
--- Este archivo es para revisarlo / respaldarlo. HAZ RESPALDO ANTES (pg_dump): el relleno
--- modifica orders.amount_paid.
+-- server.js hace ESTO MISMO automáticamente al arrancar (initDB). Este archivo es para revisarlo / respaldarlo.
+-- HAZ RESPALDO ANTES (pg_dump): el relleno modifica orders.amount_paid.
+--   (a) ensurePaymentsSchema (backend/pagos.js): SOLO DDL, en una transacción corta con pg_advisory_xact_lock
+--       y lock_timeout 5 s; antes de cada ALTER/CREATE comprueba si ya existe (en un arranque normal no
+--       ejecuta ningún DDL). Hasta 4 intentos; si el esquema sigue incompleto, el servidor sale con error
+--       y Railway conserva la versión anterior.
+--   (b) runPaymentsBackfill (relleno de datos, APARTE): lotes de 1000 pedidos, cada lote en su transacción.
+--       Sin la marca '2026-11-25-pagos-relleno' en schema_migrations (primer despliegue) se ejecuta ANTES de
+--       escuchar; si ya está la marca, corre en segundo plano tras listen y otra vez a los 10 min (la versión
+--       vieja puede crear pedidos 'ok' sin pago durante el solape del despliegue). NO depende de la marca:
+--       es idempotente y la marca solo decide si se espera. Un fallo se registra y se reintenta al arrancar.
 --
 -- Qué hace
 --   1) tenants.base_currency (moneda en la que se llevan totales y saldos), por defecto 'USD'.
 --   2) orders.amount_paid: suma de los pagos NO anulados, en moneda base. orders.pay_status pasa
---      a ser DERIVADO (pend | partial | ok) y lo mantiene el servidor con una SUM en cada
---      alta/anulación de pago y en cada edición de total (nunca por incremento).
+--      a ser DERIVADO (pend | partial | ok) y lo mantiene el servidor (recalcOrderPayment) con una SUM en
+--      cada alta/anulación de pago y en cada edición de total (nunca por incremento).
 --   3) payments: solo se añaden filas; un error se corrige anulando (voided_at), nunca DELETE.
 --   4) order_events: historial por pedido (created, edited, status_changed, payment_added,
---      payment_voided, migrated).
+--      payment_voided, migrated), ordenado por seq.
 --   5) tenant_settings: métodos de pago / entrega del negocio.
---   6) schema_migrations + relleno (se repite en cada arranque, idempotente; el método se guarda con su nombre canónico, p. ej. 'Pago Móvil'): cada pedido con pay_status = 'ok', total > 0 y
---      sin pagos recibe un pago por su total (moneda base, tasa 1, método = pay_method_label o
---      'Sin especificar', paid_at = created_at del pedido) y un evento 'migrated'.
---      Pedidos pagados con total 0 no se tocan (amount_paid 0, pay_status 'ok').
+--   6) Relleno: cada pedido con pay_status = 'ok', total > 0, amount_paid = 0 y sin pagos recibe un pago por
+--      su total (moneda base, tasa 1, método = pay_method_label o 'Sin Especificar', paid_at = created_at
+--      del pedido) y un evento 'migrated'. Pedidos pagados con total 0 no se tocan.
 --
--- Bloqueos: ADD COLUMN con DEFAULT constante es instantáneo (PG ≥ 11). Los índices son de
--- tablas NUEVAS y vacías, por eso no van en BACKGROUND_INDEXES.
+-- Bloqueos: ADD COLUMN con DEFAULT constante es instantáneo (PG ≥ 11). Los índices de payments / order_events /
+-- tenant_settings son de tablas NUEVAS y vacías: se crean junto al DDL. El único índice sobre una tabla con
+-- datos (orders_legacy_paid_id_idx) va en BACKGROUND_INDEXES de server.js (CONCURRENTLY, tras listen).
 -- ══════════════════════════════════════════════════════════════
 
 BEGIN;
@@ -65,6 +70,7 @@ CREATE TABLE IF NOT EXISTS order_events (
   seq        BIGINT GENERATED ALWAYS AS IDENTITY  -- orden de inserción (eventos de una misma transacción comparten created_at)
 );
 ALTER TABLE order_events ADD COLUMN IF NOT EXISTS seq BIGINT GENERATED ALWAYS AS IDENTITY;
+DROP INDEX IF EXISTS order_events_order_idx;  -- versión anterior (order_id, created_at)
 CREATE INDEX IF NOT EXISTS order_events_order_seq_idx ON order_events (order_id, created_at, seq);
 CREATE INDEX IF NOT EXISTS order_events_tenant_idx    ON order_events (tenant_id);
 
@@ -77,32 +83,40 @@ CREATE TABLE IF NOT EXISTS tenant_settings (
 
 CREATE TABLE IF NOT EXISTS schema_migrations (
   name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now());
+COMMIT;
 
--- Relleno de UNA sola vez (la marca y el relleno van en la misma transacción)
-WITH mark AS (
-  INSERT INTO schema_migrations (name) VALUES ('2026-11-25-pagos-relleno') ON CONFLICT DO NOTHING RETURNING name
+-- Relleno, UN lote: repetir esta sentencia hasta que devuelva 0 filas (el servidor lo hace solo). Seguro de
+-- reejecutar y de correr junto a pagos nuevos (SKIP LOCKED; solo toca pedidos sin ningún pago). El servidor
+-- guarda el método con su nombre canónico (normalizeMethodName: "Pago móvil" -> "Pago Móvil", "Efectivo $" ->
+-- "Efectivo"); a mano se guarda tal cual, y las lecturas lo normalizan igual.
+BEGIN;
+WITH cand AS (
+  SELECT o.id FROM orders o
+  WHERE o.pay_status = 'ok' AND o.amount_paid = 0 AND o.total_price > 0
+    AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.order_id = o.id)
+  ORDER BY o.id LIMIT 1000 FOR UPDATE OF o SKIP LOCKED
 ), ins AS (
   INSERT INTO payments (tenant_id, order_id, client_id, amount, currency, exchange_rate, amount_base, method, note, paid_at, created_by)
   SELECT o.tenant_id, o.id, o.client_id, o.total_price, t.base_currency, 1, o.total_price,
-         COALESCE(NULLIF(NULLIF(btrim(o.pay_method_label), '—'), ''), 'Sin especificar'),
+         COALESCE(NULLIF(NULLIF(btrim(o.pay_method_label), '—'), ''), 'Sin Especificar'),
          'Registrado antes de la Fase 2',
          o.created_at AT TIME ZONE current_setting('TimeZone'), 'system'
-  FROM orders o JOIN tenants t ON t.id = o.tenant_id
-  WHERE EXISTS (SELECT 1 FROM mark)
-    AND o.pay_status = 'ok' AND o.total_price > 0
-    AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.order_id = o.id)
+  FROM cand JOIN orders o ON o.id = cand.id JOIN tenants t ON t.id = o.tenant_id
   RETURNING order_id, tenant_id, amount_base
 ), ev AS (
   INSERT INTO order_events (tenant_id, order_id, type, data, created_by)
   SELECT tenant_id, order_id, 'migrated', jsonb_build_object('amountBase', amount_base), 'system' FROM ins
 )
 UPDATE orders o SET amount_paid = ins.amount_base FROM ins WHERE o.id = ins.order_id AND o.tenant_id = ins.tenant_id;
-
 COMMIT;
 
--- Índice del relleno (el servidor lo crea solo, en segundo plano; orders ya tiene datos, por eso CONCURRENTLY
--- y fuera de transacción). Hace barata la búsqueda de pedidos 'ok' sin pago en cada arranque:
--- CREATE INDEX CONCURRENTLY IF NOT EXISTS orders_legacy_paid_idx ON orders (tenant_id)
+-- Marca (la pone el servidor al terminar el relleno; solo decide si el próximo arranque espera antes de escuchar)
+INSERT INTO schema_migrations (name) VALUES ('2026-11-25-pagos-relleno') ON CONFLICT DO NOTHING;
+
+-- Índice del relleno (el servidor lo crea solo en segundo plano: BACKGROUND_INDEXES). orders ya tiene datos,
+-- por eso CONCURRENTLY y FUERA de transacción. Parcial y por id: la búsqueda de pedidos 'ok' sin pago en cada
+-- arranque es barata (casi siempre vacío).
+-- CREATE INDEX CONCURRENTLY IF NOT EXISTS orders_legacy_paid_id_idx ON orders (id)
 --   WHERE pay_status = 'ok' AND amount_paid = 0 AND total_price > 0;
 
 -- Comprobación (solo lectura): no debe quedar ningún pedido 'ok' con total > 0 y sin pago
@@ -113,6 +127,7 @@ COMMIT;
 --    WHERE p.order_id = o.id AND p.voided_at IS NULL), 0);                        -- esperado: 0
 
 -- Rollback (ANTES de que se registren pagos nuevos; después se perderían cobros reales):
+-- DROP INDEX CONCURRENTLY IF EXISTS orders_legacy_paid_id_idx;   -- fuera de transacción
 -- BEGIN;
 --   DROP TABLE IF EXISTS payments;
 --   DROP TABLE IF EXISTS order_events;
