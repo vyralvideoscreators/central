@@ -130,6 +130,7 @@ if (process.env.DATABASE_URL) {
   });
 }
 
+let backfillAfterListen = false; // relleno de pagos en segundo plano tras listen (ver initDB)
 async function initDB() {
   if (!pool) {
     console.warn('⚠️  DATABASE_URL no configurado — datos solo en memoria');
@@ -428,12 +429,24 @@ async function initDB() {
     // tenants.base_currency (ver pagos.js y migrations/2026-11-25-pagos.sql). Sin ellas los pedidos
     // fallarían (amount_paid): si falta de verdad el esquema, se detiene el arranque y Railway conserva
     // la versión anterior.
-    if (!(await ensurePaymentsSchema(pool))) {
+    // Hasta 4 intentos con espera (1, 2, 4 s): un lock_timeout puntual con la versión vieja ocupada no
+    // debe tumbar el despliegue.
+    let paymentsReady = false;
+    for (let attempt = 1; attempt <= 4 && !paymentsReady; attempt++) {
+      paymentsReady = await ensurePaymentsSchema(pool);
+      if (!paymentsReady && attempt < 4) await new Promise(r => setTimeout(r, 1000 * 2 ** (attempt - 1)));
+    }
+    if (!paymentsReady) {
       console.error('❌ Falta el esquema de pagos. Se detiene el arranque para reintentar.');
       process.exit(1);
     }
-    // Relleno de pedidos pagados "a la antigua": por lotes, en cada arranque; un fallo solo se registra
-    await runPaymentsBackfill(pool);
+    // Relleno de pedidos pagados "a la antigua" (por lotes; un fallo solo se registra). En el PRIMER arranque
+    // de la Fase 2 (sin la marca) se espera antes de escuchar, para que nadie vea un pedido pagado con saldo.
+    // Después corre en segundo plano tras listen y otra vez a los 10 min (recoge lo que la versión vieja
+    // marcara como pagado durante el solape del despliegue), sin retrasar nunca el arranque.
+    const { rows: relleno } = await pool.query(`SELECT 1 FROM schema_migrations WHERE name = '2026-11-25-pagos-relleno'`);
+    if (!relleno.length) await runPaymentsBackfill(pool);
+    else backfillAfterListen = true;
 
     try {
       await seedDefaultTenant();
@@ -3902,7 +3915,7 @@ const BACKGROUND_INDEXES = [
   { name: 'order_items_order_idx', sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS order_items_order_idx ON order_items (order_id)' },
   // Relleno de pagos en cada arranque (pagos.js): hace barata la búsqueda de pedidos 'ok' sin pago. Parcial:
   // solo contiene pedidos pendientes de convertir (casi siempre ninguno).
-  { name: 'orders_legacy_paid_idx', sql: "CREATE INDEX CONCURRENTLY IF NOT EXISTS orders_legacy_paid_idx ON orders (tenant_id) WHERE pay_status = 'ok' AND amount_paid = 0 AND total_price > 0" },
+  { name: 'orders_legacy_paid_id_idx', sql: "CREATE INDEX CONCURRENTLY IF NOT EXISTS orders_legacy_paid_id_idx ON orders (id) WHERE pay_status = 'ok' AND amount_paid = 0 AND total_price > 0" },
 ];
 async function ensureIndexes() {
   if (!dbReady) return;
@@ -3939,5 +3952,9 @@ initDB().then(() => {
   server.listen(PORT, () => {
     console.log(`🚀 CENTRAL Backend v5.0 escuchando en puerto ${PORT}`);
     ensureIndexes().catch(err => console.error('⚠️  ensureIndexes:', err.message));
+    if (backfillAfterListen) {
+      runPaymentsBackfill(pool).catch(() => {});
+      setTimeout(() => runPaymentsBackfill(pool).catch(() => {}), 10 * 60000).unref();
+    }
   });
 });

@@ -58,7 +58,7 @@ const rawMethodsFor = (allRaw, wanted) => { const k = methodKey(wanted); return 
 // Pedidos "pagados a la antigua" (pay_status = 'ok', total > 0, amount_paid = 0, sin pagos): un pago por el
 // total, en la moneda base del negocio. UN lote (hasta `limit` pedidos); devuelve cuántos convirtió.
 // Seguro de reejecutar y de correr junto a pagos nuevos: bloquea los pedidos (SKIP LOCKED) y solo toca los
-// que aún no tienen ningún pago. La condición amount_paid = 0 coincide con orders_legacy_paid_idx.
+// que aún no tienen ningún pago. La condición amount_paid = 0 coincide con orders_legacy_paid_id_idx (por id: da el orden de ORDER BY o.id sin recorrer la tabla).
 async function backfillLegacyPayments(db, limit = BACKFILL_BATCH) {
   const { rows: cand } = await db.query(`
     SELECT o.id, o.pay_method_label FROM orders o
@@ -92,7 +92,7 @@ async function backfillLegacyPayments(db, limit = BACKFILL_BATCH) {
 
 // Relleno por lotes, cada uno en su transacción. Se ejecuta EN CADA ARRANQUE (no hay marca única): la
 // versión anterior del servidor puede seguir creando pedidos 'ok' sin pago durante el despliegue. Es barato
-// gracias a orders_legacy_paid_idx (índice parcial, ver BACKGROUND_INDEXES); mientras ese índice no
+// gracias a orders_legacy_paid_id_idx (índice parcial, ver BACKGROUND_INDEXES); mientras ese índice no
 // exista, es una consulta normal sobre orders. Un fallo solo se registra: se reintenta al siguiente arranque.
 async function runPaymentsBackfill(pool, batch = BACKFILL_BATCH) {
   let total = 0;
@@ -201,8 +201,9 @@ async function ensurePaymentsSchema(pool) {
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
-    console.error('❌ Migración de pagos:', err.message);
-    return false;
+    // No se devuelve false aquí: si el fallo fue en un paso secundario, el esquema puede estar completo;
+    // la comprobación de abajo decide (y initDB reintenta si falta).
+    console.error('⚠️  Migración de pagos:', err.message);
   } finally {
     client.release();
   }
