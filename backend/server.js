@@ -65,8 +65,11 @@ function pwFailed(tenantId) {
 setInterval(() => { const n = Date.now(); for (const [k, v] of pwFailures) if (n > v.reset) pwFailures.delete(k); }, 10 * 60000).unref();
 // Comprueba la contraseña actual con el freno. Devuelve null si es correcta, o [status, mensaje].
 async function checkCurrentPassword(tenantId, pw, hash) {
+  // Comprobar y apuntar el intento es síncrono (antes de cualquier await): peticiones en paralelo no pueden
+  // pasar todas antes de que se cuenten. Si acierta, el intento se borra.
   if (pwBlocked(tenantId)) return [429, 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.'];
-  if (!(await bcrypt.compare(pw, hash))) { pwFailed(tenantId); return [401, 'La contraseña actual no es correcta']; }
+  pwFailed(tenantId);
+  if (!(await bcrypt.compare(pw, hash))) return [401, 'La contraseña actual no es correcta'];
   pwFailures.delete(tenantId);
   return null;
 }

@@ -3662,17 +3662,20 @@
 <script>
 // ══ PROFILE — loaded from localStorage (set by central-registro.html) ══
 var businessProfile = (function() {
+  // El perfil guardado es de un negocio concreto (tenantId del JWT): si en este navegador entra otra cuenta,
+  // no se reutiliza. Un perfil antiguo sin tenantId se adopta una vez y desde entonces queda marcado.
+  var tid = null;
+  try { tid = JSON.parse(atob((localStorage.getItem('central_jwt') || '').split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).tenantId || null; } catch(e) {}
   try {
     var saved = localStorage.getItem('central_profile');
     if (saved) {
-      // El perfil guardado es de un negocio concreto: si en este navegador entra otra cuenta, no se reutiliza
-      var p = JSON.parse(saved), tid = null;
-      try { tid = JSON.parse(atob((localStorage.getItem('central_jwt') || '').split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).tenantId; } catch(e) {}
-      if (!p.tenantId || p.tenantId === tid) { p.tenantId = tid; return p; }
+      var p = JSON.parse(saved);
+      if (tid && (!p.tenantId || p.tenantId === tid)) { p.tenantId = tid; return p; }
       localStorage.removeItem('central_profile');
     }
   } catch(e) {}
   return {
+    tenantId: tid,
     businessName: '',
     initials: 'MT',
     city: '',

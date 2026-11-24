@@ -35,6 +35,14 @@ run(async () => {
   r = await send(B.H, 'PUT', '/api/tenant/password', { currentPassword: 'password123', newPassword: 'otraClave789' });
   ok(r.status === 200, 'Otro negocio: cambio correcto → 200');
 
+  // En paralelo: 20 intentos a la vez no pueden pasar todos antes de contarse
+  const P = await reg('Freno P');
+  const codes = (await Promise.all(Array.from({ length: 20 }, () =>
+    send(P.H, 'PUT', '/api/tenant/password', { currentPassword: 'mala', newPassword: 'otraClave789' })))).map(x => x.status);
+  ok(codes.filter(c => c === 401).length <= 5 && codes.filter(c => c === 429).length >= 15,
+    'Ráfaga de 20 en paralelo: como mucho 5 se comprueban, el resto 429 (' + codes.join(',') + ')');
+  await db.query('DELETE FROM tenants WHERE id=$1', [P.id]);
+
   // Largo máximo (bcrypt solo usa 72 bytes)
   const long = 'a'.repeat(73);
   r = await send(B.H, 'PUT', '/api/tenant/password', { currentPassword: 'otraClave789', newPassword: long });
