@@ -16,7 +16,8 @@ const bcrypt     = require('bcrypt');
 const jwt        = require('jsonwebtoken');
 const Stripe     = require('stripe');
 const crypto     = require('crypto');
-const { ensurePaymentsSchema, recalcOrderPayment } = require('./pagos');
+const { ensurePaymentsSchema, runPaymentsBackfill, recalcOrderPayment,
+  normalizeMethodName, mergeMethodTotals, rawMethodsFor } = require('./pagos');
 
 const app = express();
 app.use(cors());
@@ -424,13 +425,15 @@ async function initDB() {
     }
 
     // Fase 2 — pagos de verdad: tablas payments / order_events / tenant_settings, orders.amount_paid,
-    // tenants.base_currency y el relleno de una sola vez (ver pagos.js y migrations/2026-11-25-pagos.sql).
-    // Sin ellas los pedidos fallarían (amount_paid): si no se pudo, se detiene el arranque y Railway
-    // conserva la versión anterior.
+    // tenants.base_currency (ver pagos.js y migrations/2026-11-25-pagos.sql). Sin ellas los pedidos
+    // fallarían (amount_paid): si falta de verdad el esquema, se detiene el arranque y Railway conserva
+    // la versión anterior.
     if (!(await ensurePaymentsSchema(pool))) {
       console.error('❌ Falta el esquema de pagos. Se detiene el arranque para reintentar.');
       process.exit(1);
     }
+    // Relleno de pedidos pagados "a la antigua": por lotes, en cada arranque; un fallo solo se registra
+    await runPaymentsBackfill(pool);
 
     try {
       await seedDefaultTenant();
@@ -890,22 +893,34 @@ async function addPaymentTx(db, tenantId, orderId, body, createdBy = 'owner') {
   const { rows: [t] } = await db.query('SELECT base_currency, timezone FROM tenants WHERE id = $1 FOR KEY SHARE', [tenantId]);
   const base = t.base_currency || 'USD';
 
-  const amount = payNum(body.amount);
-  if (!Number.isFinite(amount) || amount <= 0 || amount > MAX_MONEY) throw new BadRequest('Monto inválido');
-  const amountR = Math.round(amount * 100) / 100;
-  if (amountR <= 0) throw new BadRequest('Monto inválido');
+  const totalC = centsOf(ord[0].total_price), balanceC = totalC - centsOf(ord[0].amount_paid);
+  // full: true → se cobra el saldo completo que calcula el servidor (el amount enviado se ignora)
+  if (body.full !== undefined && typeof body.full !== 'boolean') throw new BadRequest('"full" debe ser verdadero o falso');
+  const full = body.full === true;
+  if (full) {
+    if (totalC <= 0) throw new BadRequest('El pedido no tiene monto por cobrar');
+    if (balanceC <= 0) throw new BadRequest('El pedido ya está pagado por completo');
+  }
+  let amountR;
+  if (!full) {
+    const amount = payNum(body.amount);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > MAX_MONEY) throw new BadRequest('Monto inválido');
+    amountR = Math.round(amount * 100) / 100;
+    if (amountR <= 0) throw new BadRequest('Monto inválido');
+  }
   const currency = body.currency === undefined || body.currency === null || body.currency === '' ? base : String(body.currency).trim().toUpperCase();
   if (!PAY_CURRENCY_RE.test(currency)) throw new BadRequest('Moneda inválida');
   const foreign = currency !== base;
-  let rate = 1, amountBaseC = centsOf(amountR);
+  let rate = 1, amountBaseC = full ? balanceC : centsOf(amountR);
   if (foreign) {
     rate = payNum(body.exchangeRate);
     if (!Number.isFinite(rate) || rate <= 0 || rate > 1e9) throw new BadRequest('Indica la tasa de cambio (mayor que 0)');
     rate = Math.round(rate * 1e6) / 1e6;
     if (rate <= 0) throw new BadRequest('Indica la tasa de cambio (mayor que 0)');
-    amountBaseC = Math.round(amountR / rate * 100);
+    if (full) amountR = Math.round(balanceC / 100 * rate * 100) / 100; // el saldo, expresado en la moneda del pago
+    else amountBaseC = Math.round(amountR / rate * 100);
     if (amountBaseC < 1) throw new BadRequest('El monto es demasiado pequeño para esa tasa');
-  }
+  } else if (full) amountR = balanceC / 100;
   const method = payStr(body.method, 60, 'Método de pago', true);
   const reference = payStr(body.reference, 80, 'Referencia', false);
   const note = payStr(body.note, 300, 'Nota', false);
@@ -926,13 +941,12 @@ async function addPaymentTx(db, tenantId, orderId, body, createdBy = 'owner') {
     if (paidAt.getFullYear() < 2000) throw new BadRequest('Fecha del pago inválida');
   }
 
-  const totalC = centsOf(ord[0].total_price), balanceC = totalC - centsOf(ord[0].amount_paid);
   if (totalC <= 0) throw new BadRequest('El pedido no tiene monto por cobrar');
   if (balanceC <= 0) throw new BadRequest('El pedido ya está pagado por completo');
   if (amountBaseC > balanceC) {
     // En otra moneda el redondeo puede dejar un centavo de más al cobrar el saldo exacto: se ajusta al saldo
     if (foreign && amountBaseC - balanceC <= 1) amountBaseC = balanceC;
-    else throw new BadRequest(`El pago supera el saldo pendiente ($${(balanceC / 100).toFixed(2)})`);
+    else throw new BadRequest(`El pago supera el saldo pendiente (${(balanceC / 100).toFixed(2)} ${base})`);
   }
 
   const { rows } = await db.query(`
@@ -969,7 +983,7 @@ async function dbUpdateOrder(tenantId, orderId, fields) {
   if (!dbReady) return null;
   if (!UUID_RE.test(String(orderId))) return null;
   // El estado de cobro lo derivan los pagos (POST /api/orders/:id/payments): ya no se acepta por aquí
-  if (fields.pay_status !== undefined) throw new BadRequest('El estado de cobro se calcula con los pagos; usa Registrar pago');
+  if (fields.pay_status !== undefined) throw new BadRequest('Recarga la página: el cobro ahora se registra con «Registrar pago»');
   const allowed = ['delivery_status', 'pay_method_label', 'delivery_method_label',
     'address', 'notes', 'client_name', 'product_summary', 'total_price', 'shipping', 'discount'];
   const client = await pool.connect();
@@ -1039,7 +1053,10 @@ async function dbUpdateOrder(tenantId, orderId, fields) {
     // Nunca por debajo de lo ya cobrado; si el total cambió, el estado de cobro se vuelve a derivar
     const paidCents = Math.round(Number(rows[0].amount_paid || 0) * 100);
     const totalCents = Math.round(Number(rows[0].total_price || 0) * 100);
-    if (totalCents < paidCents) throw new BadRequest(`El total no puede quedar por debajo de lo ya cobrado ($${(paidCents / 100).toFixed(2)})`);
+    if (totalCents < paidCents) {
+      const { rows: [bt] } = await client.query('SELECT base_currency FROM tenants WHERE id = $1', [tenantId]);
+      throw new BadRequest(`El total no puede quedar por debajo de lo ya cobrado (${(paidCents / 100).toFixed(2)} ${(bt && bt.base_currency) || 'USD'})`);
+    }
     if (String(rows[0].total_price) !== String(found[0].total_price)) rows = [await recalcOrderPayment(client, tenantId, orderId)];
     if (items) {
       await client.query('DELETE FROM order_items WHERE order_id = $1 AND tenant_id = $2', [orderId, tenantId]);
@@ -1384,10 +1401,18 @@ const DEMO_ALLOWED_ROUTES = new Set([
   'GET /api/billing/status', 'POST /api/billing/create-checkout', 'POST /api/billing/cancel', 'POST /api/billing/portal',
 ]);
 const DEMO_MAX_BODY = 1024 * 1024;
+const DEMO_MAX_EVENTS = 5000;   // filas de order_events por demo (cada edición/pago/anulación añade una)
+const DEMO_MAX_PAYMENTS = 600;
+const EV_LIMIT = ['order_events', DEMO_MAX_EVENTS];
+// ruta → lista de [tabla, máximo]; todas cuentan filas del propio negocio
 const DEMO_ROW_LIMITS = {
-  'POST /api/orders': ['orders', 300], 'POST /api/orders/:id/payments': ['payments', 600], 'POST /api/clients': ['clients', 300], 'POST /api/catalog': ['catalog_products', 100],
-  'POST /api/send': ['messages', 600], 'POST /api/send-media': ['messages', 600],
-  'POST /api/send-ticket': ['messages', 600], 'POST /api/send-instagram': ['messages', 600],
+  'POST /api/orders': [['orders', 300], EV_LIMIT],
+  'PATCH /api/orders/:id': [EV_LIMIT],
+  'POST /api/orders/:id/payments': [['payments', DEMO_MAX_PAYMENTS], EV_LIMIT],
+  'POST /api/payments/:id/void': [EV_LIMIT],
+  'POST /api/clients': [['clients', 300]], 'POST /api/catalog': [['catalog_products', 100]],
+  'POST /api/send': [['messages', 600]], 'POST /api/send-media': [['messages', 600]],
+  'POST /api/send-ticket': [['messages', 600]], 'POST /api/send-instagram': [['messages', 600]],
 };
 const DEMO_BLOCKED = { status: 403, body: { error: 'demo_blocked', message: 'Esta función no está disponible en la demo.' } };
 
@@ -1404,10 +1429,12 @@ async function demoGuard(req) {
   if ((key === 'POST /api/orders' || key === 'PATCH /api/orders/:id') && Array.isArray(req.body?.items) && req.body.items.length > 30) {
     return { status: 400, body: { error: 'demo_limit', message: 'En la demo un pedido admite hasta 30 artículos.' } };
   }
-  const limit = DEMO_ROW_LIMITS[key];
-  if (limit) {
-    const { rows } = await pool.query(`SELECT COUNT(*)::int AS n FROM ${limit[0]} WHERE tenant_id = $1`, [req.tenant.tenantId]);
-    if (rows[0].n >= limit[1]) {
+  const limits = [...(DEMO_ROW_LIMITS[key] || [])];
+  // Un pedido nuevo con pago inicial también crea una fila en payments
+  if (key === 'POST /api/orders' && req.body && req.body.initialPayment) limits.push(['payments', DEMO_MAX_PAYMENTS]);
+  for (const [table, max] of limits) {
+    const { rows } = await pool.query(`SELECT COUNT(*)::int AS n FROM ${table} WHERE tenant_id = $1`, [req.tenant.tenantId]);
+    if (rows[0].n >= max) {
       return { status: 429, body: { error: 'demo_limit', message: 'Has llegado al límite de datos de la demo.' } };
     }
   }
@@ -2265,10 +2292,7 @@ app.post('/api/orders', requireAuth, async (req, res) => {
     const order = await dbCreateOrder(req.tenant.tenantId, req.body);
     if (!order) return res.status(503).json({ error: 'Base de datos no disponible' });
     res.json(order);
-  } catch (err) {
-    if (err instanceof BadRequest) return res.status(400).json({ error: err.message });
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { sendApiError(res, err, 'Crear pedido'); }
 });
 
 app.patch('/api/orders/:id', requireAuth, async (req, res) => {
@@ -2276,10 +2300,7 @@ app.patch('/api/orders/:id', requireAuth, async (req, res) => {
     const order = await dbUpdateOrder(req.tenant.tenantId, req.params.id, req.body || {});
     if (!order) return res.status(404).json({ error: 'Pedido no encontrado' });
     res.json(order);
-  } catch (err) {
-    if (err instanceof BadRequest) return res.status(400).json({ error: err.message });
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { sendApiError(res, err, 'Editar pedido'); }
 });
 
 // ── Pagos de un pedido ────────────────────────────────────────
@@ -2335,8 +2356,17 @@ app.get('/api/payments', requireAuth, async (req, res) => {
   try {
     const tz = await resolveTenantTz(tenantId, req.query.tz);
     const { rows: [n] } = await pool.query("SELECT to_char(NOW() AT TIME ZONE $1, 'YYYY-MM-DD') AS today", [tz]);
-    const to = req.query.to ? String(req.query.to) : n.today;
-    const start = req.query.from ? String(req.query.from) : to;
+    // period=today|yesterday|7d|month se resuelve en la zona del negocio; si llegan from/to, mandan esos
+    const PERIODS = ['today', 'yesterday', '7d', 'month'];
+    const period = req.query.period === undefined || req.query.period === '' ? null : String(req.query.period);
+    if (period && !PERIODS.includes(period)) return res.status(400).json({ error: 'Periodo inválido (today, yesterday, 7d o month)' });
+    const shiftDay = (d, k) => new Date(Date.parse(d) + k * 86400000).toISOString().slice(0, 10);
+    let pFrom = n.today, pTo = n.today;
+    if (period === 'yesterday') pFrom = pTo = shiftDay(n.today, -1);
+    else if (period === '7d') pFrom = shiftDay(n.today, -6);
+    else if (period === 'month') pFrom = n.today.slice(0, 8) + '01';
+    const to = req.query.to ? String(req.query.to) : (req.query.from ? n.today : pTo);
+    const start = req.query.from ? String(req.query.from) : (req.query.to ? to : pFrom);
     if (!isRealDate(start) || !isRealDate(to)) return res.status(400).json({ error: 'Fechas inválidas (formato YYYY-MM-DD)' });
     if (start > to) return res.status(400).json({ error: 'La fecha inicial debe ser anterior a la final' });
     if ((Date.parse(to) - Date.parse(start)) / 86400000 > 366) return res.status(400).json({ error: 'El rango máximo es de un año' });
@@ -2346,9 +2376,15 @@ app.get('/api/payments', requireAuth, async (req, res) => {
       if (method.length > 60) return res.status(400).json({ error: 'Método inválido' });
     }
     const endExclusive = new Date(Date.parse(to) + 86400000).toISOString().slice(0, 10);
-    const W = `p.tenant_id = $1 AND p.paid_at >= ($3::timestamp AT TIME ZONE $2) AND p.paid_at < ($4::timestamp AT TIME ZONE $2)
-               AND ($5::text IS NULL OR p.method = $5)`;
-    const P = [tenantId, tz, start, endExclusive, method];
+    const RANGE = 'p.tenant_id = $1 AND p.paid_at >= ($3::timestamp AT TIME ZONE $2) AND p.paid_at < ($4::timestamp AT TIME ZONE $2)';
+    // El filtro por método usa el nombre canónico: se buscan los nombres guardados que le corresponden
+    let methodList = null;
+    if (method) {
+      const { rows: ms } = await pool.query(`SELECT DISTINCT p.method FROM payments p WHERE ${RANGE}`, [tenantId, tz, start, endExclusive]);
+      methodList = rawMethodsFor(ms.map(r => r.method), method);
+    }
+    const W = `${RANGE} AND ($5::text[] IS NULL OR p.method = ANY($5::text[]))`;
+    const P = [tenantId, tz, start, endExclusive, methodList];
     const [list, totals, cnt, base] = await Promise.all([
       pool.query(`
         SELECT p.*, COALESCE(o.tenant_order_number, o.order_number) AS order_num, o.client_name
@@ -2361,7 +2397,7 @@ app.get('/api/payments', requireAuth, async (req, res) => {
       pool.query('SELECT base_currency FROM tenants WHERE id = $1', [tenantId]),
     ]);
     const truncated = list.rows.length > PAYMENTS_LIST_LIMIT;
-    const byMethod = totals.rows.map(r => ({ method: r.method, total: money2(r.total), count: r.n }));
+    const byMethod = mergeMethodTotals(totals.rows);
     res.json({
       timezone: tz, from: start, to, baseCurrency: base.rows[0] ? base.rows[0].base_currency : 'USD',
       payments: list.rows.slice(0, PAYMENTS_LIST_LIMIT).map(mapPaymentRow),
@@ -2415,10 +2451,34 @@ function cleanPaymentMethods(v) {
   });
 }
 
+// Lista blanca: claves motorizado|retiro|encomienda|plataformas; cada una { enabled?, label?, items? }.
+// Todo lo demás (otra clave, otro tipo) → 400. El SPA pinta estos textos: nunca se guarda algo que no sea texto.
+const DELIVERY_KEYS = ['motorizado', 'retiro', 'encomienda', 'plataformas'];
 function cleanDeliveryMethods(v) {
   if (!v || typeof v !== 'object' || Array.isArray(v)) throw new BadRequest('Los métodos de entrega deben ser un objeto');
-  if (JSON.stringify(v).length > 10 * 1024) throw new BadRequest('Los métodos de entrega son demasiado grandes (máx. 10 KB)');
-  return v;
+  const out = {};
+  for (const [key, val] of Object.entries(v)) {
+    if (!DELIVERY_KEYS.includes(key)) throw new BadRequest(`Método de entrega desconocido: "${key.slice(0, 40)}"`);
+    if (!val || typeof val !== 'object' || Array.isArray(val)) throw new BadRequest(`Método de entrega "${key}" inválido`);
+    const m = {};
+    for (const [k, x] of Object.entries(val)) {
+      if (k === 'enabled') {
+        if (typeof x !== 'boolean') throw new BadRequest(`Entrega "${key}": "enabled" debe ser verdadero o falso`);
+        m.enabled = x;
+      } else if (k === 'label') {
+        if (typeof x !== 'string' || x.trim().length > 60) throw new BadRequest(`Entrega "${key}": el nombre es texto de hasta 60 caracteres`);
+        m.label = x.trim();
+      } else if (k === 'items') {
+        if (!Array.isArray(x) || x.length > 30) throw new BadRequest(`Entrega "${key}": "items" es una lista de hasta 30 textos`);
+        m.items = x.map(it => {
+          if (typeof it !== 'string' || it.trim().length > 60) throw new BadRequest(`Entrega "${key}": cada elemento es texto de hasta 60 caracteres`);
+          return it.trim();
+        });
+      } else throw new BadRequest(`Entrega "${key}": campo desconocido "${k.slice(0, 40)}"`);
+    }
+    out[key] = m;
+  }
+  return out;
 }
 
 app.get('/api/tenant/settings', requireAuth, async (req, res) => {
@@ -2666,7 +2726,7 @@ app.get('/api/reports', requireAuth, async (req, res) => {
       period, canal, from: startLocal, to: endExclusive ? to : ymd,
       ventas: money(k.ventas),
       cobrado: money(cobrosRows.rows.reduce((a, r) => a + r.total, 0)),
-      cobrosPorMetodo: cobrosRows.rows.map(r => [r.method, money(r.total)]),
+      cobrosPorMetodo: mergeMethodTotals(cobrosRows.rows).map(m => [m.method, money(m.total)]),
       pedidos: k.pedidos,
       entregados: k.entregados,
       pendientes: k.pendientes,
@@ -3838,6 +3898,9 @@ const INDEX_LOCK_KEY = 72616101;
 const BACKGROUND_INDEXES = [
   // order_items por pedido: JOIN de la lista de pedidos, ediciones, informes y el ON DELETE CASCADE de orders
   { name: 'order_items_order_idx', sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS order_items_order_idx ON order_items (order_id)' },
+  // Relleno de pagos en cada arranque (pagos.js): hace barata la búsqueda de pedidos 'ok' sin pago. Parcial:
+  // solo contiene pedidos pendientes de convertir (casi siempre ninguno).
+  { name: 'orders_legacy_paid_idx', sql: "CREATE INDEX CONCURRENTLY IF NOT EXISTS orders_legacy_paid_idx ON orders (tenant_id) WHERE pay_status = 'ok' AND amount_paid = 0 AND total_price > 0" },
 ];
 async function ensureIndexes() {
   if (!dbReady) return;

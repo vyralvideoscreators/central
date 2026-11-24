@@ -35,10 +35,10 @@ run(async () => {
   // ── Sobrepago ──
   const o2 = await newOrder(A.H, 50);
   r = await pay(A.H, o2.id, { amount: 60, method: 'Efectivo' });
-  ok(r.status === 400 && r.body.error === 'El pago supera el saldo pendiente ($50.00)', 'Sobrepago → 400 con el saldo');
+  ok(r.status === 400 && r.body.error === 'El pago supera el saldo pendiente (50.00 USD)', 'Sobrepago → 400 con el saldo');
   r = await pay(A.H, o2.id, { amount: 20, method: 'Efectivo' });
   r = await pay(A.H, o2.id, { amount: 30.01, method: 'Efectivo' });
-  ok(r.status === 400 && r.body.error === 'El pago supera el saldo pendiente ($30.00)', 'Sobrepago tras un abono usa el saldo restante');
+  ok(r.status === 400 && r.body.error === 'El pago supera el saldo pendiente (30.00 USD)', 'Sobrepago tras un abono usa el saldo restante');
 
   // ── Pagos simultáneos no superan el saldo ──
   const o3 = await newOrder(A.H, 100);
@@ -115,11 +115,11 @@ run(async () => {
   // ── PATCH: pay_status ya no se acepta; el total no baja de lo cobrado ──
   const o6 = await newOrder(A.H, 100);
   r = await send(A.H, 'PATCH', '/api/orders/' + o6.id, { pay_status: 'ok' });
-  ok(r.status === 400 && r.body.error === 'El estado de cobro se calcula con los pagos; usa Registrar pago', 'PATCH pay_status → 400 con el mensaje');
+  ok(r.status === 400 && /Registrar pago/.test(r.body.error), 'PATCH pay_status → 400 con el mensaje');
   ok((await j('/api/orders', { headers: A.H })).body.find(o => o.id === o6.id).payStatus === 'pend', '… y el pedido no cambió');
   await pay(A.H, o6.id, { amount: 60, method: 'Efectivo' });
   r = await send(A.H, 'PATCH', '/api/orders/' + o6.id, { items: [{ name: 'Art', qty: 1, unitPrice: 50 }] });
-  ok(r.status === 400 && r.body.error === 'El total no puede quedar por debajo de lo ya cobrado ($60.00)', 'Total bajo lo cobrado → 400');
+  ok(r.status === 400 && r.body.error === 'El total no puede quedar por debajo de lo ya cobrado (60.00 USD)', 'Total bajo lo cobrado → 400');
   ok((await j('/api/orders', { headers: A.H })).body.find(o => o.id === o6.id).totalPrice === '100.00', '… y no se guardó nada');
   r = await send(A.H, 'PATCH', '/api/orders/' + o6.id, { items: [{ name: 'Art', qty: 1, unitPrice: 60 }] });
   ok(r.status === 200 && r.body.payStatus === 'ok' && r.body.balance === 0, 'Total igual a lo cobrado → ok');
@@ -173,7 +173,7 @@ run(async () => {
   ok(rows.length === 1 && Number(rows[0].amount) === 25 && Number(rows[0].amount_base) === 25 && rows[0].method === 'Zelle' && rows[0].currency === 'USD' && Number(rows[0].exchange_rate) === 1 && rows[0].note === 'Registrado antes de la Fase 2', 'Relleno: pago por el total con su método');
   ok(Math.abs(new Date(rows[0].paid_at) - (Date.now() - 3 * 86400000)) < 60000, 'Relleno: paid_at = fecha de creación del pedido');
   rows = await lp(l3);
-  ok(rows.length === 1 && rows[0].method === 'Sin especificar', 'Relleno: etiqueta "—" → "Sin especificar"');
+  ok(rows.length === 1 && rows[0].method === 'Sin Especificar', 'Relleno: etiqueta "—" → "Sin Especificar"');
   ok((await lp(l2)).length === 0 && (await lp(l4)).length === 0, 'Relleno: ni el pedido de total 0 ni el pendiente reciben pago');
   const o = (await db.query('SELECT amount_paid, pay_status FROM orders WHERE id = ANY($1) ORDER BY total_price', [[l1, l2, l3]])).rows;
   ok(Number(o[0].amount_paid) === 0 && o[0].pay_status === 'ok' && Number(o[1].amount_paid) === 12.5 && Number(o[2].amount_paid) === 25, 'Relleno: amount_paid = total; total 0 queda ok con 0');
@@ -201,12 +201,12 @@ run(async () => {
   r = await j('/api/tenant/settings', { headers: A.H });
   ok(r.status === 200 && r.body.baseCurrency === 'USD' && Array.isArray(r.body.paymentMethods) && r.body.paymentMethods.length === 0 && r.body.canChangeBaseCurrency === false, 'Ajustes por defecto (A ya tiene pagos: no puede cambiar de moneda)');
   const methods = [{ id: 'pm', name: 'Pago Móvil', enabled: true, details: { banco: '0102', telefono: '0414-0000000' } }, { id: 'ef', name: 'Efectivo', enabled: false }];
-  r = await send(A.H, 'PUT', '/api/tenant/settings', { paymentMethods: methods, deliveryMethods: { motorizado: { precio: 4 } } });
-  ok(r.status === 200 && r.body.paymentMethods.length === 2 && r.body.paymentMethods[0].details.banco === '0102' && r.body.paymentMethods[1].enabled === false && r.body.deliveryMethods.motorizado.precio === 4, 'PUT ajustes guarda métodos y entrega');
+  r = await send(A.H, 'PUT', '/api/tenant/settings', { paymentMethods: methods, deliveryMethods: { motorizado: { enabled: true, label: 'Moto', items: ['Juan'] } } });
+  ok(r.status === 200 && r.body.paymentMethods.length === 2 && r.body.paymentMethods[0].details.banco === '0102' && r.body.paymentMethods[1].enabled === false && r.body.deliveryMethods.motorizado.label === 'Moto', 'PUT ajustes guarda métodos y entrega');
   r = await j('/api/tenant/settings', { headers: A.H });
-  ok(r.body.paymentMethods[0].name === 'Pago Móvil' && r.body.deliveryMethods.motorizado.precio === 4, 'GET devuelve lo guardado');
+  ok(r.body.paymentMethods[0].name === 'Pago Móvil' && r.body.deliveryMethods.motorizado.label === 'Moto', 'GET devuelve lo guardado');
   r = await send(A.H, 'PUT', '/api/tenant/settings', { paymentMethods: [] });
-  ok(r.status === 200 && r.body.paymentMethods.length === 0 && r.body.deliveryMethods.motorizado.precio === 4, 'PUT parcial: no toca lo que no se envía');
+  ok(r.status === 200 && r.body.paymentMethods.length === 0 && r.body.deliveryMethods.motorizado.label === 'Moto', 'PUT parcial: no toca lo que no se envía');
   for (const [d, b] of [
     ['21 métodos', { paymentMethods: Array.from({ length: 21 }, (_, i) => ({ id: 'm' + i, name: 'M' + i })) }],
     ['id repetido', { paymentMethods: [{ id: 'a', name: 'A' }, { id: 'a', name: 'B' }] }],
@@ -214,7 +214,12 @@ run(async () => {
     ['detalle largo', { paymentMethods: [{ id: 'a', name: 'A', details: { x: 'y'.repeat(201) } }] }],
     ['detalle no texto', { paymentMethods: [{ id: 'a', name: 'A', details: { x: 5 } }] }],
     ['métodos no lista', { paymentMethods: { a: 1 } }],
-    ['entrega demasiado grande', { deliveryMethods: { x: 'z'.repeat(11000) } }],
+    ['entrega clave desconocida', { deliveryMethods: { x: { enabled: true } } }],
+    ['entrega items no texto', { deliveryMethods: { motorizado: { items: [{ a: '<img onerror=alert(1)>' }] } } }],
+    ['entrega items string', { deliveryMethods: { motorizado: { items: '<img onerror=alert(1)>' } } }],
+    ['entrega label largo', { deliveryMethods: { retiro: { label: 'x'.repeat(61) } } }],
+    ['entrega campo extra', { deliveryMethods: { retiro: { precio: 4 } } }],
+    ['entrega 31 items', { deliveryMethods: { retiro: { items: Array(31).fill('a') } } }],
     ['entrega lista', { deliveryMethods: [1] }],
     ['moneda fuera de lista', { baseCurrency: 'XXX' }],
     ['vacío', {}],
@@ -266,6 +271,70 @@ run(async () => {
   const vo = (await j(`/api/orders/${o1.id}/payments`, { headers: A.H })).body.payments.find(p => p.voided);
   ok(!!vo && todayTotal === sumActive, 'Los anulados no cuentan en informes');
 
+  // ── Relleno tras el arranque (pedido 'ok' sin pago creado por la versión vieja) ──
+  const late = await ins(40, 'Pago móvil');
+  ok((await lp(late)).length === 0, 'Pedido ok sin pago insertado por SQL: aún sin pago');
+  const { runPaymentsBackfill, normalizeMethodName } = require('../../pagos');
+  const pg = require('pg');
+  const bpool = new pg.Pool({ connectionString: process.env.TEST_DB_URL });
+  ok((await runPaymentsBackfill(bpool)) >= 1 && (await lp(late)).length === 1, 'El relleno crea el pago del pedido tardío');
+  ok((await lp(late))[0].method === 'Pago Móvil', 'El relleno guarda el método canónico');
+  await runPaymentsBackfill(bpool);
+  ok((await lp(late)).length === 1, 'Reejecutar el relleno no duplica');
+  await bpool.end();
+  ok((await db.query("SELECT 1 FROM pg_indexes WHERE indexname = 'payments_client_idx'")).rowCount === 1
+    && (await db.query("SELECT 1 FROM pg_indexes WHERE indexname IN ('order_events_order_seq_idx','order_events_tenant_idx')")).rowCount === 2, 'Índices de pagos y eventos creados');
+
+  // ── Pago completo (full) ──
+  const f1 = await newOrder(A.H, 80, { initialPayment: { full: true, amount: 1, method: 'Efectivo' } });
+  ok(f1.payStatus === 'ok' && f1.amountPaid === 80, 'initialPayment full:true cobra el total (ignora amount)');
+  const f2 = await newOrder(A.H, 60);
+  r = await pay(A.H, f2.id, { amount: 10, method: 'Efectivo' });
+  r = await pay(A.H, f2.id, { full: true, method: 'Efectivo' });
+  ok(r.status === 200 && r.body.payment.amountBase === 50 && r.body.order.payStatus === 'ok', 'full cobra el saldo pendiente');
+  const f3 = await newOrder(A.H, 100);
+  r = await pay(A.H, f3.id, { full: true, currency: 'VES', exchangeRate: 40, method: 'Pago Móvil' });
+  ok(r.status === 200 && r.body.payment.amount === 4000 && r.body.payment.amountBase === 100 && r.body.order.payStatus === 'ok', 'full en otra moneda: monto = saldo × tasa');
+  r = await pay(A.H, (await newOrder(A.H, 10)).id, { full: 'si', method: 'Efectivo' });
+  ok(r.status === 400, 'full no booleano → 400');
+  const f4 = await newOrder(A.H, 30, { initialPayment: { amount: 10, method: 'Efectivo' } });
+  ok(f4.payStatus === 'partial' && f4.amountPaid === 10, 'initialPayment con amount sigue funcionando');
+
+  // ── Métodos canónicos ──
+  const nm = normalizeMethodName;
+  ok(nm('Pago móvil') === 'Pago Móvil' && nm('pago MÓVIL ') === 'Pago Móvil' && nm('Efectivo $') === 'Efectivo' && nm('efectivo usd') === 'Efectivo'
+    && nm('Binance Pay') === 'Binance' && nm('$') === '$' && nm('Tarjeta de crédito') === 'Tarjeta de Crédito', 'normalizeMethodName');
+  const mt = await reg('Pagos Metodos');
+  await db.query('UPDATE tenants SET timezone=$1, plan=$3 WHERE id=$2', [TZ, mt.id, 'pro']);
+  for (const [m, a] of [['Pago móvil', 10], ['Pago Móvil', 5], ['Efectivo $', 7], ['Efectivo USD', 3], ['Binance Pay', 4], ['Pago Movil', 1]]) {
+    const oo = await newOrder(mt.H, 100); await pay(mt.H, oo.id, { amount: a, method: m });
+  }
+  r = await j('/api/payments?period=today', { headers: mt.H });
+  const bmm = Object.fromEntries(r.body.totals.byMethod.map(m => [m.method, m.total]));
+  ok(bmm['Pago Móvil'] === 16 && bmm['Efectivo'] === 10 && bmm['Binance'] === 4 && r.body.totals.byMethod.length === 3, 'byMethod agrupa por nombre canónico');
+  r = await j('/api/payments?period=today&method=' + encodeURIComponent('efectivo usd'), { headers: mt.H });
+  ok(r.body.payments.length === 2 && r.body.totals.total === 10, 'El filtro por método usa el nombre canónico');
+  r = await j('/api/reports?period=hoy', { headers: mt.H });
+  ok(r.body.cobrosPorMetodo.some(([m, v]) => m === 'Pago Móvil' && v === 16) && r.body.cobrosPorMetodo.some(([m, v]) => m === 'Efectivo' && v === 10), 'cobrosPorMetodo agrupa por nombre canónico');
+
+  // ── period en /api/payments ──
+  r = await j('/api/payments?period=today', { headers: A.H });
+  ok(r.status === 200 && r.body.from === today && r.body.to === today, 'period=today resuelve from/to');
+  const dd = (d, k) => new Date(Date.parse(d) + k * 86400000).toISOString().slice(0, 10);
+  r = await j('/api/payments?period=yesterday', { headers: A.H });
+  ok(r.body.from === dd(today, -1) && r.body.to === dd(today, -1), 'period=yesterday');
+  r = await j('/api/payments?period=7d', { headers: A.H });
+  ok(r.body.from === dd(today, -6) && r.body.to === today, 'period=7d');
+  r = await j('/api/payments?period=month', { headers: A.H });
+  ok(r.body.from === today.slice(0, 8) + '01' && r.body.to === today, 'period=month');
+  r = await j('/api/payments?period=today&from=2026-01-15&to=2026-01-15', { headers: A.H });
+  ok(r.body.from === '2026-01-15' && r.body.payments.length === 1, 'from/to mandan sobre period');
+  ok((await j('/api/payments?period=forever', { headers: A.H })).status === 400, 'period inválido → 400');
+
+  // ── Mensajes ──
+  r = await send(A.H, 'PATCH', '/api/orders/' + o1.id, { pay_status: 'ok' });
+  ok(r.status === 400 && /Registrar pago/.test(r.body.error), 'PATCH con pay_status → 400 con aviso de recargar');
+
   // ── Demos ──
   const adm = await adminToken();
   const AH = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + adm, 'X-Demo-Key': DEMO_KEY };
@@ -292,6 +361,19 @@ run(async () => {
   ok((await j(`/api/payments?from=2026-01-01&to=${today}`, { headers: DH })).body.payments.length > 0, 'Demo: listado de cobros');
   ok((await j('/api/tenant/settings', { headers: DH })).status === 200 && (await send(DH, 'PUT', '/api/tenant/settings', { paymentMethods: [{ id: 'z', name: 'Zelle' }] })).status === 200, 'Demo: ajustes de pago');
   ok(metaCalls().length === 0, 'Demo: ninguna llamada a Meta por los pagos');
+  await db.query("INSERT INTO order_events (tenant_id, order_id, type) SELECT $1, $2, 'edited' FROM generate_series(1, 5000)", [demo.tenantId, dp.id]);
+  r = await pay(DH, dp.id, { amount: 1, method: 'Zelle' });
+  ok(r.status === 429 && r.body.error === 'demo_limit', 'Demo: tope de order_events en pagos');
+  r = await send(DH, 'PATCH', '/api/orders/' + dp.id, { notes: 'x' });
+  ok(r.status === 429, 'Demo: tope de order_events en editar pedido');
+  r = await post(DH, '/api/orders', { clientName: 'X', items: [{ name: 'a', qty: 1, unitPrice: 5 }] });
+  ok(r.status === 429, 'Demo: tope de order_events al crear pedido');
+  r = await post(DH, '/api/payments/' + dp.id + '/void', { reason: 'x' });
+  ok(r.status === 429, 'Demo: tope de order_events al anular');
+  await db.query("DELETE FROM order_events WHERE tenant_id = $1 AND type = 'edited' AND data IS NULL", [demo.tenantId]);
+  await db.query("INSERT INTO payments (tenant_id, order_id, amount, currency, amount_base, method) SELECT $1, $2, 1, 'USD', 1, 'Zelle' FROM generate_series(1, 600)", [demo.tenantId, dp.id]);
+  r = await post(DH, '/api/orders', { clientName: 'X', items: [{ name: 'a', qty: 1, unitPrice: 5 }], initialPayment: { amount: 1, method: 'Zelle' } });
+  ok(r.status === 429, 'Demo: tope de payments con initialPayment');
   r = await j('/api/admin/demos/' + demo.tenantId + '/convert', { method: 'POST', headers: AH });
   ok(r.status === 200, 'Demo convertida en real');
   const left = (await db.query(`SELECT (SELECT COUNT(*) FROM payments WHERE tenant_id=$1)::int p, (SELECT COUNT(*) FROM order_events WHERE tenant_id=$1)::int e, (SELECT COUNT(*) FROM tenant_settings WHERE tenant_id=$1)::int s`, [demo.tenantId])).rows[0];
