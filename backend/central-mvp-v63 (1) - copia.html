@@ -4463,7 +4463,9 @@ async function migrateLocalSettings() {
   const rawPay = read('central_pagos'), rawDel = read('central_delivery');
   if (rawPay === null && rawDel === null) return;
   const tid = businessProfile && businessProfile.tenantId;
-  const sameTenant = !_prevLastTenant || (tid && _prevLastTenant === tid);
+  // Solo se suben si hay certeza de que son de este negocio (este navegador lo marcó antes). Sin marca
+  // (primer arranque tras el despliegue) podrían ser de otro negocio que usó el navegador: se descartan.
+  const sameTenant = !!(tid && _prevLastTenant && _prevLastTenant === tid);
   const noPay = !Array.isArray(tenantSettings.paymentMethods) || !tenantSettings.paymentMethods.length;
   const noDel = !tenantSettings.deliveryMethods || !Object.keys(tenantSettings.deliveryMethods).length;
   const isFull = v => v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length;

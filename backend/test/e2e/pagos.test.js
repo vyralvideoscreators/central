@@ -295,6 +295,11 @@ run(async () => {
   const f3 = await newOrder(A.H, 100);
   r = await pay(A.H, f3.id, { full: true, currency: 'VES', exchangeRate: 40, method: 'Pago Móvil' });
   ok(r.status === 200 && r.body.payment.amount === 4000 && r.body.payment.amountBase === 100 && r.body.order.payStatus === 'ok', 'full en otra moneda: monto = saldo × tasa');
+  const fTasa = await newOrder(A.H, 10);
+  r = await pay(A.H, fTasa.id, { full: true, currency: 'VES', exchangeRate: 0.0001, method: 'Pago Móvil' });
+  ok(r.status === 400, 'full con tasa diminuta → 400 (no 500)');
+  r = await pay(A.H, fTasa.id, { full: true, currency: 'VES', exchangeRate: 999999999, method: 'Pago Móvil' });
+  ok(r.status === 400, 'full con tasa enorme → 400 (no 500)');
   r = await pay(A.H, (await newOrder(A.H, 10)).id, { full: 'si', method: 'Efectivo' });
   ok(r.status === 400, 'full no booleano → 400');
   const f4 = await newOrder(A.H, 30, { initialPayment: { amount: 10, method: 'Efectivo' } });

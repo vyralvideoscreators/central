@@ -917,8 +917,10 @@ async function addPaymentTx(db, tenantId, orderId, body, createdBy = 'owner') {
     if (!Number.isFinite(rate) || rate <= 0 || rate > 1e9) throw new BadRequest('Indica la tasa de cambio (mayor que 0)');
     rate = Math.round(rate * 1e6) / 1e6;
     if (rate <= 0) throw new BadRequest('Indica la tasa de cambio (mayor que 0)');
-    if (full) amountR = Math.round(balanceC / 100 * rate * 100) / 100; // el saldo, expresado en la moneda del pago
-    else amountBaseC = Math.round(amountR / rate * 100);
+    if (full) {
+      amountR = Math.round(balanceC / 100 * rate * 100) / 100; // el saldo, expresado en la moneda del pago
+      if (!(amountR > 0) || amountR > MAX_MONEY) throw new BadRequest('Tasa de cambio fuera de rango');
+    } else amountBaseC = Math.round(amountR / rate * 100);
     if (amountBaseC < 1) throw new BadRequest('El monto es demasiado pequeño para esa tasa');
   } else if (full) amountR = balanceC / 100;
   const method = payStr(body.method, 60, 'Método de pago', true);
