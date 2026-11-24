@@ -56,7 +56,8 @@ run(async () => {
   r = await j('/api/clients/no-uuid', { method: 'DELETE', headers: A.H });
   ok(r.status === 404, 'Borrar cliente con id inválido → 404');
 
-  // Informes
+  // Informes (plan Pro en adelante)
+  await db.query("UPDATE tenants SET plan='pro' WHERE id=$1", [A.id]);
   r = await j('/api/reports?period=personalizado&from=2026-02-31&to=2026-03-02', { headers: A.H });
   ok(r.status === 400, '31 de febrero → 400 (no 500)');
   await db.query(`UPDATE clients SET channel='ig' WHERE tenant_id=$1 AND name='Ana Vieja'`, [A.id]);
@@ -64,6 +65,7 @@ run(async () => {
   const ig = (await j('/api/reports?period=hoy&canal=ig', { headers: A.H })).body.newClients;
   ok(ig >= 1 && ig < all, `Clientes nuevos respetan el filtro de canal (todos ${all}, IG ${ig})`);
   const tzb = await reg('Rev TZ');
+  await db.query("UPDATE tenants SET plan='pro' WHERE id = ANY($1)", [[tzb.id]]);
   r = await j('/api/reports?period=hoy&tz=Asia/Tokyo', { headers: tzb.H });
   const saved = (await db.query('SELECT timezone FROM tenants WHERE id=$1', [tzb.id])).rows[0].timezone;
   ok(r.body.timezone === 'Asia/Tokyo' && saved === 'Asia/Tokyo', 'Sin zona: guarda la del navegador como la del negocio');

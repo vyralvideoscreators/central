@@ -9,6 +9,8 @@ run(async () => {
   const db = await dbConnect();
   const A = await reg('Informes A'), Bt = await reg('Informes B');
   await db.query('UPDATE tenants SET timezone=$1 WHERE id=$2', [TZ, A.id]);
+  // Los informes son de plan Pro en adelante: las cuentas nuevas nacen en basic
+  await db.query("UPDATE tenants SET plan='pro' WHERE id = ANY($1)", [[A.id, Bt.id]]);
 
   // Inserta un pedido con hora LOCAL del negocio (expresión SQL sobre "hoy local")
   let n = 0;
@@ -82,6 +84,7 @@ run(async () => {
   r = await j('/api/reports?period=hoy&tz=Asia/Tokyo', { headers: Bt.H });
   ok(r.body.timezone === 'Asia/Tokyo', 'Sin zona guardada: usa la del navegador');
   const Ct = await reg('Informes C');
+  await db.query("UPDATE tenants SET plan='pro' WHERE id=$1", [Ct.id]);
   r = await j('/api/reports?period=hoy&tz=Nada/Inventada', { headers: Ct.H });
   await db.query('DELETE FROM tenants WHERE id=$1', [Ct.id]);
   ok(r.body.timezone === 'America/Caracas', 'Zona inválida: usa la por defecto');

@@ -660,7 +660,7 @@ async function resolveOrderClient(db, tenantId, data) {
 // Valida la lista de artículos de un pedido que llega por la API
 const MAX_ORDER_ITEMS = 100;
 function cleanOrderItems(items) {
-  if (!Array.isArray(items)) throw new BadRequest('items debe ser una lista');
+  if (!Array.isArray(items)) throw new BadRequest('La lista de artículos no es válida');
   if (items.length > MAX_ORDER_ITEMS) throw new BadRequest(`Máximo ${MAX_ORDER_ITEMS} artículos por pedido`);
   const str = (v, max) => (v === undefined || v === null || v === '') ? null : String(v).slice(0, max);
   const money = (v) => { const n = Number(v); if (!Number.isFinite(n) || n < 0 || n > 1e8) throw new BadRequest('Precio inválido'); return Math.round(n * 100) / 100; };
@@ -694,14 +694,15 @@ async function dbUpdateOrder(tenantId, orderId, fields) {
 
     const sets = [];
     const values = [];
+    const FIELD_LABELS = { pay_status: 'Estado de pago', delivery_status: 'Estado de entrega', total_price: 'Total', shipping: 'Costo de envío', discount: 'Descuento' };
     const ENUMS = { pay_status: ['ok', 'pend'], delivery_status: ['to_deliver', 'delivered', 'not_delivered'] };
     for (const [key, raw] of Object.entries(fields)) {
       if (!allowed.includes(key)) continue;
       let val = raw;
-      if (ENUMS[key] && !ENUMS[key].includes(val)) throw new BadRequest(`${key} inválido`);
+      if (ENUMS[key] && !ENUMS[key].includes(val)) throw new BadRequest(FIELD_LABELS[key] + ' inválido');
       if (key === 'total_price' || key === 'shipping') {
         val = Number(raw ?? 0);
-        if (!Number.isFinite(val) || val < 0 || val > 1e8) throw new BadRequest(`${key} inválido`);
+        if (!Number.isFinite(val) || val < 0 || val > 1e8) throw new BadRequest(FIELD_LABELS[key] + ' inválido');
         val = Math.round(val * 100) / 100;
       } else if (!ENUMS[key] && val !== null && val !== undefined) {
         val = String(val).slice(0, key === 'notes' || key === 'address' ? 2000 : 300);
@@ -720,7 +721,7 @@ async function dbUpdateOrder(tenantId, orderId, fields) {
       sets.push(`client_id = $${values.length}`);
     }
     const items = fields.items !== undefined ? cleanOrderItems(fields.items) : null;
-    if (!sets.length && !items) throw new BadRequest('No hay campos válidos para actualizar');
+    if (!sets.length && !items) throw new BadRequest('No hay cambios para guardar');
 
     sets.push('updated_at = NOW()');
     values.push(orderId, tenantId);
@@ -1004,7 +1005,7 @@ async function requireAuth(req, res, next) {
   if (dbReady && decoded.tenantId) {
     try {
       const { rows } = await pool.query(
-        'SELECT active, expires_at, is_demo FROM tenants WHERE id = $1',
+        'SELECT active, expires_at, is_demo, plan FROM tenants WHERE id = $1',
         [decoded.tenantId]
       );
       if (!rows[0] || !rows[0].active) {
@@ -1014,6 +1015,7 @@ async function requireAuth(req, res, next) {
         return res.status(403).json({ error: 'demo_expired', message: 'El período de demo ha finalizado. Contacta a Magic Design para activar tu cuenta.' });
       }
       decoded.isDemo = !!rows[0].is_demo;
+      decoded.plan = rows[0].plan; // plan real de la base (no el del JWT)
     } catch (err) {
       return res.status(500).json({ error: 'Error validando la cuenta' });
     }
@@ -1503,6 +1505,8 @@ app.post('/webhook', async (req, res) => {
 
 app.post('/api/tenant/register', async (req, res) => {
   const { businessName, fullName, password, country, whatsappNumber, plan } = req.body;
+  // Toda cuenta nueva nace en 'basic'; un plan de pago pedido solo se devuelve (requestedPlan) para que el SPA lleve a pagar
+  const requestedPlan = ['pro', 'business'].includes(plan) ? plan : null;
   const email = normEmail(req.body.email);
   if (!businessName || !email || !password) {
     return res.status(400).json({ error: 'Faltan campos obligatorios', field: 'businessName' });
@@ -1521,7 +1525,7 @@ app.post('/api/tenant/register', async (req, res) => {
       INSERT INTO tenants (business_name, full_name, email, password_hash, plan, country, whatsapp_number)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING id, business_name, full_name, email, plan, country, created_at
-    `, [businessName, fullName || null, email, hash, ['basic', 'pro', 'business'].includes(plan) ? plan : 'basic', country || null, whatsappNumber || null]);
+    `, [businessName, fullName || null, email, hash, 'basic', country || null, whatsappNumber || null]);
     const tenant = rows[0];
     const token  = jwt.sign({ tenantId: tenant.id, email: tenant.email }, JWT_SECRET, { expiresIn: '30d' });
     if (process.env.RESEND_API_KEY) {
@@ -1532,6 +1536,7 @@ app.post('/api/tenant/register', async (req, res) => {
     res.json({
       success: true,
       token,
+      requestedPlan,
       tenant: { id: tenant.id, businessName: tenant.business_name, fullName: tenant.full_name, email: tenant.email, plan: tenant.plan, country: tenant.country },
     });
   } catch (err) {
@@ -1875,7 +1880,7 @@ app.get('/api/orders', requireAuth, async (req, res) => {
 
 app.post('/api/orders', requireAuth, async (req, res) => {
   if (!req.body || !req.body.clientName) {
-    return res.status(400).json({ error: 'Falta clientName' });
+    return res.status(400).json({ error: 'Falta el nombre del cliente' });
   }
   try {
     const order = await dbCreateOrder(req.tenant.tenantId, req.body);
@@ -1966,11 +1971,14 @@ function reportBuckets(period, now, from, to) {
 
 app.get('/api/reports', requireAuth, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  if (req.tenant.plan === 'basic') {
+    return res.status(403).json({ error: 'plan_required', message: 'Los informes están disponibles desde el plan Pro.' });
+  }
   const tenantId = req.tenant.tenantId;
   const period = String(req.query.period || 'hoy');
   const canal = ['wa', 'ig'].includes(req.query.canal) ? req.query.canal : 'todos';
   const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-  if (!['hoy', '7dias', 'mes', 'año', 'personalizado'].includes(period)) return res.status(400).json({ error: 'period inválido' });
+  if (!['hoy', '7dias', 'mes', 'año', 'personalizado'].includes(period)) return res.status(400).json({ error: 'Periodo inválido' });
   let from = null, to = null;
   if (period === 'personalizado') {
     from = String(req.query.from || ''); to = String(req.query.to || '');
@@ -2121,7 +2129,7 @@ app.get('/api/clients', requireAuth, async (req, res) => {
 
 app.post('/api/clients', requireAuth, async (req, res) => {
   if (!req.body || !req.body.name) {
-    return res.status(400).json({ error: 'Falta name' });
+    return res.status(400).json({ error: 'Falta el nombre del cliente' });
   }
   try {
     const client = await dbUpsertClient(req.tenant.tenantId, req.body);
@@ -2166,7 +2174,7 @@ app.get('/api/catalog', requireAuth, async (req, res) => {
 
 app.post('/api/catalog', requireAuth, async (req, res) => {
   if (!req.body || !req.body.name) {
-    return res.status(400).json({ error: 'Falta name' });
+    return res.status(400).json({ error: 'Falta el nombre del producto' });
   }
   try {
     const product = await dbUpsertProduct(req.tenant.tenantId, req.body);
