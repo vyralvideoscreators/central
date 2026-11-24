@@ -58,8 +58,16 @@ run(async () => {
   // Migraciones: CHECK validado e índice válido
   const c = await db.query(`SELECT convalidated FROM pg_constraint WHERE conname = 'orders_discount_nonneg'`);
   ok(c.rows[0] && c.rows[0].convalidated === true, 'CHECK orders_discount_nonneg existe y está validado');
-  const ix = await db.query(`SELECT i.indisvalid FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid WHERE c.relname = 'order_items_tenant_order_idx'`);
-  ok(ix.rows[0] && ix.rows[0].indisvalid === true, 'Índice order_items_tenant_order_idx existe y es válido');
+  // El índice se construye en segundo plano tras arrancar: se espera hasta 10 s
+  let ix;
+  for (let k = 0; k < 50; k++) {
+    ix = await db.query(`SELECT i.indisvalid FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid WHERE c.relname = 'order_items_order_idx'`);
+    if (ix.rows[0] && ix.rows[0].indisvalid) break;
+    await new Promise(r => setTimeout(r, 200));
+  }
+  ok(ix.rows[0] && ix.rows[0].indisvalid === true, 'Índice order_items_order_idx existe y es válido');
+  const col = await db.query(`SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'discount'`);
+  ok(col.rows.length === 1, 'Columna orders.discount existe');
 
   for (const t of [A.id, B.id]) await db.query('DELETE FROM tenants WHERE id=$1', [t]);
   await db.end();

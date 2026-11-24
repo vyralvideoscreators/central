@@ -4805,6 +4805,8 @@ function closeOrderDetail(e) {
 }
 function renderOrders() {
   updateOrderCounts();
+  // Si la vista Pagos está abierta, sus totales siguen a los pedidos
+  if (document.getElementById('v-pagos')?.classList.contains('active')) renderPagosResumen();
   const list = document.getElementById('ordersList');
   list.innerHTML = '';
   const filtered = currentFilter === 'all' ? orders : orders.filter(o => o.delivery === currentFilter);

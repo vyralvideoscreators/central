@@ -377,41 +377,49 @@ async function initDB() {
     //   1) ADD COLUMN con DEFAULT constante: solo toca el catálogo (instantáneo).
     //   2) CHECK NOT VALID: bloqueo breve, no recorre la tabla.
     //   3) VALIDATE: recorre la tabla pero sin bloquear lecturas ni escrituras (SHARE UPDATE EXCLUSIVE).
+    //   La columna es imprescindible (las altas y ediciones de pedidos la usan): se reintenta y, si al final
+    //   no existe, el proceso sale para que Railway no dé por bueno un despliegue que rompería los pedidos.
     {
+      const hasDiscount = async c => (await c.query(
+        `SELECT 1 FROM pg_attribute WHERE attrelid = 'orders'::regclass AND attname = 'discount' AND NOT attisdropped`)).rows.length > 0;
       const client = await pool.connect();
       try {
         await client.query(`SET lock_timeout = '5s'`);
-        await client.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount NUMERIC(10,2) NOT NULL DEFAULT 0`);
-        await client.query(`
-          DO $$ BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'orders_discount_nonneg' AND conrelid = 'orders'::regclass) THEN
-              ALTER TABLE orders ADD CONSTRAINT orders_discount_nonneg CHECK (discount >= 0) NOT VALID;
-            END IF;
-          END $$
-        `);
-        const { rows } = await client.query(
-          `SELECT convalidated FROM pg_constraint WHERE conname = 'orders_discount_nonneg' AND conrelid = 'orders'::regclass`);
-        if (rows[0] && !rows[0].convalidated) await client.query(`ALTER TABLE orders VALIDATE CONSTRAINT orders_discount_nonneg`);
+        // Solo se pide el bloqueo si falta la columna (ADD COLUMN IF NOT EXISTS lo pediría en cada arranque)
+        for (let attempt = 1; !(await hasDiscount(client)); attempt++) {
+          try {
+            await client.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount NUMERIC(10,2) NOT NULL DEFAULT 0`);
+          } catch (err) {
+            if (attempt >= 4) throw err;
+            console.warn(`⚠️  orders.discount: tabla ocupada (intento ${attempt}), reintento…`, err.message);
+            await new Promise(r => setTimeout(r, 1000 * 2 ** (attempt - 1)));
+          }
+        }
+        try {
+          await client.query(`
+            DO $$ BEGIN
+              IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'orders_discount_nonneg' AND conrelid = 'orders'::regclass) THEN
+                ALTER TABLE orders ADD CONSTRAINT orders_discount_nonneg CHECK (discount >= 0) NOT VALID;
+              END IF;
+            END $$
+          `);
+          const { rows } = await client.query(
+            `SELECT convalidated FROM pg_constraint WHERE conname = 'orders_discount_nonneg' AND conrelid = 'orders'::regclass`);
+          if (rows[0] && !rows[0].convalidated) await client.query(`ALTER TABLE orders VALIDATE CONSTRAINT orders_discount_nonneg`);
+        } catch (err) {
+          // 42710: otra réplica la creó a la vez (inofensivo). El CHECK es una protección extra: no impide arrancar.
+          if (err.code !== '42710') console.error('⚠️  CHECK orders_discount_nonneg (se reintentará en el próximo arranque):', err.message);
+        }
       } catch (err) {
-        console.error('❌ Migración descuento de pedidos (sin orders.discount fallarán los descuentos):', err.message);
+        console.error('❌ Migración descuento de pedidos:', err.message);
       } finally {
         await client.query('RESET lock_timeout').catch(() => {});
         client.release();
       }
-    }
-
-    // Índice de artículos por pedido (editar pedidos, informes, borrar). CONCURRENTLY: no bloquea escrituras
-    // mientras se construye; va fuera de transacción. Si una construcción anterior quedó a medias (índice
-    // inválido), se borra y se rehace.
-    try {
-      const { rows } = await pool.query(
-        `SELECT i.indisvalid FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid WHERE c.relname = 'order_items_tenant_order_idx'`);
-      if (rows[0] && !rows[0].indisvalid) await pool.query(`DROP INDEX CONCURRENTLY IF EXISTS order_items_tenant_order_idx`);
-      if (!rows[0] || !rows[0].indisvalid) {
-        await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS order_items_tenant_order_idx ON order_items (tenant_id, order_id)`);
+      if (!(await hasDiscount(pool))) {
+        console.error('❌ Falta orders.discount: los pedidos fallarían. Se detiene el arranque para reintentar.');
+        process.exit(1);
       }
-    } catch (err) {
-      console.error('⚠️  Índice order_items_tenant_order_idx (la app funciona sin él, más lenta):', err.message);
     }
 
     try {
@@ -574,7 +582,7 @@ async function dbGetOrders(tenantId) {
         '[]'::json
       ) AS items
     FROM orders o
-    LEFT JOIN order_items oi ON oi.order_id = o.id
+    LEFT JOIN order_items oi ON oi.order_id = o.id AND oi.tenant_id = o.tenant_id
     WHERE o.tenant_id = $1
     GROUP BY o.id
     ORDER BY o.created_at DESC
@@ -3391,6 +3399,49 @@ app.post('/api/admin/demos/:tenantId/convert', requireAdmin, async (req, res) =>
 // ══════════════════════════════════════════════════════════════
 // ARRANQUE
 // ══════════════════════════════════════════════════════════════
+// Índices grandes: se construyen DESPUÉS de empezar a escuchar (CONCURRENTLY puede tardar con tablas grandes
+// y no debe retrasar el arranque), fuera de transacción y con un advisory lock para que dos réplicas no
+// lo hagan a la vez. Un índice inválido (construcción interrumpida) se borra y se rehace, salvo que otra
+// sesión lo esté construyendo en ese momento.
+const INDEX_LOCK_KEY = 72616101;
+const BACKGROUND_INDEXES = [
+  // order_items por pedido: JOIN de la lista de pedidos, ediciones, informes y el ON DELETE CASCADE de orders
+  { name: 'order_items_order_idx', sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS order_items_order_idx ON order_items (order_id)' },
+];
+async function ensureIndexes() {
+  if (!dbReady) return;
+  const client = await pool.connect();
+  let locked = false;
+  try {
+    locked = (await client.query('SELECT pg_try_advisory_lock($1) AS ok', [INDEX_LOCK_KEY])).rows[0].ok;
+    if (!locked) return; // otra réplica se encarga
+    for (const ix of BACKGROUND_INDEXES) {
+      try {
+        const { rows } = await client.query(
+          `SELECT i.indisvalid FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid WHERE c.relname = $1`, [ix.name]);
+        if (rows[0] && rows[0].indisvalid) continue;
+        if (rows[0]) {
+          const busy = await client.query(
+            `SELECT 1 FROM pg_stat_progress_create_index p JOIN pg_class c ON c.oid = p.index_relid WHERE c.relname = $1`, [ix.name]);
+          if (busy.rows.length) continue; // alguien lo está construyendo (p. ej. a mano)
+          await client.query(`DROP INDEX CONCURRENTLY IF EXISTS ${ix.name}`);
+        }
+        const t0 = Date.now();
+        await client.query(ix.sql);
+        console.log(`✅ Índice ${ix.name} listo (${Date.now() - t0} ms)`);
+      } catch (err) {
+        console.error(`⚠️  Índice ${ix.name} (la app funciona sin él, más lenta):`, err.message);
+      }
+    }
+  } finally {
+    if (locked) await client.query('SELECT pg_advisory_unlock($1)', [INDEX_LOCK_KEY]).catch(() => {});
+    client.release();
+  }
+}
+
 initDB().then(() => {
-  server.listen(PORT, () => console.log(`🚀 CENTRAL Backend v5.0 escuchando en puerto ${PORT}`));
+  server.listen(PORT, () => {
+    console.log(`🚀 CENTRAL Backend v5.0 escuchando en puerto ${PORT}`);
+    ensureIndexes().catch(err => console.error('⚠️  ensureIndexes:', err.message));
+  });
 });
