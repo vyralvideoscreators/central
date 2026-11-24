@@ -394,6 +394,7 @@ body {
           <div class="plan-opt-desc">Canales ilimitados · equipo + API</div>
         </div>
       </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.45;">Tu cuenta empieza en Basic. Los planes de pago se activan al completar el pago, que podrás hacer al entrar a la app.</div>
     </div>
 
     <div class="check-row">
@@ -575,6 +576,12 @@ async function doRegister() {
       return;
     }
     saveSession(data);
+    try {
+      if (data.requestedPlan === 'pro' || data.requestedPlan === 'business') {
+        sessionStorage.setItem('central_pending_plan', data.requestedPlan);
+        sessionStorage.removeItem('central_pending_plan_shown');
+      }
+    } catch (e) {}
     showMsg('regOk', '¡Cuenta creada! Redirigiendo…');
     setTimeout(() => window.location.href = APP_URL, 800);
   } catch {

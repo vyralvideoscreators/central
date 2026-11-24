@@ -7485,6 +7485,7 @@ const settingsPanels = {
   plan: () => `
     <div class="sc-title">Plan y facturación</div>
     <div class="sc-sub">Gestiona tu suscripción a CENTRAL</div>
+    ${pendingPlanBanner()}
 
     <!-- Estado de suscripción -->
     <div class="s-card" id="billingStatusCard" style="margin-bottom:16px;">
@@ -7634,6 +7635,25 @@ async function loadBillingStatus() {
   } catch(e) {}
 }
 
+// Plan de pago elegido al registrarse: la cuenta nace en Basic y el plan se activa al completar el pago
+function pendingPlanBanner() {
+  let p = null;
+  try { p = sessionStorage.getItem('central_pending_plan'); } catch (e) {}
+  if (p !== 'pro' && p !== 'business') return '';
+  const rank = { basic: 0, pro: 1, business: 2 };
+  if (rank[activePlan] >= rank[p]) { try { sessionStorage.removeItem('central_pending_plan'); } catch (e) {} return ''; }
+  const name = p === 'pro' ? 'Pro' : 'Business';
+  return `<div class="s-card" style="border-color:var(--accent);margin-bottom:16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+        <div>
+          <div style="font-size:13.5px;font-weight:700;">Completa el pago para activar el plan ${name}</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:3px;">Tu cuenta funciona con el plan Basic hasta que el pago se complete.</div>
+        </div>
+        <button class="btn-primary" onclick="startCheckout('${p}')">Pagar plan ${name}</button>
+      </div>
+    </div>`;
+}
+
 async function startCheckout(plan) {
   try {
     if (!window.__DEMO_MODE__) showToast('Redirigiendo a Stripe…');
@@ -7641,16 +7661,16 @@ async function startCheckout(plan) {
       method: 'POST', headers: apiHeaders(), body: JSON.stringify({ plan }),
     });
     const data = await res.json();
-    if (!res.ok) { showToast(data.message || data.error || 'Error al iniciar pago'); return; }
+    if (!res.ok) { showToast('⚠ ' + (data.message || data.error || 'Error al iniciar pago')); return; }
     if (data.demo) {
       showToast('✓ ' + (data.message || 'Plan cambiado'));
       setPlan(data.plan);
       loadBillingStatus();
       return;
     }
-    if (!data.checkoutUrl) { showToast('Error al iniciar pago'); return; }
+    if (!data.checkoutUrl) { showToast('⚠ Error al iniciar pago'); return; }
     window.location.href = data.checkoutUrl;
-  } catch { showToast('Error de conexión'); }
+  } catch { showToast('⚠ Error de conexión'); }
 }
 
 async function openStripePortal() {
@@ -9544,6 +9564,14 @@ loadRealConversations().then(() => {
 });
 loadRealCatalog();
 loadAutoReplyConfig();
+// Venía de registrarse con un plan de pago: abre Ajustes → Plan una sola vez, con el aviso de pago
+try {
+  const pp = sessionStorage.getItem('central_pending_plan');
+  if ((pp === 'pro' || pp === 'business') && !sessionStorage.getItem('central_pending_plan_shown')) {
+    sessionStorage.setItem('central_pending_plan_shown', '1');
+    setTimeout(goToPlanSettings, 0);
+  }
+} catch (e) {}
 
 // ══ CUSTOM CURSOR TOUR ══════════════════════════════════════
 let tourActive = false;
