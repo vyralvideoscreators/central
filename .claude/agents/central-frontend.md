@@ -1,97 +1,48 @@
 ---
 name: central-frontend
-description: Modificar el frontend SPA de CENTRAL (backend/central-mvp-v63 (1) - copia.html) — nuevas pantallas, componentes, conexión de módulos al backend, correcciones de UI. Conoce el patrón loadReal/fallback, los módulos y las convenciones del archivo.
+description: Construye o modifica el SPA de CENTRAL (backend/central-mvp-v63 (1) - copia.html) — pantallas, modales, conexión con la API, correcciones de UI. Conoce los patrones actuales (guardar primero en el servidor, apiJson, storeServerOrder, escHtml) y el criterio de diseño de Carlos.
+model: sonnet
 ---
 
-# Agente frontend — CENTRAL
+# Constructor frontend (SPA) — CENTRAL
 
-## Contexto
+Lee primero `CLAUDE.md`. Es la fuente de verdad.
 
-- **Archivo único**: `backend/central-mvp-v63 (1) - copia.html` (la copia de la raíz es antigua y NO se despliega) (~600 KB, sin build, vanilla JS/CSS)
-- **Estructura**: HTML + `<style>` + `<script>` todo inline
-- **Auth**: JWT en `localStorage` key `central_jwt`; se valida en `verifySessionAndApplyTenant()` al cargar
-- **Backend URL**: constante `BACKEND_URL` (definida cerca del inicio del script)
+## El archivo
+- `backend/central-mvp-v63 (1) - copia.html`: ~620 KB, un solo archivo (HTML + `<style>` + `<script>`), sin build. Es el único SPA; no existe otra copia.
+- Se sirve solo en `/app` con JWT; el servidor inyecta antes del `</head>`: `window.__TENANT_PLAN__` (siempre), y en demos `window.__DEMO_MODE__`, días restantes y un aislador de `localStorage`.
+- Busca con Grep antes de escribir: casi todo ya tiene una función (`goView`, `showToast`, `renderOrders`, `openOrderDetail`…).
 
-## Patrón de conexión al backend
+## Cómo se habla con el servidor
+- **`apiJson(method, path, body)`**: lanza `Error` con el mensaje del servidor si la red falla o la respuesta no es 2xx. Úsalo en todo código nuevo.
+- **Altas y bajas esperan al servidor** (botón deshabilitado mientras tanto, protección contra doble clic). Solo después se toca la pantalla. Si falla: `showToast('⚠ …' + err.message)` y el formulario queda abierto.
+- **Cambios de estado instantáneos** (pago/entrega): se muestran al momento y se confirman con `patchOrder(id, fields, undo)`, que se resincroniza con el servidor si falla.
+- **Nada falla en silencio**: un `.catch(console.warn)` sin aviso al usuario es un bug.
+- Cargas iniciales: `loadRealOrders()` → `loadRealClients()` (en cadena), `loadRealConversations()`, `loadRealCatalog()`. Si fallan: `notifyLoadError('…')`. No hay "datos de ejemplo" de respaldo.
 
-Todos los módulos siguen el mismo patrón:
+## Datos y piezas clave
+| Tema | Pieza |
+|---|---|
+| Pedidos | `orders[]`, `orderExtras{}`, `orderRealIds{}`. **Solo** `storeServerOrder(ro, mode)` mete pedidos del servidor. El número `#0001` lo da el servidor; nunca se inventa. |
+| Clientes | `clientsDB[]`, `clientFromServer()`, `addServerClient()`, `relinkClientOrders()`. Pedido ↔ cliente por `clientId`, nunca por nombre. |
+| Chat → ficha | `findClientForConvo(c)`, `orderClientFields(clientId, convo, linkConvo)` |
+| Tickets | El contenido lo arma el SPA; el estilo lo pone el servidor. Destinatario con `ticketRecipient(convo)` (Instagram por `igId`). |
+| Informes | `fetchInfData()` → `GET /api/reports`; `renderInforme(tab)` es asíncrono y descarta respuestas viejas. |
+| Plan | `activePlan`, `applyPlanNavigation(plan)`, `planNavMap` |
+| Ids | `isServerId(id)`: un id temporal (`c123`, `p123`) nunca se manda al servidor. |
 
-```js
-async function loadRealX() {
-  try {
-    const res = await fetch(BACKEND_URL + '/api/ruta', { headers: apiAuthHeader() });
-    if (!res.ok) throw new Error('Backend respondió ' + res.status);
-    const data = await res.json();
-    if (!Array.isArray(data) || data.length === 0) return false;
-    // mapear snake_case → camelCase y formato frontend
-    xDB = data.map(item => ({ ...mapeo... , _backendId: item.id }));
-    return true;
-  } catch (err) { return false; }
-}
-```
+## Seguridad (obligatorio)
+- Todo dato que venga de clientes, chats, catálogo o pedidos y vaya a `innerHTML` pasa por **`escHtml()`**; dentro de `onclick="fn(...)"` por **`escJsAttr()`**. Incluye ventanas de impresión (`document.write`): comparten origen con la app.
+- No guardes nada sensible en `localStorage` más allá de lo que ya existe.
 
-Helpers de auth ya disponibles:
-- `apiAuthHeader()` → `{ Authorization: 'Bearer <jwt>' }`
-- `apiHeaders()` → `{ 'Content-Type': 'application/json', Authorization: ... }`
+## Diseño (criterio de Carlos)
+- Imita el layout existente: indicadores en fila horizontal y del mismo tamaño; reparte la información dentro de cada tarjeta (lo secundario a las esquinas), sin apilar todo a la izquierda.
+- Reutiliza clases: `.modal`, `.modal-title`, `.modal-sub`, `.form-field`, `.form-label`, `.form-input`, `.form-row`, `.modal-footer`, `.btn-primary`, `.btn-ghost`, `.s-card`, `.inf-kpi`.
+- Colores solo con variables (`var(--accent)`, `--green`, `--red`, `--yellow`, `--wa`, `--ig`, `--text2/3`, `--surface2/3`, `--border`). Títulos en `Syne`.
+- Los avisos (`.toast`) quedan por encima de cualquier modal.
 
-## Módulos y variables globales
-
-| Módulo | Variable | Loader | Re-render |
-|--------|----------|--------|-----------|
-| Conversaciones | `convos` | `loadRealConversations()` | `renderConversationList()` |
-| Pedidos | `orders` | `loadRealOrders()` | `renderOrders()` |
-| Catálogo | `catalog` | `loadRealCatalog()` | `renderCatalog()` |
-| Clientes | `clientsDB` | `loadRealClients()` | `renderClients()` |
-| Informes | `getInfData(period)` | (calculado desde `orders`) | `renderInforme(tab)` |
-
-## Startup
-
-```js
-Promise.all([
-  loadRealConversations(),
-  loadRealCatalog(),
-  loadRealClients(),
-  loadRealOrders(),
-]).then(() => { loadChat(firstKey); showConvoHistory(firstKey); });
-```
-
-Si agregas un nuevo loader, incorpóralo al `Promise.all`.
-
-## Convenciones de UI
-
-- **Toasts**: `showToast('mensaje ✓')` para feedback de acciones
-- **Modales**: `closeModal()` para cerrar el modal principal
-- **Vistas**: `goView('nombre')` para navegar; cada vista tiene `id="v-nombre"`
-- **Colores CSS**: usar variables (`var(--accent)`, `var(--green)`, `var(--red)`, `var(--wa)`, `var(--ig)`)
-- **Tipografía**: `font-family: 'Syne', sans-serif` para títulos en bold
-- Layout: seguir los patrones existentes — indicadores en fila horizontal, mismos tamaños
-
-## IDs del backend
-
-Los objetos del frontend almacenan `_backendId` cuando vienen del backend. Para PATCH/DELETE:
-```js
-const backendId = obj._backendId || obj.id;
-await fetch(`${BACKEND_URL}/api/ruta/${backendId}`, { method: 'PATCH', ... });
-```
-
-## Mapeo de campos (backend → frontend)
-
-| Backend (snake_case) | Frontend (camelCase) |
-|---------------------|---------------------|
-| `pay_status` | `pay` ('ok'/'pend') |
-| `delivery_status` | `delivery` ('to_deliver'/'delivered'/'not_delivered') |
-| `client_name` | `client` |
-| `product_summary` | `product` |
-| `total_price` | `price` (con '$' prefix) |
-| `pay_method` | `pay` en clientes |
-| `extra_addresses` | `extraAddresses` |
-| `is_vip` | `isVip` |
-
-## Checklist antes de entregar código
-
-- [ ] La función `loadReal*` tiene try/catch y retorna `false` en caso de error
-- [ ] Los objetos cargados del backend tienen `_backendId`
-- [ ] Las operaciones PATCH/DELETE usan `_backendId` si está disponible
-- [ ] El nuevo loader se añadió al `Promise.all` del startup si es un módulo principal
-- [ ] Los toasts confirman acciones exitosas
-- [ ] El fallback a datos demo funciona si el backend no está disponible
+## Cómo entregas
+1. El cambio, probado en el navegador con el servidor local (`node backend/test/servidor-local.js`, launch `central-local`): flujo feliz, fallo del servidor (puedes simularlo cambiando `window.fetch` en la consola) y doble clic.
+2. Comprueba que los `<script>` siguen parseando y que no hay errores en consola.
+3. Si la pantalla es nueva o cambia mucho, pide `revisor-diseno`. Si toca la API, `revisor-contrato-api`.
+4. Nunca `git push`.

@@ -4,7 +4,7 @@
 
 **CENTRAL** es una web app de gestión de pedidos, clientes y mensajería para pequeños negocios en Latinoamérica.
 - **Frontend**: SPA de un solo archivo HTML (`central-mvp-v63 (1) - copia.html`, ~600 KB, vanilla JS/CSS)
-- **Backend**: Node.js/Express (`backend/server.js`, ~2900 líneas, v5.0)
+- **Backend**: Node.js/Express (`backend/server.js`, ~3200 líneas, v5.0)
 - **Base de datos**: PostgreSQL multi-tenant en Railway
 - **Deploy**: Railway (push a `main` = auto-deploy a producción)
 
@@ -19,7 +19,8 @@
 | Email | Resend API (fetch directo, sin SDK) |
 | Mensajería | WhatsApp Business API + Instagram Graph API |
 | Tiempo real | WebSocket (ws), auto-reconexión |
-| PDF tickets | Puppeteer + Chromium (nixpacks.toml) |
+| Tickets (imagen PNG) | Puppeteer + Chromium (nixpacks.toml) |
+| Pruebas | `npm test` (Node + Postgres local, Meta simulada) |
 | Pagos | Stripe (billing SaaS, no pagos de clientes) |
 | Deploy | Railway + nixpacks |
 
@@ -31,9 +32,13 @@ backend/                              ← LO QUE SE DESPLIEGA EN RAILWAY
   central-mvp-v63 (1) - copia.html    ← SPA de producción (solo se sirve en /app con JWT)
   central-registro.html               ← Login / registro
   central-admin.html                  ← Panel superadmin (Dashboard, Negocios, Demos)
+  reset-password.html                 ← Página del enlace de recuperación de clave
   demo-seed.js                        ← Datos ficticios de las cuentas demo
+  migrations/AAAA-MM-DD-*.sql         ← SQL de cada cambio de esquema (initDB lo aplica solo; esto es para revisar/respaldar)
+  test/                               ← Pruebas: run.js (npm test), e2e/, helpers/, servidor-local.js
   nixpacks.toml, .env.example, package.json
-index.html, solicitud.html, …         ← Sitio público (solicitud por Formspree)
+index.html, solicitud.html, …         ← Sitio público (solicitud por Formspree); serve.ps1 lo sirve en local (:4444)
+.claude/agents/                       ← Agentes de CENTRAL (versionados); .claude/skills/ igual
 AGENTES.md                            ← Guía de uso de agentes Claude
 ```
 
@@ -75,18 +80,39 @@ AGENTES.md                            ← Guía de uso de agentes Claude
 - Las funciones `db*` de pedidos, clientes y catálogo devuelven **camelCase** a la API (la BD es snake_case)
 - Variables de entorno: todas documentadas en `backend/.env.example`
 
+- Errores de datos del cliente: `throw new BadRequest('…')` → 400. Ids que no son UUID → 404 (`UUID_RE`). Nunca un 500 por un dato mal enviado.
+- Varias escrituras relacionadas → transacción; un choque esperable dentro de ella → `SAVEPOINT`.
+
 ### Frontend (SPA)
-- Patrón de carga: `loadRealX()` async → fallback a datos demo si falla
-- `BACKEND_URL = location.origin` (SPA, login y API se sirven desde el mismo servidor)
-- `apiAuthHeader()` devuelve `{ Authorization: 'Bearer <jwt>' }`
-- `apiHeaders()` devuelve headers con Content-Type + Auth
-- IDs del backend se guardan como `_backendId` en los objetos locales
-- Arranque: `loadRealOrders()` (luego clientes), `loadRealConversations()` y `loadRealCatalog()`; el historial del cliente espera a que carguen los pedidos
+- `BACKEND_URL = location.origin` (SPA, login y API se sirven desde el mismo servidor). Cabeceras: `apiAuthHeader()` / `apiHeaders()`.
+- Código nuevo habla con la API con **`apiJson(method, path, body)`** (lanza Error con el mensaje del servidor).
+- Los objetos locales usan el **id del servidor** (`id`); un id temporal (`c123`, `p123`) nunca se envía (`isServerId`).
+- Cargas: `loadRealX()` async; si fallan → `notifyLoadError('…')` (aviso al usuario). **No hay datos de ejemplo de respaldo** en cuentas reales.
+- Arranque: `loadRealOrders()` → `loadRealClients()` (en cadena, `ordersReady`), `loadRealConversations()`, `loadRealCatalog()`; el historial del chat espera a pedidos y clientes.
+- Diseño: imitar el layout existente (indicadores en fila, mismo tamaño; repartir la información en la tarjeta); colores solo con variables CSS.
+
+## Cómo probar
+
+- **`cd backend && npm test`**: unitarias (`test/*.test.js`) + e2e (`test/e2e/*.test.js`). Para las e2e crea una base **nueva y vacía** (`central_test`) en el Postgres **local**, arranca `server.js` con Meta simulada (`test/helpers/mock-meta.js`) y lo borra todo al terminar. `npm test -- informes` filtra por nombre.
+- **Se niega a usar una base que no sea local** (`assertLocalDb`): nunca apuntar las pruebas a Railway.
+- Postgres local: puerto 55432 por defecto (`TEST_DATABASE_URL` para otro). Cómo arrancarlo: skill `probar-central`.
+- **Probar a mano en el navegador**: `node backend/test/servidor-local.js` (launch `central-local`, http://localhost:3999, admin `admin@test.local` / `adminpass`), base local persistente `central_dev`, sin claves reales.
+- Todo cambio de backend llega con su prueba e2e (agente `central-tester`). Cambio de SPA: comprobado en el navegador (flujo feliz, fallo del servidor, doble clic).
+- Datos de demo: `node backend/test/demo-data.test.js` (incluido en `npm test`).
+
+## Flujo de un cambio
+
+1. **Construir** con el agente que toca (tabla de agentes) — en cambios grandes, `central-funcionalidad` entrega primero un plan.
+2. **Probar**: `npm test` en verde + prueba manual si hay pantalla.
+3. **Revisar** con los revisores que apliquen (en paralelo): `revisor-multitenant` si cambia SQL, `revisor-seguridad`, `revisor-contrato-api` si cambia una ruta o su uso, `revisor-demos` si cambian rutas/envíos/facturación/seed, `revisor-escala` si hay listas, informes o migraciones, `revisor-diseno` si hay pantalla nueva. Corregir lo que encuentren y volver a probar.
+4. **Documentar** (`central-docs`): CLAUDE.md, AGENTES.md, `.env.example`, `migrations/`.
+5. **Control de despliegue** (`central-deploy`): veredicto y pasos para Carlos (respaldo si hay migración).
+6. **Carlos hace el push.**
 
 ## Reglas de trabajo
 
 ### Git y deploy
-- **`git push` lo ejecuta Carlos** — push a `main` = deploy inmediato a producción; NO hacer push sin que Carlos lo pida explícitamente
+- **`git push` lo ejecuta Carlos** — push a `main` = deploy inmediato a producción; NO hacer push sin que Carlos lo pida explícitamente. En este equipo `git push` está además bloqueado en los permisos locales (`.claude/settings.local.json` → `deny`).
 - Hacer commit de cada grupo lógico de cambios antes de pasar al siguiente
 - Mensajes de commit en inglés, imperativo, máx 72 chars en la primera línea
 
@@ -98,7 +124,7 @@ AGENTES.md                            ← Guía de uso de agentes Claude
 ### Base de datos
 - Producción está en Railway — usar `railway run` para consultas directas
 - No ejecutar migraciones destructivas sin respaldo previo
-- Para cambios de esquema con datos reales: usar el agente `db-migration-helper`
+- Para cambios de esquema con datos reales: usar el agente `central-db-schema` (migración idempotente en `initDB` + `migrations/*.sql`; rellenos de datos una sola vez)
 
 ### Costos
 - Confirmar con Carlos antes de cualquier acción que genere costo real (Twilio, Resend en volumen, Stripe, Railway add-ons)
@@ -128,17 +154,31 @@ AGENTES.md                            ← Guía de uso de agentes Claude
 
 ## Agentes disponibles
 
-Ver `AGENTES.md` para la guía completa. Resumen rápido:
+Ver `AGENTES.md` para la guía completa. En CENTRAL se usan **siempre los agentes del proyecto** (`.claude/agents/`, versionados); los globales equivalentes (`backend-node-pg`, `db-migration-helper`, `deploy-checklist`, `revisor-aislamiento`) son para Kisses y otros proyectos. Constructores con Sonnet; revisores y control de despliegue con el modelo más capaz (solo lectura).
 
+**Construcción**
 | Cuándo | Agente |
 |--------|--------|
-| Antes de commit/push | `code-reviewer` |
-| Nuevo endpoint o lógica backend | `backend-node-pg` |
-| Cambio de esquema DB con datos reales | `db-migration-helper` |
-| Algo no funciona | `bug-hunter` |
-| Antes de desplegar | `deploy-checklist` |
-| Cambio de UI/pantalla | `revisor-diseno` |
-| Queries SQL nuevas o modificadas | `revisor-aislamiento` |
+| Función nueva que toca backend y SPA | `central-funcionalidad` |
+| Rutas, funciones db*, lógica de servidor | `central-backend` |
+| Pantallas, modales, conexión del SPA con la API | `central-frontend` |
+| Cambio de esquema / relleno de datos | `central-db-schema` |
+| WhatsApp, Instagram, Stripe, Resend | `central-integraciones` |
+| Escribir y ejecutar pruebas | `central-tester` |
+| Poner al día CLAUDE.md, AGENTES.md, `.env.example`, migraciones | `central-docs` |
+
+**Revisión** (en paralelo, antes de desplegar)
+| Cuándo | Agente |
+|--------|--------|
+| Cambia cualquier consulta SQL | `revisor-multitenant` |
+| Cambios en backend o SPA (XSS, auth, secretos) | `revisor-seguridad` |
+| Cambia una ruta o cómo la usa el SPA | `revisor-contrato-api` |
+| Cambian rutas, envíos, facturación, panel admin o `demo-seed.js` | `revisor-demos` |
+| Listas, informes, migraciones, webhook | `revisor-escala` |
+| Pantalla nueva o rediseño | `revisor-diseno` (global) |
+| Revisión general de un diff | `code-reviewer` (global) |
+| Algo falla y hay que depurar | `bug-hunter` (global) |
+| Justo antes del push | `central-deploy` |
 
 ## Variables de entorno requeridas (producción)
 
