@@ -3,6 +3,8 @@
 // originales de la app: test/demo-data.test.js lo comprueba.
 // Teléfonos con el bloque 555-2xxx, reservado para ficción.
 
+const { recalcOrderPayment } = require('./pagos');
+
 const C = {
   coral:   { name: 'Coral',          hex: '#f0806a' },
   marfil:  { name: 'Marfil',         hex: '#f3ead8' },
@@ -40,10 +42,10 @@ const ORDERS = [
   { c: 'c6', d: 0, h: 16, items: [['p3', 'L', 0, 1]],                       pay: 'pend', del: 'to_deliver',    payL: 'Tarjeta',       delL: 'Retiro en tienda',         ship: 0 },
   { c: 'c4', d: 1, h: 10, items: [['p5', '37', 0, 1]],                      pay: 'ok',   del: 'delivered',     payL: 'Transferencia', delL: 'Motorizado independiente', ship: 4 },
   { c: 'c3', d: 1, h: 18, items: [['p4', '41', 0, 1]],                      pay: 'ok',   del: 'delivered',     payL: 'Efectivo',      delL: 'Retiro en tienda',         ship: 0 },
-  { c: 'c5', d: 2, h: 12, items: [['p1', 'M', 1, 2]],                       pay: 'pend', del: 'delivered',     payL: 'Zelle',         delL: 'Encomienda',               ship: 6 },
-  { c: 'c1', d: 3, h: 17, items: [['p2', 'S', 1, 1], ['p1', 'S', 1, 1]],    pay: 'ok',   del: 'delivered',     payL: 'Pago móvil',    delL: 'Motorizado independiente', ship: 4 },
+  { c: 'c5', d: 2, h: 12, items: [['p1', 'M', 1, 2]],                       pay: 'pend', paid: 30, del: 'delivered',     payL: 'Zelle',         delL: 'Encomienda',               ship: 6 },
+  { c: 'c1', d: 3, h: 17, items: [['p2', 'S', 1, 1], ['p1', 'S', 1, 1]],    pay: 'ok', ves: 38.5, voidedDup: true,   del: 'delivered',     payL: 'Pago móvil',    delL: 'Motorizado independiente', ship: 4 },
   { c: 'c2', d: 4, h: 15, items: [['p3', 'S', 1, 1]],                       pay: 'ok',   del: 'delivered',     payL: 'Zelle',         delL: 'Encomienda',               ship: 6 },
-  { c: 'c6', d: 5, h: 9,  items: [['p5', '40', 1, 1]],                      pay: 'pend', del: 'not_delivered', payL: 'Tarjeta',       delL: 'Motorizado independiente', ship: 4 },
+  { c: 'c6', d: 5, h: 9,  items: [['p5', '40', 1, 1]],                      pay: 'pend', paid: 40, del: 'not_delivered', payL: 'Tarjeta',       delL: 'Motorizado independiente', ship: 4 },
   { c: 'c4', d: 6, h: 19, items: [['p4', '37', 1, 1], ['p1', 'XS', 0, 1]],  pay: 'ok',   del: 'delivered',     payL: 'Transferencia', delL: 'Motorizado independiente', ship: 4 },
   { c: 'c3', d: 9, h: 14, items: [['p2', 'L', 0, 1]],                       pay: 'ok',   del: 'delivered',     payL: 'Efectivo',      delL: 'Retiro en tienda',         ship: 0 },
 ];
@@ -103,13 +105,16 @@ function money(n) { return Math.round(n * 100) / 100; }
 async function wipeDemoData(client, tenantId) {
   const { rows } = await client.query('SELECT is_demo FROM tenants WHERE id = $1', [tenantId]);
   if (!rows[0]?.is_demo) throw new Error('Solo se pueden vaciar cuentas demo');
+  await client.query('DELETE FROM payments WHERE tenant_id = $1', [tenantId]);
+  await client.query('DELETE FROM order_events WHERE tenant_id = $1', [tenantId]);
+  await client.query('DELETE FROM tenant_settings WHERE tenant_id = $1', [tenantId]);
   await client.query('DELETE FROM messages WHERE tenant_id = $1', [tenantId]);
   await client.query('DELETE FROM conversations WHERE tenant_id = $1', [tenantId]);
   await client.query('DELETE FROM order_items WHERE tenant_id = $1', [tenantId]);
   await client.query('DELETE FROM orders WHERE tenant_id = $1', [tenantId]);
   await client.query('DELETE FROM clients WHERE tenant_id = $1', [tenantId]);
   await client.query('DELETE FROM catalog_products WHERE tenant_id = $1', [tenantId]);
-  await client.query('UPDATE tenants SET order_seq = 0 WHERE id = $1 AND is_demo = true', [tenantId]);
+  await client.query(`UPDATE tenants SET order_seq = 0, base_currency = 'USD' WHERE id = $1 AND is_demo = true`, [tenantId]);
 }
 
 async function seedDemoTenant(client, tenantId, { city = 'Ciudad Demo' } = {}) {
@@ -157,7 +162,7 @@ async function seedDemoTenant(client, tenantId, { city = 'Ciudad Demo' } = {}) {
       `INSERT INTO orders (tenant_id, client_id, client_name, platform, product_summary, total_price, pay_status, delivery_status,
          pay_method_label, delivery_method_label, address, notes, shipping, created_at, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$14) RETURNING id`,
-      [tenantId, clientIds[o.c], c.name, c.channel, summary, money(subtotal + o.ship), o.pay, o.del,
+      [tenantId, clientIds[o.c], c.name, c.channel, summary, money(subtotal + o.ship), 'pend', o.del,
        o.payL, o.delL, o.delL.startsWith('Retiro') ? 'Retiro en tienda' : `${c.zone}, ${city}`, null, o.ship, created]
     );
     for (const l of lines) {
@@ -167,6 +172,35 @@ async function seedDemoTenant(client, tenantId, { city = 'Ciudad Demo' } = {}) {
         [rows[0].id, tenantId, productIds[l.pk], l.p.emoji, l.p.name, l.detail, l.qty, l.unit, l.line]
       );
     }
+
+    // Cobros coherentes: pagado completo ('ok'), abonado (paid) o sin cobrar; uno en bolívares y uno anulado
+    const orderId = rows[0].id, total = money(subtotal + o.ship);
+    const events = [['created', { total, items: lines.length, clientName: c.name, platform: c.channel }, created]];
+    const pays = [];
+    const full = o.pay === 'ok';
+    if (full || o.paid) {
+      const amountBase = full ? total : o.paid;
+      const ves = full && o.ves;
+      pays.push({ amountBase, amount: ves ? money(amountBase * o.ves) : amountBase, currency: ves ? 'VES' : 'USD', rate: ves ? o.ves : 1,
+        reference: /Zelle|Pago móvil|Transferencia/.test(o.payL) ? String(100000 + Math.floor(Math.random() * 899999)) : null, voided: false });
+    }
+    if (o.voidedDup) pays.push({ amountBase: total, amount: total, currency: 'USD', rate: 1, reference: null, voided: true });
+    for (const p of pays) {
+      const { rows: pr } = await client.query(
+        `INSERT INTO payments (tenant_id, order_id, client_id, amount, currency, exchange_rate, amount_base, method, reference,
+           paid_at, created_at, voided_at, void_reason, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,$11,$12,'owner') RETURNING id`,
+        [tenantId, orderId, clientIds[o.c], p.amount, p.currency, p.rate, p.amountBase, o.payL, p.reference, created,
+         p.voided ? new Date(created.getTime() + 20 * 60000) : null, p.voided ? 'Registrado dos veces' : null]);
+      events.push(['payment_added', { paymentId: pr[0].id, amount: p.amount, currency: p.currency, amountBase: p.amountBase, method: o.payL, reference: p.reference }, created]);
+      if (p.voided) events.push(['payment_voided', { paymentId: pr[0].id, amountBase: p.amountBase, method: o.payL, reason: 'Registrado dos veces' }, new Date(created.getTime() + 20 * 60000)]);
+    }
+    if (o.del === 'delivered') events.push(['status_changed', { from: 'to_deliver', to: 'delivered' }, new Date(Math.min(now, created.getTime() + 3 * 3600000))]);
+    for (const [type, data, when] of events) {
+      await client.query('INSERT INTO order_events (tenant_id, order_id, type, data, created_at) VALUES ($1,$2,$3,$4,$5)',
+        [tenantId, orderId, type, JSON.stringify(data), when]);
+    }
+    await recalcOrderPayment(client, tenantId, orderId);
   }
 
   // Numeración propia del negocio: #0001… en orden de fecha, y el contador al día
