@@ -2149,7 +2149,7 @@
     <div class="logo" onclick="goView('inbox')">C</div>
     <div class="nav-item active" id="nav-inbox" data-tour="Bandeja de entrada — todos tus mensajes de WhatsApp e Instagram en un solo lugar" onclick="goView('inbox')" title="Bandeja">
       <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25"/></svg>
-      <span class="nav-badge"></span>
+      <span class="nav-badge" id="navInboxBadge" style="display:none;"></span>
     </div>
     <div class="nav-item" id="nav-pedidos" data-tour="Pedidos — gestiona y actualiza el estado de cada pedido en tiempo real" onclick="goView('pedidos')" title="Pedidos">
       <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 5.25h16.5m-16.5 4.5h16.5m-16.5 4.5h16.5m-16.5 4.5h16.5"/></svg>
@@ -7643,7 +7643,7 @@ function pendingPlanBanner() {
   const rank = { basic: 0, pro: 1, business: 2 };
   if (rank[activePlan] >= rank[p]) { try { sessionStorage.removeItem('central_pending_plan'); } catch (e) {} return ''; }
   const name = p === 'pro' ? 'Pro' : 'Business';
-  return `<div class="s-card" style="border-color:var(--accent);margin-bottom:16px;">
+  return `<div class="s-card" style="border-color:var(--accent);margin-bottom:16px;padding:14px 18px;">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
         <div>
           <div style="font-size:13.5px;font-weight:700;">Completa el pago para activar el plan ${name}</div>
@@ -9750,6 +9750,8 @@ function updateInboxCount() {
   if (!pill) return;
   const unreadCount = Object.values(convos).filter(c => c.unread).length;
   pill.textContent = unreadCount;
+  const dot = document.getElementById('navInboxBadge');
+  if (dot) dot.style.display = unreadCount > 0 ? '' : 'none';
 }
 
 // ─────────────────────────────────────────────────────────────
