@@ -95,7 +95,7 @@ AGENTES.md                            ← Guía de uso de agentes Claude
 
 - **`cd backend && npm test`**: unitarias (`test/*.test.js`) + e2e (`test/e2e/*.test.js`). Para las e2e crea una base **nueva y vacía** (`central_test`) en el Postgres **local**, arranca `server.js` con Meta simulada (`test/helpers/mock-meta.js`) y lo borra todo al terminar. `npm test -- informes` filtra por nombre.
 - **Se niega a usar una base que no sea local** (`assertLocalDb`): nunca apuntar las pruebas a Railway.
-- Postgres local: puerto 55432 por defecto (`TEST_DATABASE_URL` para otro). Cómo arrancarlo: skill `probar-central`.
+- Postgres local: `cd backend && node test/pg-local.js start | stop | status` (datos en `%USERPROFILE%\.central-pg`, puerto 55432; `TEST_DATABASE_URL` para otro). Detalle: skill `probar-central`.
 - **Probar a mano en el navegador**: `node backend/test/servidor-local.js` (launch `central-local`, http://localhost:3999, admin `admin@test.local` / `adminpass`), base local persistente `central_dev`, sin claves reales.
 - Todo cambio de backend llega con su prueba e2e (agente `central-tester`). Cambio de SPA: comprobado en el navegador (flujo feliz, fallo del servidor, doble clic).
 - Datos de demo: `node backend/test/demo-data.test.js` (incluido en `npm test`).
@@ -179,6 +179,18 @@ Ver `AGENTES.md` para la guía completa. En CENTRAL se usan **siempre los agente
 | Revisión general de un diff | `code-reviewer` (global) |
 | Algo falla y hay que depurar | `bug-hunter` (global) |
 | Justo antes del push | `central-deploy` |
+
+## Skills
+
+**Del proyecto** (`.claude/skills/`, versionadas):
+| Skill | Para |
+|-------|------|
+| `probar-central` | Encender el Postgres local, `npm test`, levantar el servidor local con Meta simulada |
+| `revisar-central` | Lanzar en paralelo los revisores que tocan según el diff y unir sus informes |
+| `desplegar-central` | Antes del push: veredicto de `central-deploy` y pasos para Carlos. Después: verificación de producción en solo lectura |
+| `nueva-funcionalidad` | Función nueva con Carlos: preguntas, plan aprobado, construcción, pruebas, revisión, entrega |
+
+**De la cuenta** (plugins): `engineering:*` (testing-strategy, tech-debt, architecture, debug, incident-response, documentation), `design:*` (design-critique, accessibility-review, ux-copy), `twilio-developer-kit` (WhatsApp/SMS), `cierre` (cerrar una sesión sin pendientes). Elegidas, pendientes de instalar (24-nov-2026): `frontend-design`, `finecomb` (auditoría completa de seguridad), `42crunch` (seguridad de API; necesita una especificación OpenAPI que CENTRAL aún no tiene).
 
 ## Variables de entorno requeridas (producción)
 
