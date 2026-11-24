@@ -20,7 +20,7 @@ model: opus
 ## 3. Base de datos
 - ¿El diff cambia `initDB`? Lista cada cambio de esquema y su `backend/migrations/*.sql`.
 - Para cada uno: ¿idempotente?, ¿los rellenos corren una sola vez?, ¿algo destructivo?, ¿qué pasa si falla a mitad?
-- Si hay cambio de esquema o relleno: **respaldo en Railway (Postgres → Backups) antes del push** — paso obligatorio para Carlos.
+- Si hay cambio de esquema o relleno: **respaldo con `backend/scripts/respaldo-produccion.ps1` (pg_dump; Railway no tiene Backups activados) antes del push** — paso obligatorio para Carlos.
 
 ## 4. Configuración
 - Variables nuevas (`process.env.X` en el diff) → ¿en `backend/.env.example`? ¿hay que crearlas en Railway? Las críticas: `JWT_SECRET`, `DATABASE_URL`, `META_APP_SECRET`, `WEBHOOK_VERIFY_TOKEN`, `RESEND_*`, `STRIPE_*`, `DEMO_CREATION_KEY`, `ADMIN_*`.

@@ -12,7 +12,7 @@ description: Acompaña un despliegue de CENTRAL a producción (Railway). ANTES d
 2. Lanza el agente **`central-deploy`** (pruebas, migraciones, variables, dependencias) y espera su veredicto.
 3. Entrega a Carlos, corto y claro:
    - qué se va a desplegar (en lenguaje de negocio);
-   - **pasos previos**: respaldo en Railway (Postgres → Backups) si hay cambio de esquema; variables a crear en Railway; configuración en Meta/Stripe si aplica;
+   - **pasos previos**: respaldo con `backend/scripts/respaldo-produccion.ps1` (pg_dump; Railway no tiene Backups activados) si hay cambio de esquema; variables a crear en Railway; configuración en Meta/Stripe si aplica;
    - el comando en su propio bloque: `git push origin main`;
    - qué comprobarás después.
 

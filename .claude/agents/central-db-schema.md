@@ -25,5 +25,5 @@ Lee primero `CLAUDE.md`. Producción (Railway) tiene negocios reales: un error a
 4. **Rollback**: SQL inverso, o explica por qué no lo hay.
 
 ## Entrega
-- Cambios en `initDB`, el `.sql`, la prueba y los pasos para Carlos: **respaldo en Railway (Postgres → Backups) antes del push**, qué ver en los logs tras desplegar y la consulta de comprobación.
+- Cambios en `initDB`, el `.sql`, la prueba y los pasos para Carlos: **respaldo con `backend/scripts/respaldo-produccion.ps1` (pg_dump; Railway no tiene Backups activados) antes del push**, qué ver en los logs tras desplegar y la consulta de comprobación.
 - Prohibido: `DROP TABLE`/`DROP COLUMN` sin plan en dos despliegues; `ALTER … NOT NULL` sin `DEFAULT` o sin comprobar las filas; ejecutar nada contra producción tú mismo. Nunca `git push`.

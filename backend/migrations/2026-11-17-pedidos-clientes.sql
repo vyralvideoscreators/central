@@ -5,7 +5,7 @@
 -- solo corre la primera vez (cuando se crea la columna convo_key). Todo es
 -- idempotente: se puede correr varias veces sin efecto adicional.
 -- Este archivo sirve para revisarlo o aplicarlo a mano ANTES del deploy, después
--- de hacer el respaldo de la base en Railway (Postgres → Backups).
+-- de hacer el respaldo de la base con backend/scripts/respaldo-produccion.ps1 (pg_dump).
 --
 -- Nada de esto borra datos: añade una columna, dos índices y rellena
 -- orders.client_id donde está vacío.

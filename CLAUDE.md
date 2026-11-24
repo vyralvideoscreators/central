@@ -123,7 +123,7 @@ AGENTES.md                            ← Guía de uso de agentes Claude
 
 ### Base de datos
 - Producción está en Railway — usar `railway run` para consultas directas
-- No ejecutar migraciones destructivas sin respaldo previo
+- No ejecutar migraciones destructivas sin respaldo previo. **Railway no tiene Backups activados**: el respaldo lo hace Carlos con `backend/scripts/respaldo-produccion.ps1` (pg_dump de solo lectura → `Desktop\CENTRAL-respaldos\`; incluye las tablas de Kisses, no compartir el archivo)
 - Para cambios de esquema con datos reales: usar el agente `central-db-schema` (migración idempotente en `initDB` + `migrations/*.sql`; rellenos de datos una sola vez)
 
 ### Costos
