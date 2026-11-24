@@ -48,6 +48,9 @@ function loginRateLimit(req, res, next) {
 }
 setInterval(() => { const n = Date.now(); for (const [k, v] of loginAttempts) if (n > v.reset) loginAttempts.delete(k); }, 10 * 60000).unref();
 app.use(['/api/tenant/login', '/api/admin/login'], loginRateLimit);
+// Cambiar contraseña o correo exige la contraseña actual: mismo freno de intentos (solo PUT, para que un GET
+// con éxito no reinicie el contador)
+app.use(['/api/tenant/password', '/api/tenant/profile'], (req, res, next) => (req.method === 'PUT' ? loginRateLimit(req, res, next) : next()));
 
 const PORT             = process.env.PORT || 3000;
 const GRAPH_API_VERSION = 'v21.0';
@@ -1743,6 +1746,32 @@ app.get('/api/tenant/profile', requireAuth, async (req, res) => {
   }
 });
 
+// Cambio de contraseña (no está en DEMO_ALLOWED_ROUTES: las demos no pueden usarla)
+app.put('/api/tenant/password', requireAuth, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  const { currentPassword, newPassword } = req.body || {};
+  if (typeof currentPassword !== 'string' || !currentPassword || typeof newPassword !== 'string') {
+    return res.status(400).json({ error: 'Escribe tu contraseña actual y la nueva' });
+  }
+  if (newPassword.length < 8) return res.status(400).json({ error: 'La contraseña nueva debe tener al menos 8 caracteres' });
+  try {
+    const { rows } = await pool.query('SELECT password_hash FROM tenants WHERE id = $1', [req.tenant.tenantId]);
+    if (!rows[0]) return res.status(404).json({ error: 'Tenant no encontrado' });
+    if (!(await bcrypt.compare(currentPassword, rows[0].password_hash))) {
+      return res.status(401).json({ error: 'La contraseña actual no es correcta' });
+    }
+    if (newPassword === currentPassword) {
+      return res.status(400).json({ error: 'La contraseña nueva debe ser distinta de la actual' });
+    }
+    const hash = await bcrypt.hash(newPassword, 10);
+    await pool.query('UPDATE tenants SET password_hash = $1 WHERE id = $2', [hash, req.tenant.tenantId]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('password change error:', err);
+    res.status(500).json({ error: 'Error al cambiar la contraseña' });
+  }
+});
+
 app.put('/api/tenant/profile', requireAuth, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   const allowed = req.tenant.isDemo
@@ -1764,6 +1793,16 @@ app.put('/api/tenant/profile', requireAuth, async (req, res) => {
   if (sets.length === 0) return res.status(400).json({ error: 'No hay campos válidos para actualizar' });
   values.push(req.tenant.tenantId);
   try {
+    // Cambiar el correo de acceso exige la contraseña actual (los demás campos no)
+    if (allowed.includes('email') && req.body.email !== undefined) {
+      const { rows: cur } = await pool.query('SELECT email, password_hash FROM tenants WHERE id = $1', [req.tenant.tenantId]);
+      if (!cur[0]) return res.status(404).json({ error: 'Tenant no encontrado' });
+      if (normEmail(req.body.email) !== normEmail(cur[0].email)) {
+        const pw = req.body.currentPassword;
+        if (typeof pw !== 'string' || !pw) return res.status(401).json({ error: 'Escribe tu contraseña actual para cambiar el correo' });
+        if (!(await bcrypt.compare(pw, cur[0].password_hash))) return res.status(401).json({ error: 'La contraseña actual no es correcta' });
+      }
+    }
     const { rows } = await pool.query(
       `UPDATE tenants SET ${sets.join(', ')} WHERE id = $${i} RETURNING business_name, full_name, email, country, whatsapp_number`,
       values
