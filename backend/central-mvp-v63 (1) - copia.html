@@ -186,6 +186,12 @@
   .sp-active { background: var(--green-dim); color: var(--green); }
 
   /* CHAT */
+  .chat-empty { display: none; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 32px; text-align: center; }
+  .chat-panel.is-empty > .chat-empty { display: flex; }
+  .chat-panel.is-empty > :not(.chat-empty) { display: none !important; }
+  .chat-empty-icon { width: 56px; height: 56px; border-radius: 16px; background: var(--surface3); display: flex; align-items: center; justify-content: center; font-size: 24px; }
+  .chat-empty-title { font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 700; color: var(--text2); }
+  .chat-empty-sub { font-size: 12.5px; color: var(--text3); line-height: 1.6; max-width: 320px; }
   .chat-panel { flex: 1; display: flex; flex-direction: column; background: var(--bg); min-width: 0; }
   .chat-header {
     padding: 14px 22px; border-bottom: 1px solid var(--border);
@@ -1893,6 +1899,10 @@
   .txn-scroll::-webkit-scrollbar-track { background: transparent; }
   .txn-scroll::-webkit-scrollbar-thumb { background: var(--surface3); border-radius: 4px; }
   .txn-scroll::-webkit-scrollbar-thumb:hover { background: var(--text3); }
+  .pag-wip { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 32px; text-align: center; }
+  .pag-wip-icon { width: 60px; height: 60px; border-radius: 18px; background: var(--surface3); display: flex; align-items: center; justify-content: center; font-size: 26px; }
+  .pag-wip-title { font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 800; }
+  .pag-wip-sub { font-size: 13px; color: var(--text2); line-height: 1.6; max-width: 420px; }
   .pag-kpi-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; }
   .pag-kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; position: relative; overflow: hidden; }
   .pag-kpi-accent { border-left: 3px solid var(--green); }
@@ -2174,137 +2184,25 @@
         </div>
         <div class="convo-list" id="convoList">
 
-          <div class="convo-item active" data-platform="wa" data-convo="maria" data-ts="1000000" onclick="selectConvo(this,'maria')">
-            <div class="convo-row1">
-              <span class="platform-dot wa"></span>
-              <span class="convo-name">María Fernández</span>
-              <span class="convo-time">10:42</span>
-            </div>
-            <div class="convo-preview">
-              <span class="unread-dot"></span>
-              Sí quiero el azul talla M, ¿cuánto es el envío?
-              <span class="status-pill sp-new" style="margin-left:auto">Nuevo</span>
-            </div>
-          </div>
-
-          <div class="convo-item" data-platform="ig" data-convo="carlos" data-ts="999940" onclick="selectConvo(this,'carlos')">
-            <div class="convo-row1">
-              <span class="platform-dot ig"></span>
-              <span class="convo-name">Carlos Mendoza</span>
-              <span class="convo-time">09:18</span>
-            </div>
-            <div class="convo-preview">
-              Hola! Vi tu historia, ¿tienen el bolso disponible?
-              <span class="status-pill sp-pending" style="margin-left:auto">Pendiente</span>
-            </div>
-          </div>
-
-          <div class="convo-item" data-platform="wa" data-convo="luisa" data-ts="999880" onclick="selectConvo(this,'luisa')">
-            <div class="convo-row1">
-              <span class="platform-dot wa"></span>
-              <span class="convo-name">Luisa Martínez</span>
-              <span class="convo-time">08:55</span>
-            </div>
-            <div class="convo-preview">
-              Ya hice el pago móvil, te mando el comprobante
-              <span class="status-pill sp-active" style="margin-left:auto">Activo</span>
-            </div>
-          </div>
-
-          <div class="convo-item" data-platform="ig" data-convo="valentina" data-ts="998560" onclick="selectConvo(this,'valentina')">
-            <div class="convo-row1">
-              <span class="platform-dot ig"></span>
-              <span class="convo-name">Valentina Torres</span>
-              <span class="convo-time">Ayer</span>
-            </div>
-            <div class="convo-preview">
-              ¿Tienen ese vestido en talla S también?
-            </div>
-          </div>
-
-          <div class="convo-item" data-platform="wa" data-convo="ana" data-ts="998500" onclick="selectConvo(this,'ana')">
-            <div class="convo-row1">
-              <span class="platform-dot wa"></span>
-              <span class="convo-name">Ana Rodríguez</span>
-              <span class="convo-time">Ayer</span>
-            </div>
-            <div class="convo-preview">
-              Perfecto! Entonces coordino con el motorizado
-            </div>
-          </div>
-
-          <div class="convo-item" data-platform="ig" data-convo="pedro" data-ts="995000" onclick="selectConvo(this,'pedro')">
-            <div class="convo-row1">
-              <span class="platform-dot ig"></span>
-              <span class="convo-name">Pedro Gutiérrez</span>
-              <span class="convo-time">Lun</span>
-            </div>
-            <div class="convo-preview">
-              ¿El precio es en dólares o bolívares?
-            </div>
-          </div>
-
-          <div class="convo-item" data-platform="wa" data-convo="roberto" data-ts="994940" onclick="selectConvo(this,'roberto')">
-            <div class="convo-row1">
-              <span class="platform-dot wa"></span>
-              <span class="convo-name">Roberto Silva</span>
-              <span class="convo-time">Lun</span>
-            </div>
-            <div class="convo-preview">
-              Necesito 3 unidades, ¿tienen descuento?
-            </div>
-          </div>
-
-          <div class="convo-item" data-platform="ig" data-convo="gabriela" data-ts="994880" onclick="selectConvo(this,'gabriela')">
-            <div class="convo-row1">
-              <span class="platform-dot ig"></span>
-              <span class="convo-name">Gabriela Mora</span>
-              <span class="convo-time">Lun</span>
-            </div>
-            <div class="convo-preview">
-              <span class="unread-dot"></span>
-              ¿Tienen talla XL del vestido negro? 🖤
-              <span class="status-pill sp-new" style="margin-left:auto">Nuevo</span>
-            </div>
-          </div>
-
-          <div class="convo-item" data-platform="wa" data-convo="miguel" data-ts="994220" onclick="selectConvo(this,'miguel')">
-            <div class="convo-row1">
-              <span class="platform-dot wa"></span>
-              <span class="convo-name">Miguel Ángel Ruiz</span>
-              <span class="convo-time">Dom</span>
-            </div>
-            <div class="convo-preview">
-              Ok perfecto, ¿cuándo llega el motorizado?
-              <span class="status-pill sp-pending" style="margin-left:auto">Pendiente</span>
-            </div>
-          </div>
-
-          <div class="convo-item" data-platform="ig" data-convo="isabella" data-ts="994160" onclick="selectConvo(this,'isabella')">
-            <div class="convo-row1">
-              <span class="platform-dot ig"></span>
-              <span class="convo-name">Isabella Pérez</span>
-              <span class="convo-time">Dom</span>
-            </div>
-            <div class="convo-preview">
-              Vi el bolso en tu historia, ¿tienen en color camel?
-            </div>
-          </div>
-
         </div>
       </div>
 
       <!-- CENTER: chat -->
-      <div class="chat-panel">
+      <div class="chat-panel is-empty" id="chatPanel">
+        <div class="chat-empty" id="chatEmpty">
+          <div class="chat-empty-icon">💬</div>
+          <div class="chat-empty-title">Aún no hay conversaciones</div>
+          <div class="chat-empty-sub">Cuando un cliente te escriba por WhatsApp o Instagram, su chat aparecerá aquí y podrás responder y crear pedidos.</div>
+        </div>
         <div class="chat-header" id="chatHeader">
-          <div class="chat-avatar" id="chatAvatar" style="background:linear-gradient(135deg,#f093fb,#f5576c)">MF</div>
+          <div class="chat-avatar" id="chatAvatar"></div>
           <div class="chat-info">
-            <div class="chat-name" id="chatName">María Fernández</div>
+            <div class="chat-name" id="chatName"></div>
             <div class="chat-meta">
               <span class="platform-tag pt-wa" id="chatPlatformTag">
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg> WhatsApp
               </span>
-              <span id="chatOnline">En línea hace 2 min</span>
+              <span id="chatOnline"></span>
             </div>
           </div>
           <div class="chat-actions">
@@ -2714,50 +2612,19 @@
 
     <!-- ══════ PAGOS VIEW ══════ -->
     <div class="view" id="v-pagos" style="flex-direction:column;">
-
       <div class="pag-header">
         <div>
           <div class="pag-title">Pagos</div>
-          <div style="font-size:12px;color:var(--text2);margin-top:2px;">Validación automática · Conciliación en tiempo real</div>
-        </div>
-        <div style="flex:1"></div>
-        <span class="pag-badge"><span style="width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block;animation:pulse-y 1.4s infinite;"></span>Sistema activo</span>
-        <button class="btn-ghost" style="margin-left:8px;" onclick="openPagModal('cobro')">
-          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:13px;height:13px"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-          Nueva cuenta
-        </button>
-        <button class="btn-primary" onclick="openPagModal('simular')" style="margin-left:8px;">
-          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:13px;height:13px"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z"/></svg>
-          Simular pago
-        </button>
-      </div>
-
-      <!-- Tabs -->
-      <div class="pag-tabs">
-        <div class="pag-tab active" id="ptab-dashboard" onclick="switchPagTab('dashboard',this)">
-          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/></svg>
-          Panel de control
-        </div>
-        <div class="pag-tab" id="ptab-validacion" onclick="switchPagTab('validacion',this)">
-          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/></svg>
-          Flujo de validación
-        </div>
-        <div class="pag-tab" id="ptab-cuentas" onclick="switchPagTab('cuentas',this)">
-          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z"/></svg>
-          Métodos de cobro
-        </div>
-        <div class="pag-tab" id="ptab-transacciones" onclick="switchPagTab('transacciones',this)">
-          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/></svg>
-          Transacciones
-        </div>
-        <div class="pag-tab" id="ptab-config" onclick="switchPagTab('config',this)">
-          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-          Configuración
+          <div style="font-size:12px;color:var(--text2);margin-top:2px;">Registro de cobros y abonos</div>
         </div>
       </div>
-
-      <div class="pag-body" id="pagBody"></div>
-
+      <div class="pag-wip">
+        <div class="pag-wip-icon">🚧</div>
+        <div class="pag-wip-title">En construcción</div>
+        <div class="pag-wip-sub">Aquí llevarás el registro de los cobros y abonos de tus pedidos: quién pagó, cuánto y cuánto falta por cobrar. Estará disponible pronto.</div>
+        <div class="pag-wip-sub">Mientras tanto, marca cada pedido como cobrado o pendiente desde la vista Pedidos.</div>
+        <button class="btn-primary" onclick="goView('pedidos')">Ir a Pedidos</button>
+      </div>
     </div>
     <!-- / PAGOS VIEW -->
 
@@ -2779,7 +2646,6 @@
           <div class="ssn-item" onclick="switchSettings('canales',this)">
             <div class="ssn-item-icon"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z"/></svg></div>
             <span data-i18n="set_canales">Canales conectados</span>
-            <span class="ssn-badge">2</span>
           </div>
           <div class="ssn-item" onclick="switchSettings('pagos',this)">
             <div class="ssn-item-icon"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z"/></svg></div>
@@ -2801,10 +2667,6 @@
           </div>
 
           <div class="ssn-group-label" style="margin-top:8px;" data-i18n="set_g_cuenta">Cuenta</div>
-          <div class="ssn-item" onclick="switchSettings('equipo',this)">
-            <div class="ssn-item-icon"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z"/></svg></div>
-            <span data-i18n="set_equipo">Mi equipo</span>
-          </div>
           <div class="ssn-item" onclick="switchSettings('seguridad',this)">
             <div class="ssn-item-icon"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/></svg></div>
             <span data-i18n="set_seguridad">Seguridad y acceso</span>
@@ -3503,31 +3365,6 @@
 
 <!-- ORDER DETAIL MODAL -->
 <!-- MODAL INVITAR / EDITAR MIEMBRO DEL EQUIPO -->
-<div class="team-modal-overlay" id="teamModalOverlay" style="display:none" onclick="if(event.target===this)closeTeamModal()">
-  <div class="team-modal">
-    <div class="team-modal-title" id="teamModalTitle">Invitar nuevo miembro</div>
-    <div class="team-modal-field">
-      <label>Nombre completo</label>
-      <input class="s-input" id="teamModalName" placeholder="Ej: Carlos Pérez" style="width:100%">
-    </div>
-    <div class="team-modal-field">
-      <label>Correo electrónico</label>
-      <input class="s-input" id="teamModalEmail" type="email" placeholder="Ej: carlos@mitienda.com" style="width:100%">
-    </div>
-    <div class="team-modal-field">
-      <label>Rol</label>
-      <select id="teamModalRole">
-        <option value="Administrador">Administrador</option>
-        <option value="Vendedor" selected>Vendedor</option>
-      </select>
-    </div>
-    <div id="teamModalError" style="font-size:11px;color:var(--red);min-height:16px;margin-bottom:8px;"></div>
-    <div style="display:flex;justify-content:flex-end;gap:8px;">
-      <button class="s-btn-sm" onclick="closeTeamModal()">Cancelar</button>
-      <button class="s-btn-sm s-btn-accent" onclick="saveTeamMember()">Guardar</button>
-    </div>
-  </div>
-</div>
 <!-- MODAL EDICIÓN RESPUESTA RÁPIDA -->
 <div class="qr-modal-overlay" id="qrModalOverlay" onclick="if(event.target===this)closeQrModal()">
   <div class="qr-modal">
@@ -3860,147 +3697,7 @@ document.addEventListener('DOMContentLoaded', verifySessionAndApplyTenant);
 
 
 
-// ─── CONVERSATIONS DATA ───────────────────────────────────────
-const convos = {
-  maria: {
-    name: 'María Fernández', initials: 'MF', platform: 'wa',
-    avatarGrad: 'linear-gradient(135deg,#f093fb,#f5576c)',
-    online: 'En línea hace 2 min',
-    orderNum: '#0047', orderProd: '👟', orderProdName: 'Zapatilla Runner Pro', orderProdDetail: 'Azul · Talla M · x1', orderPrice: '$45',
-    messages: [
-      { role:'in', type:'text', text:'Hola! Vi que tienen zapatillas deportivas 👟', time:'10:30 am' },
-      { role:'out', type:'text', text:'Hola María! Sí claro, ¿qué talla y color buscas? 😊', time:'10:31 am' },
-      { role:'in', type:'product', emoji:'👟', pname:'Zapatilla Runner Pro', pprice:'$45 USD', time:'10:35 am' },
-      { role:'in', type:'text', text:'¿Tienen ésta? La vi en tu Instagram. Quiero la azul talla M 💙', time:'10:38 am' },
-      { role:'out', type:'text', text:'Sí! Tenemos la azul talla M disponible. Son $45 + envío según tu zona 🚀', time:'10:40 am' },
-      { role:'in', type:'text', text:'Sí quiero el azul talla M, ¿cuánto es el envío a Las Mercedes?', time:'10:42 am · Ahora' },
-    ],
-    quickReplies: ['¿Cuál es tu dirección? 📍','¿Pago móvil o Zelle? 💳','Confirmo disponibilidad ✅']
-  },
-  carlos: {
-    name: 'Carlos Mendoza', initials: 'CM', platform: 'ig',
-    avatarGrad: 'linear-gradient(135deg,#E1306C,#fd1d1d)',
-    online: 'Instagram · Visto hace 10 min',
-    orderNum: '#0051', orderProd: '👜', orderProdName: 'Bolso Cuero Marrón', orderProdDetail: 'Café · Talla única · x1', orderPrice: '$65',
-    messages: [
-      { role:'in', type:'text', text:'Hola! Vi tu historia, ¿tienen el bolso disponible?', time:'09:10 am' },
-      { role:'out', type:'text', text:'¡Hola Carlos! Sí, el bolso está disponible 😊 ¿Cuál modelo te interesa?', time:'09:12 am' },
-      { role:'in', type:'product', emoji:'👜', pname:'Bolso Cuero Marrón', pprice:'$65 USD', time:'09:14 am' },
-      { role:'in', type:'text', text:'Ese mismo! ¿Lo envían a Maracay?', time:'09:18 am · Ahora' },
-    ],
-    quickReplies: ['Sí enviamos a Maracay por encomienda 📦','El envío es $5 adicional','¿Cómo prefieres pagar? 💳','¿Cuándo lo necesitas?']
-  },
-  luisa: {
-    name: 'Luisa Martínez', initials: 'LM', platform: 'wa',
-    avatarGrad: 'linear-gradient(135deg,#43e97b,#38f9d7)',
-    online: 'En línea',
-    orderNum: '#0049', orderProd: '👗', orderProdName: 'Vestido Floral Rojo', orderProdDetail: 'Rojo · Talla S · x1', orderPrice: '$38',
-    messages: [
-      { role:'in', type:'text', text:'Buenos días! Quiero el vestido floral rojo talla S', time:'08:30 am' },
-      { role:'out', type:'text', text:'Buenos días Luisa! Sí lo tenemos ✅ ¿A qué dirección lo enviamos?', time:'08:32 am' },
-      { role:'in', type:'text', text:'Av. Libertador, Caracas. Piso 3 apto 3B', time:'08:35 am' },
-      { role:'out', type:'text', text:'Perfecto! El total es $38 + $3 envío = $41. ¿Cómo prefieres pagar?', time:'08:37 am' },
-      { role:'in', type:'text', text:'Ya hice el pago móvil, te mando el comprobante 📲', time:'08:55 am · Ahora' },
-    ],
-    quickReplies: ['Comprobante recibido ✅','Confirmado! Preparando tu pedido','¿Envío hoy o mañana?','Gracias! Te aviso cuando salga 🚀']
-  },
-  valentina: {
-    name: 'Valentina Torres', initials: 'VT', platform: 'ig',
-    avatarGrad: 'linear-gradient(135deg,#a18cd1,#fbc2eb)',
-    online: 'Instagram · Ayer',
-    orderNum: '#0052', orderProd: '👗', orderProdName: 'Vestido Casual', orderProdDetail: 'Verde · Talla S · x1', orderPrice: '$42',
-    messages: [
-      { role:'in', type:'text', text:'Hola, vi el vestido verde en tu perfil 💚 Me encantó', time:'Ayer 3:10 pm' },
-      { role:'out', type:'text', text:'¡Hola Valentina! ¿Cuál es tu talla? Lo tenemos en S, M y L 😊', time:'Ayer 3:15 pm' },
-      { role:'in', type:'text', text:'¿Tienen ese vestido en talla S también?', time:'Ayer 3:20 pm · Últ. mensaje' },
-    ],
-    quickReplies: ['Sí! Talla S disponible ✅','¿De qué color lo prefieres?','¿Te lo enviamos o recoges?','El precio es $42 💚']
-  },
-  ana: {
-    name: 'Ana Rodríguez', initials: 'AR', platform: 'wa',
-    avatarGrad: 'linear-gradient(135deg,#f7971e,#ffd200)',
-    online: 'WhatsApp · Ayer',
-    orderNum: '#0045', orderProd: '👖', orderProdName: 'Jean Skinny Negro', orderProdDetail: 'Negro · Talla M · x1', orderPrice: '$28',
-    messages: [
-      { role:'in', type:'text', text:'Hola! Quiero el jean negro skinny talla M', time:'Ayer 10:00 am' },
-      { role:'out', type:'text', text:'Hola Ana! Disponible ✅ Son $28. ¿Cómo lo pagas?', time:'Ayer 10:05 am' },
-      { role:'in', type:'text', text:'Por Binance. ¿Cuál es la wallet?', time:'Ayer 10:10 am' },
-      { role:'out', type:'text', text:'Te envío la dirección Binance por aquí 👇', time:'Ayer 10:12 am' },
-      { role:'in', type:'text', text:'Perfecto! Entonces coordino con el motorizado para la entrega 🏍️', time:'Ayer 10:20 am · Últ. mensaje' },
-    ],
-    quickReplies: ['Motorizado sale mañana 🏍️','¿A qué hora estás en casa?','Número de seguimiento: MOT-224','Pedido en camino! ✅']
-  },
-  pedro: {
-    name: 'Pedro Gutiérrez', initials: 'PG', platform: 'ig',
-    avatarGrad: 'linear-gradient(135deg,#4facfe,#00f2fe)',
-    online: 'Instagram · Lunes',
-    orderNum: '#0050', orderProd: '👔', orderProdName: 'Camisa Lino Blanca', orderProdDetail: 'Blanca · Talla L · x2', orderPrice: '$50',
-    messages: [
-      { role:'in', type:'text', text:'Hola! Vi la camisa de lino en tu historia de IG', time:'Lun 2:00 pm' },
-      { role:'out', type:'text', text:'¡Hola Pedro! Sí, tenemos la camisa de lino en varios colores 😊', time:'Lun 2:05 pm' },
-      { role:'in', type:'text', text:'¿El precio es en dólares o bolívares?', time:'Lun 2:10 pm · Últ. mensaje' },
-    ],
-    quickReplies: ['Manejamos en dólares 💵','$25 c/u · 2 x $45','¿Qué talla necesitas?','¿Pago en bolívares a la tasa del día?']
-  },
-  roberto: {
-    name: 'Roberto Silva', initials: 'RS', platform: 'wa',
-    avatarGrad: 'linear-gradient(135deg,#30cfd0,#330867)',
-    online: 'WhatsApp · Lunes',
-    orderNum: '#0046', orderProd: '👟', orderProdName: 'Sneaker Classic', orderProdDetail: 'Blanco · Tallas 40-42 · x3', orderPrice: '$120',
-    messages: [
-      { role:'in', type:'text', text:'Buenas! Quiero 3 pares de las sneakers clásicas para mi familia', time:'Lun 9:00 am' },
-      { role:'out', type:'text', text:'¡Hola Roberto! Claro, ¿qué tallas necesitas?', time:'Lun 9:10 am' },
-      { role:'in', type:'text', text:'Tallas 40, 41 y 42. ¿Tienen las tres?', time:'Lun 9:15 am' },
-      { role:'out', type:'text', text:'Sí las tres disponibles! Son $40 c/u = $120 total 🙌', time:'Lun 9:20 am' },
-      { role:'in', type:'text', text:'Necesito 3 unidades, ¿tienen descuento al mayor?', time:'Lun 9:25 am · Últ. mensaje' },
-    ],
-    quickReplies: ['Sí! Con 3 pares tienes $5 de descuento 🎉','Total con descuento: $115','¿Zelle o Pago móvil?','¿Envío o recoges?']
-  },
-  gabriela: {
-    name: 'Gabriela Mora', initials: 'GM', platform: 'ig',
-    avatarGrad: 'linear-gradient(135deg,#f953c6,#b91d73)',
-    online: 'Instagram · Hace 5 min',
-    orderNum: '#0053', orderProd: '👗', orderProdName: 'Vestido Negro XL', orderProdDetail: 'Negro · Talla XL · x1', orderPrice: '$44',
-    messages: [
-      { role:'in', type:'text', text:'Hola! Vi tu perfil y me encantaron los vestidos 😍', time:'Lun 4:00 pm' },
-      { role:'out', type:'text', text:'¡Hola Gabriela! Gracias, ¿cuál te llamó la atención?', time:'Lun 4:03 pm' },
-      { role:'in', type:'product', emoji:'👗', pname:'Vestido Negro Elegante', pprice:'$44 USD', time:'Lun 4:05 pm' },
-      { role:'in', type:'text', text:'¿Tienen talla XL del vestido negro? 🖤', time:'Lun 4:06 pm · Ahora' },
-    ],
-    quickReplies: ['Sí! Talla XL disponible ✅','¿Te lo enviamos o recoges?','¿Cuál es tu ciudad? 📍','Total con envío: $47 💳']
-  },
-  miguel: {
-    name: 'Miguel Ángel Ruiz', initials: 'MR', platform: 'wa',
-    avatarGrad: 'linear-gradient(135deg,#11998e,#38ef7d)',
-    online: 'WhatsApp · Domingo',
-    orderNum: '#0053', orderProd: '👔', orderProdName: 'Camisa Cuadros', orderProdDetail: 'Azul · Talla L · x1', orderPrice: '$32',
-    messages: [
-      { role:'in', type:'text', text:'Buenos días, quiero la camisa de cuadros azul talla L', time:'Dom 11:00 am' },
-      { role:'out', type:'text', text:'¡Buenos días Miguel! Sí la tenemos 😊 Son $32 + $3 envío', time:'Dom 11:05 am' },
-      { role:'in', type:'text', text:'Perfecto, le envío el Zelle ahora', time:'Dom 11:10 am' },
-      { role:'out', type:'text', text:'¡Listo! En cuanto confirme el pago coordino el motorizado 🏍️', time:'Dom 11:12 am' },
-      { role:'in', type:'text', text:'Ok perfecto, ¿cuándo llega el motorizado?', time:'Dom 11:20 am · Últ. mensaje' },
-    ],
-    quickReplies: ['El motorizado sale hoy entre 2-5pm 🏍️','Te avisamos 30 min antes de llegar','¿Confirmas la dirección? 📍','Pago recibido ✅ Preparando pedido']
-  },
-  isabella: {
-    name: 'Isabella Pérez', initials: 'IP', platform: 'ig',
-    avatarGrad: 'linear-gradient(135deg,#fddb92,#d1fdff)',
-    online: 'Instagram · Domingo',
-    orderNum: '#0054', orderProd: '👜', orderProdName: 'Bolso Camel', orderProdDetail: 'Camel · Talla única · x1', orderPrice: '$58',
-    messages: [
-      { role:'in', type:'text', text:'Hola! Vi el bolso en tu historia 😍 ¿Tienen en color camel?', time:'Dom 3:15 pm · Últ. mensaje' },
-    ],
-    quickReplies: ['Sí! Tenemos en camel ✅','¿Lo quieres con cadena o sin?','El precio es $58 USD 💛','¿Te enviamos fotos del bolso?']
-  }
-};
-
-// Timestamps de orden inicial para cada convo demo (mayor = más reciente)
-{ const map = { maria:1000000, carlos:999940, luisa:999880, valentina:998560, ana:998500, pedro:995000, roberto:994940, gabriela:994880, miguel:994220, isabella:994160 }; Object.entries(map).forEach(([k,ts]) => { if (convos[k]) convos[k].ts = ts; }); }
-
-// Claves de las conversaciones de ejemplo — se eliminan en cuanto llegan datos reales del backend
-const DEMO_CONVO_KEYS = ['maria','carlos','luisa','valentina','ana','pedro','roberto','gabriela','miguel','isabella'];
-if (window.__DEMO_MODE__) DEMO_CONVO_KEYS.forEach(k => { delete convos[k]; });
+const convos = {};  // solo conversaciones reales (llegan de /api/conversations)
 
 // ─── PERSISTENCIA DE CONVERSACIONES REALES ───────────────────
 function saveRealConvos() {
@@ -4086,7 +3783,7 @@ let orders = [];
 const orderRealIds = {};
 
 let currentFilter = 'all';
-let currentConvo = 'maria';
+let currentConvo = null;
 
 // ─── VIEWS ────────────────────────────────────────────────────
 function goView(v) {
@@ -4099,7 +3796,7 @@ function goView(v) {
   if (v === 'ajustes')  { document.getElementById('nav-ajustes').classList.add('active'); switchSettings('perfil', document.querySelector('.ssn-item')); }
   if (v === 'clientes') { document.getElementById('nav-clientes').classList.add('active'); renderClients(); }
   if (v === 'informes') { document.getElementById('nav-informes').classList.add('active'); renderInforme('ventas'); }
-  if (v === 'pagos')    { document.getElementById('nav-pagos').classList.add('active'); renderPagTab('dashboard'); }
+  if (v === 'pagos')    { document.getElementById('nav-pagos').classList.add('active'); }
 }
 
 // ─── CONVERSATIONS ────────────────────────────────────────────
@@ -4233,6 +3930,7 @@ function loadChat(key) {
   const prevConvo = currentConvo;
   currentConvo = key;
   const c = convos[key];
+  document.getElementById('chatPanel').classList.remove('is-empty');
   // header
   document.getElementById('chatName').textContent = c.name;
   document.getElementById('chatOnline').textContent = c.online;
@@ -7242,28 +6940,8 @@ const settingsPanels = {
       </div>
     </div>
 
-    <div class="s-card">
-      <div class="s-card-title">
-        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.562.562 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z"/></svg>
-        Mensaje de bienvenida
-      </div>
-      <div class="s-row">
-        <div class="s-row-icon" style="background:var(--surface3)">👋</div>
-        <div class="s-row-info">
-          <div class="s-row-label">Saludo automático</div>
-          <div class="s-row-desc">Se envía cuando un cliente escribe por primera vez</div>
-        </div>
-        <div class="s-row-action">
-          <div class="s-toggle on" onclick="this.classList.toggle('on')"></div>
-        </div>
-      </div>
-      <div style="padding:12px 20px 16px;">
-        <textarea class="s-input" id="s-input-welcome" style="width:100%;resize:none;height:70px;">${businessProfile.welcome}</textarea>
-      </div>
-    </div>
-
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px;">
-      <button class="btn-ghost">Cancelar</button>
+      <button class="btn-ghost" onclick="switchSettings('perfil', document.querySelector('.ssn-item.active'))">Cancelar</button>
       <button class="btn-primary" onclick="saveProfileSettings()">
         <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="width:13px;height:13px"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
         Guardar cambios
@@ -7413,26 +7091,6 @@ const settingsPanels = {
         </div>
       `).join('')}
     </div>
-
-    <div class="s-card">
-      <div class="s-card-title">⚙️ Preferencias</div>
-      <div class="s-row">
-        <div class="s-row-icon" style="background:var(--surface3)">🧾</div>
-        <div class="s-row-info">
-          <div class="s-row-label">Pedir comprobante siempre</div>
-          <div class="s-row-desc">Solicitar captura de pago en cada pedido</div>
-        </div>
-        <div class="s-row-action"><div class="s-toggle on" onclick="this.classList.toggle('on')"></div></div>
-      </div>
-      <div class="s-row">
-        <div class="s-row-icon" style="background:var(--surface3)">📊</div>
-        <div class="s-row-info">
-          <div class="s-row-label">Tasa de cambio automática</div>
-          <div class="s-row-desc">Actualizar tasa BCV diariamente</div>
-        </div>
-        <div class="s-row-action"><div class="s-toggle" onclick="this.classList.toggle('on')"></div></div>
-      </div>
-    </div>
   `; },
 
   entrega: () => {
@@ -7476,34 +7134,6 @@ const settingsPanels = {
         </div>` : ''}
         `;
       }).join('')}
-    </div>
-
-    <div class="s-card">
-      <div class="s-card-title">⚙️ Configuración de zonas</div>
-      <div class="s-row">
-        <div class="s-row-icon" style="background:var(--surface3)">📍</div>
-        <div class="s-row-info">
-          <div class="s-row-label">Zonas de cobertura</div>
-          <div class="s-row-desc">Caracas, Miranda, La Guaira</div>
-        </div>
-        <div class="s-row-action"><button class="btn-ghost" style="font-size:11px;">Editar zonas</button></div>
-      </div>
-      <div class="s-row">
-        <div class="s-row-icon" style="background:var(--surface3)">💰</div>
-        <div class="s-row-info">
-          <div class="s-row-label">Costo base de envío</div>
-          <div class="s-row-desc">Precio inicial para envíos locales</div>
-        </div>
-        <div class="s-row-action"><input class="s-input" value="$3.00 USD" type="text" style="min-width:120px;"></div>
-      </div>
-      <div class="s-row">
-        <div class="s-row-icon" style="background:var(--surface3)">🆓</div>
-        <div class="s-row-info">
-          <div class="s-row-label">Envío gratis desde</div>
-          <div class="s-row-desc">Monto mínimo para envío sin costo</div>
-        </div>
-        <div class="s-row-action"><input class="s-input" value="$50.00 USD" type="text" style="min-width:120px;"></div>
-      </div>
     </div>
   `; },
 
@@ -7554,70 +7184,6 @@ const settingsPanels = {
     </div>
   `; },
 
-  equipo: () => {
-    const team = _getTeam();
-    const total = team.length;
-    const admins = team.filter(m => m.role === 'Administrador').length;
-    const vendedores = team.filter(m => m.role === 'Vendedor').length;
-    const canAdd = total < 5;
-
-    const GRADS = [
-      'linear-gradient(135deg,#6c63ff,#a855f7)',
-      'linear-gradient(135deg,#f093fb,#f5576c)',
-      'linear-gradient(135deg,#43e97b,#38f9d7)',
-      'linear-gradient(135deg,#fa8231,#f7b731)',
-      'linear-gradient(135deg,#0652DD,#1289A7)',
-    ];
-
-    const roleBadgeClass = r => r === 'Propietario' ? 'owner' : r === 'Administrador' ? 'admin' : 'vendedor';
-
-    return `
-    <div class="sc-title">Mi equipo</div>
-    <div class="sc-sub">Personas que tienen acceso a CENTRAL</div>
-
-    <div class="s-card">
-      <div class="s-card-title" style="display:flex;align-items:center;justify-content:space-between;">
-        <span>👥 Miembros activos</span>
-        <span style="font-size:11px;font-weight:400;color:var(--text3)">${total}/5 miembros · ${admins}/2 admin · ${vendedores}/3 vendedores</span>
-      </div>
-
-      <div class="team-slots">
-        ${Array.from({length:5}, (_,i) => {
-          const m = team[i];
-          if (!m) return `<div class="team-slot" title="Slot disponible">+</div>`;
-          if (m.isOwner) return `<div class="team-slot owner" title="${escHtml(m.name)}">${escHtml(m.initials)}</div>`;
-          return `<div class="team-slot filled" style="background:${GRADS[i]||GRADS[1]}" title="${escHtml(m.name)}">${escHtml(m.initials)}</div>`;
-        }).join('')}
-        <span style="font-size:11px;color:var(--text3);margin-left:4px;">${5-total} slot${5-total!==1?'s':''} disponible${5-total!==1?'s':''}</span>
-      </div>
-
-      ${team.map((m, i) => `
-        <div class="s-row" style="flex-wrap:wrap;" id="teamRow_${m.id}">
-          <div class="team-av" style="background:${m.isOwner ? GRADS[0] : GRADS[i]||GRADS[1]}">${escHtml(m.initials)}</div>
-          <div class="s-row-info">
-            <div class="s-row-label" style="display:flex;align-items:center;gap:7px;">
-              ${escHtml(m.name)}
-              <span class="role-badge ${roleBadgeClass(m.role)}">${m.role}</span>
-            </div>
-            <div class="s-row-desc">${escHtml(m.email)}</div>
-          </div>
-          <div class="s-row-action" style="display:flex;gap:7px;">
-            ${m.isOwner
-              ? `<span style="font-size:11px;color:var(--text3);">Tú</span>`
-              : `<button class="btn-ghost" style="font-size:11px;" onclick="openTeamModal('${m.id}')">Editar</button>
-                 <button class="btn-ghost" style="font-size:11px;color:var(--red);" onclick="deleteTeamMember('${m.id}')">Eliminar</button>`
-            }
-          </div>
-        </div>
-      `).join('')}
-    </div>
-
-    <button class="btn-primary" style="font-size:13px;${canAdd ? '' : 'opacity:.5;cursor:not-allowed;'}" onclick="${canAdd ? "openTeamModal(null)" : "showToast('Límite de 5 miembros alcanzado')"}">
-      <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="width:13px;height:13px"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-      Invitar nuevo miembro
-    </button>
-  `; },
-
   seguridad: () => `
     <div class="sc-title">${T('seg_title')}</div>
     <div class="sc-sub">${T('seg_sub')}</div>
@@ -7659,42 +7225,8 @@ const settingsPanels = {
           <div class="s-row-label">${T('seg_pass_label')}</div>
           <div class="s-row-desc">${T('seg_pass_desc')}</div>
         </div>
-        <div class="s-row-action"><button class="btn-ghost" style="font-size:11px;" onclick="showToast('Enlace de cambio enviado a tu correo')">${T('seg_pass_btn')}</button></div>
+        <div class="s-row-action"><button class="btn-ghost" style="font-size:11px;" onclick="openChangePassword()">${T('seg_pass_btn')}</button></div>
       </div>
-      <div class="s-row">
-        <div class="s-row-icon" style="background:var(--surface3)">📲</div>
-        <div class="s-row-info">
-          <div class="s-row-label">${T('seg_2fa_label')}</div>
-          <div class="s-row-desc">${T('seg_2fa_desc')}</div>
-        </div>
-        <div class="s-row-action"><div class="s-toggle on" onclick="this.classList.toggle('on');showToast('2FA actualizado')"></div></div>
-      </div>
-      <div class="s-row">
-        <div class="s-row-icon" style="background:var(--surface3)">📧</div>
-        <div class="s-row-info">
-          <div class="s-row-label">${T('seg_email_label')}</div>
-          <div class="s-row-desc">tienda@ejemplo.com</div>
-        </div>
-        <div class="s-row-action"><button class="btn-ghost" style="font-size:11px;">${T('seg_email_btn')}</button></div>
-      </div>
-    </div>
-
-    <div class="s-card">
-      <div class="s-card-title">${T('seg_sessions_card')}</div>
-      ${[
-        {device:'Chrome · Windows 11', loc:'Caracas, Venezuela', time:'Ahora mismo', current:true},
-        {device:'Safari · iPhone 14', loc:'Caracas, Venezuela', time:'Hace 2h'},
-        {device:'Chrome · Android', loc:'Miranda, Venezuela', time:'Ayer'},
-      ].map(s => `
-        <div class="s-row">
-          <div class="s-row-icon" style="background:${s.current ? 'var(--green-dim)' : 'var(--surface3)'}">${s.current ? '🟢' : '💻'}</div>
-          <div class="s-row-info">
-            <div class="s-row-label">${s.device} ${s.current ? `<span style="font-size:10px;color:var(--green);font-weight:700;margin-left:6px;">${T('seg_session_current')}</span>` : ''}</div>
-            <div class="s-row-desc">${s.loc} · ${s.time}</div>
-          </div>
-          ${!s.current ? `<div class="s-row-action"><button class="btn-ghost" style="font-size:11px;color:var(--red);" onclick="showToast('Sesión cerrada correctamente')">${T('seg_session_close')}</button></div>` : ''}
-        </div>
-      `).join('')}
     </div>
   `,
 
@@ -9101,565 +8633,6 @@ async function downloadExcel() {
   showToast('Informe descargado como CSV ✓');
 }
 
-// ══════════════════════════════════════════════════
-//  MÓDULO DE PAGOS
-// ══════════════════════════════════════════════════
-
-// ─── DATA ─────────────────────────────────────────
-let cuentasCobro = [];
-
-let transacciones = [];
-
-let pagTab = 'dashboard';
-let selectedBanco = '';
-let simStep = 0;
-let simTimer = null;
-
-// ─── TAB SWITCH ───────────────────────────────────
-function switchPagTab(tab, el) {
-  pagTab = tab;
-  document.querySelectorAll('.pag-tab').forEach(t => t.classList.remove('active'));
-  el.classList.add('active');
-  renderPagTab(tab);
-}
-
-function renderPagTab(tab) {
-  const body = document.getElementById('pagBody');
-  body.innerHTML = '';
-  if (tab === 'dashboard') { renderPagDashboard(); return; }
-  if (tab === 'validacion')    renderPagValidacion();
-  if (tab === 'cuentas')       renderPagCuentas();
-  if (tab === 'transacciones') renderPagTransacciones();
-  if (tab === 'config')        renderPagConfig();
-  // wrap all non-dashboard content in a proper scroll container
-  const html = body.innerHTML;
-  body.innerHTML = `<div class="pag-scroll">${html}</div>`;
-}
-
-// ─── DASHBOARD ────────────────────────────────────
-function renderPagDashboard() {
-  const body = document.getElementById('pagBody');
-  const ok   = transacciones.filter(t=>t.estado==='ok').length;
-  const pend = transacciones.filter(t=>t.estado==='pend').length;
-  const fail = transacciones.filter(t=>t.estado==='fail').length;
-  const total = transacciones.filter(t=>t.estado==='ok').reduce((s,t)=>s+parseFloat(t.monto.replace(/[^0-9.]/g,'')),0);
-
-  body.innerHTML = `
-    <!-- KPIs FIJOS -->
-    <div class="pag-kpi-row" style="flex-shrink:0;padding:22px 26px 0;">
-      <div class="pag-kpi pag-kpi-accent">
-        <div class="pag-kpi-icon" style="background:var(--green-dim);">💰</div>
-        <div class="pag-kpi-label">Cobrado hoy</div>
-        <div class="pag-kpi-val" style="color:var(--green);">$${total.toFixed(0)}</div>
-        <div class="pag-kpi-sub">↑ ${ok} pagos confirmados</div>
-      </div>
-      <div class="pag-kpi pag-kpi-warn">
-        <div class="pag-kpi-icon" style="background:var(--yellow-dim);">⏳</div>
-        <div class="pag-kpi-label">Esperando validar</div>
-        <div class="pag-kpi-val" style="color:var(--yellow);">${pend}</div>
-        <div class="pag-kpi-sub">Verificando referencias</div>
-      </div>
-      <div class="pag-kpi pag-kpi-red">
-        <div class="pag-kpi-icon" style="background:var(--red-dim);">❌</div>
-        <div class="pag-kpi-label">Referencias inválidas</div>
-        <div class="pag-kpi-val" style="color:var(--red);">${fail}</div>
-        <div class="pag-kpi-sub">Requieren revisión</div>
-      </div>
-      <div class="pag-kpi pag-kpi-blue">
-        <div class="pag-kpi-icon" style="background:var(--blue-dim);">⚡</div>
-        <div class="pag-kpi-label">Tasa de validación</div>
-        <div class="pag-kpi-val" style="color:var(--blue);">${(ok+pend+fail) > 0 ? Math.round(ok/(ok+pend+fail)*100) : 0}%</div>
-        <div class="pag-kpi-sub">Automática</div>
-      </div>
-    </div>
-
-    <!-- ÁREA SCROLLEABLE -->
-    <div class="pag-scroll" id="pagDashScroll" style="margin-top:18px;">
-
-      <!-- Últimos movimientos -->
-      <div class="pag-card">
-        <div class="pag-card-header">
-          <div class="pag-card-title">
-            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z"/></svg>
-            Últimos movimientos
-          </div>
-          <span style="font-size:11px;color:var(--text3);">Actualizado ahora</span>
-        </div>
-        <div class="pag-card-body txn-scroll" style="max-height:340px;overflow-y:auto;">
-          ${transacciones.length > 0
-            ? transacciones.map(t => txnRowHTML(t)).join('')
-            : '<div style="padding:24px 8px;text-align:center;font-size:12.5px;color:var(--text3);">Aún no hay pagos registrados.</div>'}
-        </div>
-      </div>
-
-    </div>
-  `;
-}
-
-function txnRowHTML(t) {
-  const icons = { ok:'✅', pend:'⏳', fail:'❌' };
-  const iconCls = { ok:'txn-icon-ok', pend:'txn-icon-pend', fail:'txn-icon-fail' };
-  const amtCls  = { ok:'txn-amount-ok', pend:'txn-amount-pend', fail:'txn-amount-fail' };
-  const bdgCls  = { ok:'tb-ok', pend:'tb-pend', fail:'tb-fail' };
-  const bdgTxt  = { ok:'Validado ✓', pend:'Verificando', fail:'Inválido' };
-  return `
-    <div class="txn-row">
-      <div class="txn-icon ${iconCls[t.estado]}">${icons[t.estado]}</div>
-      <div class="txn-info">
-        <div class="txn-client">${escHtml(t.cliente)} <span style="font-size:10.5px;color:var(--accent2);font-weight:600;">${t.pedido}</span></div>
-        <div class="txn-detail">${t.metodo} · Ref: ${t.ref}</div>
-      </div>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
-        <div class="txn-amount ${amtCls[t.estado]}">${t.monto}</div>
-        <span class="txn-badge ${bdgCls[t.estado]}">${bdgTxt[t.estado]}</span>
-      </div>
-      <div class="txn-time">${t.hora}</div>
-    </div>`;
-}
-
-function cobroMiniHTML(c) {
-  return `
-    <div class="cobro-card" style="padding:12px 14px;">
-      <div class="cobro-logo">${c.emoji}</div>
-      <div class="cobro-info">
-        <div class="cobro-bank">${c.banco} · ${c.metodo}</div>
-        <div class="cobro-detail">${c.telefono} · ${c.nombre}</div>
-      </div>
-      <div class="cobro-active"><span class="cobro-dot"></span>Activa</div>
-    </div>`;
-}
-
-// ─── FLUJO DE VALIDACIÓN ──────────────────────────
-function renderPagValidacion() {
-  const body = document.getElementById('pagBody');
-  const t = transacciones[0];
-  body.innerHTML = `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-
-      <!-- Lo que ve el cliente -->
-      <div>
-        <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:10px;">Lo que ve el cliente</div>
-        ${t ? `
-        <div class="pay-instr">
-          <div class="pay-instr-title">📱 Instrucciones de pago</div>
-          <div class="pay-instr-row"><span class="pay-instr-label">Pedido</span><span class="pay-instr-val">${t.pedido}</span></div>
-          <div class="pay-instr-row"><span class="pay-instr-label">Monto a pagar</span><span class="pay-instr-val" style="color:var(--green);">${t.monto} USD</span></div>
-          <div class="pay-instr-row"><span class="pay-instr-label">Método</span><span class="pay-instr-val">${t.metodo}</span></div>
-          <div class="pay-instr-row"><span class="pay-instr-label">Banco</span><span class="pay-instr-val">${t.banco || '—'}</span></div>
-          <div style="border-top:1px dashed var(--border2);margin:10px 0 4px;"></div>
-          <div style="text-align:center;font-size:10.5px;color:var(--text3);margin-bottom:4px;">Referencia</div>
-          <div class="pay-ref">${t.ref || '—'}</div>
-          <div class="pay-ref-label">Referencia única · Válida por 30 minutos</div>
-        </div>
-        ` : `
-        <div class="pay-instr" style="text-align:center;color:var(--text3);font-size:12.5px;padding:32px 16px;">
-          Aún no hay pagos por validar.
-        </div>
-        `}
-      </div>
-
-      <!-- Historial de validaciones recientes -->
-      <div>
-        <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:10px;">Historial de validaciones recientes</div>
-        <div class="pag-card">
-          <div class="pag-card-header">
-            <div class="pag-card-title">Últimas transacciones</div>
-            <span style="font-size:11px;color:var(--text3);">Actualizado ahora</span>
-          </div>
-          <div class="pag-card-body txn-scroll" style="max-height:360px;overflow-y:auto;">
-            ${transacciones.length > 0
-              ? transacciones.map(t => txnRowHTML(t)).join('')
-              : '<div style="padding:24px 8px;text-align:center;font-size:12.5px;color:var(--text3);">Sin transacciones registradas.</div>'}
-          </div>
-        </div>
-      </div>
-
-    </div>
-  `;
-}
-
-function renderValFlow(step) {
-  const steps = [
-    { icon:'📱', label:'Cliente paga' },
-    { icon:'🔍', label:'Sistema detecta' },
-    { icon:'⚖️', label:'Valida referencia' },
-    { icon:'✅', label:'Pedido aprobado' },
-    { icon:'📦', label:'Preparando envío' },
-  ];
-  return steps.map((s,i) => `
-    <div class="val-step ${i < step ? 'done' : i === step ? 'active' : ''}">
-      <div class="val-dot">${s.icon}</div>
-      <div class="val-label">${s.label}</div>
-    </div>
-  `).join('');
-}
-
-function renderValChecks(v) {
-  const checks = [
-    { key:'monto',  label:'Monto correcto', pass: v?.monto },
-    { key:'ref',    label:'Referencia válida', pass: v?.ref },
-    { key:'tiempo', label:'Dentro del plazo (30 min)', pass: v?.tiempo },
-    { key:'banco',  label:'Banco coincide', pass: v?.banco },
-  ];
-  return checks.map(c => `
-    <div class="live-val-row ${c.pass ? 'live-val-ok' : 'live-val-fail'}">
-      <span class="live-val-icon">${c.pass ? '✓' : '✗'}</span>
-      <span class="live-val-text">${c.label}</span>
-      <span style="font-size:11px;font-weight:700;">${c.pass ? 'OK' : 'Fallo'}</span>
-    </div>`).join('');
-}
-
-// ─── CUENTAS DE COBRO ─────────────────────────────
-function renderPagCuentas() {
-  const body = document.getElementById('pagBody');
-  body.innerHTML = `
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;" id="cobrosGrid">
-      ${cuentasCobro.map((c,i) => cobroCardHTML(c,i)).join('')}
-      <div onclick="openPagModal('cobro')" style="background:var(--surface2);border:1px dashed var(--border2);border-radius:12px;padding:20px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;cursor:pointer;min-height:120px;transition:border-color 0.15s;" onmouseover="this.style.borderColor='var(--green)'" onmouseout="this.style.borderColor='var(--border2)'">
-        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:24px;height:24px;color:var(--text3);"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-        <span style="font-size:12.5px;font-weight:600;color:var(--text3);">Agregar cuenta</span>
-      </div>
-    </div>
-    <div class="pag-card" style="margin-top:4px;">
-      <div class="pag-card-header"><div class="pag-card-title">Métodos soportados próximamente</div></div>
-      <div class="pag-card-body">
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">
-          ${[['💳','Zelle','Activo'],['₿','Binance/USDT','Activo'],['🏦','API Mercantil','Próximo'],['🔗','Banesco API','Próximo']].map(([e,n,s])=>`
-            <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center;">
-              <div style="font-size:22px;margin-bottom:6px;">${e}</div>
-              <div style="font-size:12px;font-weight:600;">${n}</div>
-              <div style="font-size:10px;margin-top:4px;color:${s==='Activo'?'var(--green)':'var(--text3)'};">${s}</div>
-            </div>`).join('')}
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-function cobroCardHTML(c, i) {
-  return `
-    <div class="cobro-card">
-      <div class="cobro-logo">${c.emoji}</div>
-      <div class="cobro-info">
-        <div class="cobro-bank">${c.banco}</div>
-        <div class="cobro-detail">${c.metodo} · ${c.telefono}</div>
-        <div class="cobro-detail" style="margin-top:2px;">RIF: ${c.rif}</div>
-        <div class="cobro-detail">${c.nombre}</div>
-      </div>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <div class="cobro-active"><span class="cobro-dot"></span>Activa</div>
-        <div style="display:flex;gap:5px;">
-          <div onclick="editCobro(${i})" style="padding:5px 10px;border-radius:7px;background:var(--surface3);border:1px solid var(--border);font-size:11px;font-weight:600;cursor:pointer;color:var(--text2);" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--text2)'">Editar</div>
-        </div>
-      </div>
-    </div>`;
-}
-
-// ─── TRANSACCIONES ────────────────────────────────
-function renderPagTransacciones() {
-  const body = document.getElementById('pagBody');
-  const ok   = transacciones.filter(t=>t.estado==='ok').length;
-  const pend = transacciones.filter(t=>t.estado==='pend').length;
-  const fail = transacciones.filter(t=>t.estado==='fail').length;
-  body.innerHTML = `
-    <div style="display:flex;gap:8px;flex-wrap:wrap;">
-      <div class="inf-filter-btn active" onclick="filterTxns('all',this)">Todos (${transacciones.length})</div>
-      <div class="inf-filter-btn" onclick="filterTxns('ok',this)" style="color:var(--green);">✅ Validados (${ok})</div>
-      <div class="inf-filter-btn" onclick="filterTxns('pend',this)" style="color:var(--yellow);">⏳ Pendientes (${pend})</div>
-      <div class="inf-filter-btn" onclick="filterTxns('fail',this)" style="color:var(--red);">❌ Inválidos (${fail})</div>
-    </div>
-    <div class="pag-card">
-      <div class="pag-card-header">
-        <div class="pag-card-title">Registro de transacciones</div>
-        <span style="font-size:11px;color:var(--text3);">${transacciones.length} transacciones</span>
-      </div>
-      <div class="pag-card-body txn-scroll" id="txnList" style="max-height:420px;overflow-y:auto;">
-        ${transacciones.length > 0
-          ? transacciones.map(t => txnRowHTML(t)).join('')
-          : '<div style="padding:24px 8px;text-align:center;font-size:12.5px;color:var(--text3);">Sin transacciones registradas.</div>'}
-      </div>
-    </div>
-  `;
-}
-
-function filterTxns(estado, el) {
-  document.querySelectorAll('#pagBody .inf-filter-btn').forEach(b => b.classList.remove('active'));
-  el.classList.add('active');
-  const filtered = estado === 'all' ? transacciones : transacciones.filter(t => t.estado === estado);
-  document.getElementById('txnList').innerHTML = filtered.length > 0
-    ? filtered.map(t => txnRowHTML(t)).join('')
-    : '<div style="padding:24px 8px;text-align:center;font-size:12.5px;color:var(--text3);">Sin transacciones registradas.</div>';
-}
-
-// ─── CONFIGURACIÓN ────────────────────────────────
-function renderPagConfig() {
-  const body = document.getElementById('pagBody');
-  body.innerHTML = `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-      <div class="pag-card">
-        <div class="pag-card-header"><div class="pag-card-title">⚙️ Tolerancias de validación</div></div>
-        <div class="pag-card-body" style="display:flex;flex-direction:column;gap:14px;">
-          <div>
-            <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px;">Ventana de tiempo permitida</div>
-            <div style="display:flex;gap:6px;">
-              ${['15 min','30 min','1 hora','2 horas'].map((t,i)=>`<div onclick="this.parentElement.querySelectorAll('div').forEach(d=>d.classList.remove('active'));this.classList.add('active')" class="inf-filter-btn ${i===1?'active':''}">${t}</div>`).join('')}
-            </div>
-          </div>
-          <div>
-            <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px;">Tolerancia de monto</div>
-            <div style="display:flex;gap:6px;">
-              ${['$0.00','±$0.10','±$0.50','±$1.00'].map((t,i)=>`<div onclick="this.parentElement.querySelectorAll('div').forEach(d=>d.classList.remove('active'));this.classList.add('active')" class="inf-filter-btn ${i===0?'active':''}">${t}</div>`).join('')}
-            </div>
-          </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid var(--border);">
-            <div>
-              <div style="font-size:13px;font-weight:600;">Aprobación automática</div>
-              <div style="font-size:11.5px;color:var(--text2);">Cambia el estado del pedido sin intervención</div>
-            </div>
-            <div style="width:40px;height:22px;background:var(--green);border-radius:11px;position:relative;cursor:pointer;">
-              <div style="width:18px;height:18px;background:#fff;border-radius:50%;position:absolute;right:2px;top:2px;"></div>
-            </div>
-          </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid var(--border);">
-            <div>
-              <div style="font-size:13px;font-weight:600;">Notificar al cliente</div>
-              <div style="font-size:11.5px;color:var(--text2);">Enviar mensaje de confirmación automático</div>
-            </div>
-            <div style="width:40px;height:22px;background:var(--green);border-radius:11px;position:relative;cursor:pointer;">
-              <div style="width:18px;height:18px;background:#fff;border-radius:50%;position:absolute;right:2px;top:2px;"></div>
-            </div>
-          </div>
-          <button class="btn-primary" style="justify-content:center;" onclick="showToast('Configuración guardada ✓')">Guardar cambios</button>
-        </div>
-      </div>
-
-      <div style="display:flex;flex-direction:column;gap:14px;">
-        <div class="pag-card">
-          <div class="pag-card-header"><div class="pag-card-title">🔌 Proveedores de validación</div></div>
-          <div class="pag-card-body" style="display:flex;flex-direction:column;gap:10px;">
-            ${[
-              { name:'MercantilProvider', desc:'API directa Banco Mercantil', status:'coming', color:'var(--text3)' },
-              { name:'BanescoProvider', desc:'API directa Banesco', status:'coming', color:'var(--text3)' },
-              { name:'FintechProvider', desc:'Intermediario universal', status:'coming', color:'var(--text3)' },
-              { name:'ZelleProvider', desc:'Validación Zelle', status:'coming', color:'var(--text3)' },
-              { name:'BinanceProvider', desc:'Validación USDT/BTC', status:'coming', color:'var(--text3)' },
-            ].map(p=>`
-              <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;">
-                <div style="width:8px;height:8px;border-radius:50%;background:${p.color};flex-shrink:0;"></div>
-                <div style="flex:1;">
-                  <div style="font-size:12.5px;font-weight:700;font-family:monospace;">${p.name}</div>
-                  <div style="font-size:11px;color:var(--text2);">${p.desc}</div>
-                </div>
-                <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:5px;background:${p.status==='connected'?'var(--green-dim)':p.status==='ready'?'var(--blue-dim)':'var(--surface3)'};color:${p.color};">${p.status==='connected'?'Conectado':p.status==='ready'?'Listo':'Próximamente'}</span>
-              </div>`).join('')}
-          </div>
-        </div>
-
-        <!-- BCV Tasa Config -->
-        <div class="pag-card" style="border-color:rgba(245,200,66,0.3);">
-          <div class="pag-card-header">
-            <div class="pag-card-title" style="color:var(--yellow);">🇻🇪 Tasa BCV — Tipo de cambio</div>
-            <span style="font-size:10px;padding:2px 8px;border-radius:5px;background:var(--yellow-dim);color:var(--yellow);font-weight:700;">Plan Business</span>
-          </div>
-          <div class="pag-card-body" style="display:flex;flex-direction:column;gap:12px;">
-
-            <div style="background:var(--surface2);border-radius:10px;padding:12px 14px;border:1px solid var(--border);">
-              <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.7px;margin-bottom:8px;">Opción A — API automática</div>
-              <div style="font-size:12px;color:var(--text2);margin-bottom:8px;line-height:1.5;">Pega el link de una API que devuelva la tasa (ej: ve.dolarapi.com, exchangerate-api.com). La tasa se actualiza automáticamente.</div>
-              <input class="form-input" id="bcvApiUrl" type="text"
-                value="${window.bcvConfig?.apiUrl || ''}"
-                placeholder="https://ve.dolarapi.com/v1/divisas/oficial"
-                style="font-size:12px;font-family:monospace;margin-bottom:8px;">
-              <div style="font-size:11px;color:var(--text3);margin-bottom:8px;">Campo JSON donde está el valor (ej: <code style="background:var(--surface3);padding:1px 5px;border-radius:3px;">promedio</code> o <code style="background:var(--surface3);padding:1px 5px;border-radius:3px;">value</code>)</div>
-              <input class="form-input" id="bcvApiField" type="text"
-                value="${window.bcvConfig?.apiField || 'promedio'}"
-                placeholder="promedio"
-                style="font-size:12px;font-family:monospace;margin-bottom:8px;">
-              <button class="btn-primary" style="justify-content:center;width:100%;font-size:12px;" onclick="saveBcvApiConfig()">
-                💾 Guardar y conectar API
-              </button>
-            </div>
-
-            <div style="display:flex;align-items:center;gap:8px;color:var(--text3);font-size:11px;">
-              <div style="flex:1;height:1px;background:var(--border);"></div>
-              <span>ó</span>
-              <div style="flex:1;height:1px;background:var(--border);"></div>
-            </div>
-
-            <div style="background:var(--surface2);border-radius:10px;padding:12px 14px;border:1px solid var(--border);">
-              <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.7px;margin-bottom:8px;">Opción B — Manual</div>
-              <div style="font-size:12px;color:var(--text2);margin-bottom:8px;">Ingresa la tasa del día manualmente. Actualiza cuando lo necesites.</div>
-              <div style="display:flex;gap:8px;">
-                <input class="form-input" id="bcvManualRate" type="number"
-                  value="${window.bcvConfig?.manualRate || ''}"
-                  placeholder="36.50"
-                  style="font-size:14px;font-weight:700;text-align:center;flex:1;">
-                <span style="display:flex;align-items:center;font-size:12px;color:var(--text2);font-weight:600;">Bs./USD</span>
-              </div>
-              <button class="btn-ghost" style="width:100%;justify-content:center;margin-top:8px;font-size:12px;" onclick="saveBcvManual()">
-                Guardar tasa manual
-              </button>
-            </div>
-
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border);">
-              <div style="font-size:12px;color:var(--text2);">Tasa actual en widget</div>
-              <div id="bcvCurrentDisplay" style="font-family:'Syne',sans-serif;font-size:16px;font-weight:800;color:var(--yellow);">
-                ${window.bcvConfig?.currentRate ? 'Bs. ' + window.bcvConfig.currentRate : '—'}
-              </div>
-            </div>
-
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-// ─── MODAL PAGOS ──────────────────────────────────
-function openPagModal(tipo) {
-  const modal = document.getElementById('pagModal');
-  const title = document.getElementById('pagModalTitle');
-  const mbody = document.getElementById('pagModalBody');
-  const mfoot = document.getElementById('pagModalFooter');
-
-  if (tipo === 'cobro') {
-    title.textContent = 'Nueva cuenta receptora';
-    selectedBanco = '';
-    mbody.innerHTML = `
-      <div>
-        <div class="form-label" style="margin-bottom:8px;">Selecciona el banco</div>
-        <div class="banco-grid" id="bancoGrid">
-          ${['Mercantil','Banesco','Provincial','Venezuela','BNC','Bicentenario','Occidental','Exterior'].map(b=>`
-            <div class="banco-btn" onclick="selectBanco('${b}',this)">🏦 ${b}</div>`).join('')}
-        </div>
-      </div>
-      <div class="form-row">
-        <div class="form-field"><div class="form-label">Teléfono Pago Móvil</div><input class="form-input" id="pcTel" placeholder="04XX-XXX-XXXX" type="text"></div>
-        <div class="form-field"><div class="form-label">RIF / Cédula</div><input class="form-input" id="pcRif" placeholder="J-XXXXXXXX-X" type="text"></div>
-      </div>
-      <div class="form-field"><div class="form-label">Nombre del titular / razón social</div><input class="form-input" id="pcNombre" placeholder="Mi Negocio C.A." type="text"></div>
-      <div class="form-field"><div class="form-label">Número de cuenta (opcional)</div><input class="form-input" id="pcCuenta" placeholder="0XXX-XXXX-XXXX-XXXX-XXXX" type="text"></div>
-    `;
-    mfoot.innerHTML = `
-      <button class="btn-ghost" onclick="closePagModal()" style="margin-right:auto;">Cancelar</button>
-      <button class="btn-primary" onclick="saveCuenta()">
-        <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="width:13px;height:13px"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
-        Guardar cuenta
-      </button>`;
-  }
-
-  if (tipo === 'simular') {
-    title.textContent = '⚡ Simular pago entrante';
-    simStep = 0;
-    mbody.innerHTML = `
-      <div style="font-size:12.5px;color:var(--text2);line-height:1.6;background:var(--surface2);border-radius:10px;padding:12px 14px;">
-        Simula cómo el sistema detecta y valida un pago de Pago Móvil automáticamente en tiempo real.
-      </div>
-      <div class="form-row">
-        <div class="form-field"><div class="form-label">Cliente</div><input class="form-input" id="simCliente" value="María Fernández" type="text"></div>
-        <div class="form-field"><div class="form-label">Monto</div><input class="form-input" id="simMonto" value="$45.00" type="text"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-field"><div class="form-label">Referencia</div><input class="form-input" id="simRef" value="847382" type="text"></div>
-        <div class="form-field"><div class="form-label">Banco</div><input class="form-input" id="simBanco" value="Mercantil" type="text"></div>
-      </div>
-      <div id="simFlow" style="display:flex;flex-direction:column;gap:8px;margin-top:4px;"></div>
-    `;
-    mfoot.innerHTML = `
-      <button class="btn-ghost" onclick="closePagModal()" style="margin-right:auto;">Cerrar</button>
-      <button class="btn-primary" id="simBtn" onclick="runSimulation()">
-        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:13px;height:13px"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z"/></svg>
-        Iniciar simulación
-      </button>`;
-  }
-
-  modal.classList.add('visible');
-}
-
-function selectBanco(banco, el) {
-  selectedBanco = banco;
-  document.querySelectorAll('#bancoGrid .banco-btn').forEach(b => b.classList.remove('active'));
-  el.classList.add('active');
-}
-
-function saveCuenta() {
-  const tel    = document.getElementById('pcTel').value.trim();
-  const rif    = document.getElementById('pcRif').value.trim();
-  const nombre = document.getElementById('pcNombre').value.trim();
-  const cuenta = document.getElementById('pcCuenta').value.trim();
-  if (!selectedBanco) { showToast('⚠ Selecciona un banco'); return; }
-  if (!tel || !nombre) { showToast('⚠ Completa teléfono y nombre'); return; }
-  cuentasCobro.push({
-    id: 'cb' + Date.now(), banco: selectedBanco, emoji: '🏦',
-    telefono: tel, rif: rif || '—', cuenta: cuenta || '—',
-    nombre, activo: true, metodo: 'Pago Móvil',
-  });
-  closePagModal();
-  renderPagTab('cuentas');
-  switchPagTab('cuentas', document.getElementById('ptab-cuentas'));
-  showToast(`Cuenta ${selectedBanco} agregada ✓`);
-}
-
-function editCobro(i) {
-  showToast('Editar cuenta — próximamente');
-}
-
-// ─── SIMULACIÓN ───────────────────────────────────
-function runSimulation() {
-  const btn = document.getElementById('simBtn');
-  btn.disabled = true;
-  btn.textContent = 'Simulando...';
-  const flow = document.getElementById('simFlow');
-  flow.innerHTML = '';
-  simStep = 0;
-
-  const steps = [
-    { icon:'📱', text:'Pago Móvil detectado · Banco Mercantil', delay:600 },
-    { icon:'🔍', text:'Extrayendo referencia: 847382', delay:1000 },
-    { icon:'⚖️', text:'Comparando monto: $45.00 ✓', delay:1400 },
-    { icon:'🕐', text:'Verificando tiempo: dentro del plazo ✓', delay:1800 },
-    { icon:'🏦', text:'Banco coincide: Mercantil ✓', delay:2200 },
-    { icon:'✅', text:'Pago validado · Pedido #0047 → PAGADO', delay:2800, final:true },
-  ];
-
-  steps.forEach(s => {
-    setTimeout(() => {
-      const row = document.createElement('div');
-      row.className = 'live-val-row' + (s.final ? ' live-val-ok' : '');
-      row.style.cssText = 'animation:fadeIn 0.3s ease;';
-      row.innerHTML = `<span class="live-val-icon">${s.icon}</span><span class="live-val-text" style="${s.final?'color:var(--green);font-weight:700;':''}">${s.text}</span>`;
-      if (!s.final) row.innerHTML += `<span style="font-size:10px;color:var(--text3);">OK</span>`;
-      flow.appendChild(row);
-      flow.scrollTop = flow.scrollHeight;
-
-      if (s.final) {
-        btn.disabled = false;
-        btn.innerHTML = '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:13px;height:13px"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg> Simular otro';
-        // add to transactions list
-        const newTxn = {
-          id:'TX' + String(transacciones.length+1).padStart(4,'0'),
-          cliente: document.getElementById('simCliente').value,
-          pedido:'#0047',
-          monto: document.getElementById('simMonto').value,
-          metodo:'Pago Móvil · ' + document.getElementById('simBanco').value,
-          ref: document.getElementById('simRef').value,
-          estado:'ok', hora:'ahora mismo',
-          banco: document.getElementById('simBanco').value,
-          validaciones:{monto:true,ref:true,tiempo:true,banco:true}
-        };
-        transacciones.unshift(newTxn);
-        showToast('✅ Pago validado automáticamente · Pedido #0047 aprobado');
-      }
-    }, s.delay);
-  });
-}
-
-function closePagModal(e) {
-  if (e && e.target !== document.getElementById('pagModal')) return;
-  document.getElementById('pagModal').classList.remove('visible');
-  if (simTimer) clearInterval(simTimer);
-}
-
 // ─── PLAN DE SUSCRIPCIÓN ──────────────────────────────────────
 // Plan real desde el primer instante: lo inyecta el servidor en /app. Si faltara, el último
 // plan conocido de esta sesión y, en último caso, el más restringido (nunca mostrar de más).
@@ -10261,7 +9234,6 @@ const TOUR_TIPS = [
   { sel: '.pc-delete-btn', icon: '🗑️', text: 'Eliminar producto — borra este artículo del catálogo' },
   { sel: '.client-row',    icon: '👤', text: 'Cliente — haz clic para abrir su ficha completa' },
   { sel: '.inf-tab',       icon: '📊', text: 'Sección de informes — cambia entre ventas, pedidos, delivery, encomiendas y más' },
-  { sel: '.pag-tab',       icon: '💳', text: 'Sección de pagos — navega entre panel, validaciones, cuentas y transacciones' },
   { sel: '.plan-toggle-switch', icon: '⚡', text: 'Activar plan — elige el plan que activa las funciones incluidas en tu suscripción' },
   { sel: '[onclick*="printOrder"]', icon: '🖨️', text: 'Imprimir — genera el resguardo físico de este pedido' },
   { sel: '[onclick*="openTicketPreview"]', icon: '🧾', text: 'Ver resguardo — muestra el ticket de compra enviado al cliente' },
@@ -10400,6 +9372,7 @@ function renderInboxList() {
     `;
     list.appendChild(div);
   });
+  if (!Object.keys(convos).length) { currentConvo = null; document.getElementById('chatPanel')?.classList.add('is-empty'); }
   applyConvoFilters();
   updateInboxCount();
 }
@@ -10698,9 +9671,6 @@ async function loadRealConversations() {
       return false;
     }
 
-    // El backend respondió correctamente (haya o no conversaciones aún) — esta es una
-    // cuenta real, así que las conversaciones de ejemplo no deben mostrarse nunca.
-    DEMO_CONVO_KEYS.forEach(k => { if (convos[k] && !convos[k].isReal) delete convos[k]; });
 
     if (realConvos.length === 0) {
       console.log('Sin conversaciones reales aún');
@@ -11346,134 +10316,6 @@ function sendPaymentTemplate() {
 
 // ── Horario de atención — lógica de auto-respuesta ───────────
 
-// ── Mi equipo ─────────────────────────────────────────────────
-function _getTeam() {
-  const saved = JSON.parse(localStorage.getItem('central_team') || 'null');
-  if (saved) return saved;
-  // Inicializar con el propietario desde businessProfile
-  const name = businessProfile.fullName || businessProfile.businessName || 'Propietario';
-  const initials = name.split(/\s+/).map(w => w[0]||'').join('').slice(0,2).toUpperCase();
-  return [{
-    id: 'owner',
-    name,
-    email: businessProfile.email || '',
-    role: 'Propietario',
-    initials,
-    isOwner: true,
-  }];
-}
-
-function _saveTeam(team) {
-  localStorage.setItem('central_team', JSON.stringify(team));
-}
-
-function _refreshTeamSection() {
-  const el = document.getElementById('settingsContent');
-  if (el && document.querySelector('.ssn-item.active[onclick*="equipo"]')) {
-    el.innerHTML = settingsPanels.equipo();
-  }
-}
-
-let _teamEditingId = null;
-
-function openTeamModal(id) {
-  _teamEditingId = id;
-  const overlay = document.getElementById('teamModalOverlay');
-  const title = document.getElementById('teamModalTitle');
-  const nameI = document.getElementById('teamModalName');
-  const emailI = document.getElementById('teamModalEmail');
-  const roleI = document.getElementById('teamModalRole');
-  const err = document.getElementById('teamModalError');
-
-  err.textContent = '';
-
-  if (id) {
-    // Editar miembro existente
-    const team = _getTeam();
-    const m = team.find(x => x.id === id);
-    if (!m) return;
-    title.textContent = 'Editar miembro';
-    nameI.value = m.name;
-    emailI.value = m.email;
-    roleI.value = m.role === 'Propietario' ? 'Vendedor' : m.role;
-  } else {
-    // Nuevo miembro
-    title.textContent = 'Invitar nuevo miembro';
-    nameI.value = '';
-    emailI.value = '';
-    roleI.value = 'Vendedor';
-  }
-
-  overlay.style.display = 'flex';
-  setTimeout(() => nameI.focus(), 50);
-}
-
-function closeTeamModal() {
-  document.getElementById('teamModalOverlay').style.display = 'none';
-  _teamEditingId = null;
-}
-
-function saveTeamMember() {
-  const name  = document.getElementById('teamModalName').value.trim();
-  const email = document.getElementById('teamModalEmail').value.trim();
-  const role  = document.getElementById('teamModalRole').value;
-  const err   = document.getElementById('teamModalError');
-
-  err.textContent = '';
-  if (!name)  { err.textContent = 'El nombre es obligatorio.'; return; }
-  if (!email) { err.textContent = 'El correo es obligatorio.'; return; }
-
-  const team = _getTeam();
-
-  if (_teamEditingId) {
-    // Editar
-    const idx = team.findIndex(x => x.id === _teamEditingId);
-    if (idx === -1) return;
-    // Validar límites si cambia de rol
-    const oldRole = team[idx].role;
-    if (role !== oldRole) {
-      const count = team.filter(m => m.role === role).length;
-      const max = role === 'Administrador' ? 2 : 3;
-      if (count >= max) { err.textContent = `Límite de ${max} ${role}${max>1?'es':''} alcanzado.`; return; }
-    }
-    team[idx].name = name;
-    team[idx].email = email;
-    team[idx].role = role;
-    team[idx].initials = name.split(/\s+/).map(w=>w[0]||'').join('').slice(0,2).toUpperCase();
-  } else {
-    // Nuevo
-    if (team.length >= 5) { err.textContent = 'Límite de 5 miembros alcanzado.'; return; }
-    const count = team.filter(m => m.role === role).length;
-    const max = role === 'Administrador' ? 2 : 3;
-    if (count >= max) { err.textContent = `Límite de ${max} ${role}${max>1?'es':''} alcanzado.`; return; }
-    // Verificar email único
-    if (team.some(m => m.email.toLowerCase() === email.toLowerCase())) {
-      err.textContent = 'Ya existe un miembro con ese correo.'; return;
-    }
-    team.push({
-      id: 'tm_' + Date.now(),
-      name, email, role,
-      initials: name.split(/\s+/).map(w=>w[0]||'').join('').slice(0,2).toUpperCase(),
-      isOwner: false,
-    });
-  }
-
-  _saveTeam(team);
-  closeTeamModal();
-  _refreshTeamSection();
-  showToast(_teamEditingId === null ? 'Miembro agregado al equipo ✓' : 'Miembro actualizado ✓');
-}
-
-function deleteTeamMember(id) {
-  const team = _getTeam();
-  const m = team.find(x => x.id === id);
-  if (!m || m.isOwner) return;
-  if (!confirm(`¿Eliminar a ${m.name} del equipo?`)) return;
-  _saveTeam(team.filter(x => x.id !== id));
-  _refreshTeamSection();
-  showToast('Miembro eliminado del equipo');
-}
-
 function startEditOffHours() {
   const ta = document.getElementById('offHoursMsg');
   const editBtn = document.getElementById('offHoursEditBtn');
@@ -11624,28 +10466,6 @@ function renderQrSettingsHtml() {
   var app = document.querySelector('.app');
   document.body.classList.add('is-demo');
   document.body.insertBefore(bar, app || document.body.firstChild);
-})();
-
-// Módulo Pagos de ejemplo: cuentas y transacciones inventadas, solo para la demo
-(function () {
-  if (!window.__DEMO_MODE__) return;
-  try {
-    if (typeof cuentasCobro === 'undefined' || cuentasCobro.length) return;
-    var biz = 'Mi negocio';
-    try { biz = (JSON.parse(localStorage.getItem('central_tenant') || '{}').businessName) || biz; } catch (e) {}
-    cuentasCobro.push(
-      { id: 'demo_cb1', banco: 'Banco Aurora', emoji: '🏦', telefono: '0414-555-2390', rif: 'J-00000000-0', cuenta: '—', nombre: biz, activo: true, metodo: 'Pago Móvil' },
-      { id: 'demo_cb2', banco: 'Zelle', emoji: '💵', telefono: 'pagos@ejemplo-demo.com', rif: '—', cuenta: '—', nombre: biz, activo: true, metodo: 'Zelle' }
-    );
-    transacciones.push(
-      { cliente: 'Daniela Quintero',  pedido: 'Tenis Urbano Nube',     metodo: 'Pago Móvil', ref: '20481937', monto: '$68.00',  estado: 'ok',   hora: 'hace 6 min' },
-      { cliente: 'Noelia Arismendi',  pedido: 'Blusa + Palazzo',       metodo: 'Zelle',      ref: 'ZL-77310', monto: '$80.00',  estado: 'ok',   hora: 'hace 30 min' },
-      { cliente: 'Tomás Echeverri',   pedido: 'Chaqueta Denim',        metodo: 'Pago Móvil', ref: '20482260', monto: '$56.00',  estado: 'pend', hora: 'hace 1 h' },
-      { cliente: 'Mariela Sotillo',   pedido: '2x Blusa Amapola',      metodo: 'Zelle',      ref: 'ZL-77294', monto: '$74.00',  estado: 'pend', hora: 'hace 5 h' },
-      { cliente: 'Rocío Villamizar',  pedido: 'Botín Chelsea Siena',   metodo: 'Pago Móvil', ref: '20479915', monto: '$83.00',  estado: 'ok',   hora: 'ayer' },
-      { cliente: 'Andrés Palacios',   pedido: 'Tenis Urbano Nube',     metodo: 'Pago Móvil', ref: '20479002', monto: '$64.00',  estado: 'fail', hora: 'ayer' }
-    );
-  } catch (e) {}
 })();
 
 // Si la demo caduca mientras está abierta, cualquier llamada a la API devuelve demo_expired
