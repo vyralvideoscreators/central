@@ -44,4 +44,5 @@ for (const ph of phones) {
   if (!/555 ?2\d{3}$/.test(ph)) { console.log(`FAIL teléfono fuera del bloque ficticio 555-2xxx: ${ph}`); fails++; }
 }
 console.log(`${checks.length + phones.length} comprobaciones, ${fails} coincidencias`);
+if (!fails) console.log('PASS Datos de demo 100 % inventados (' + (checks.length + phones.length) + ' comprobaciones)');
 process.exit(fails ? 1 : 0);
