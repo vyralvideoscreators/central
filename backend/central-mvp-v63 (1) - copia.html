@@ -30,6 +30,7 @@
     --text3: #5a5a72;
     --wa: #25D366;
     --ig: #E1306C;
+    --shadow-pop: 0 12px 40px rgba(0,0,0,.5);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; font-size: 14px; }
@@ -428,14 +429,6 @@
   .total-row.grand { font-size: 15px; font-weight: 700; color: var(--text); padding-top: 8px; border-top: 1px solid var(--border); margin-top: 5px; }
   .total-row.grand .val { color: var(--green); }
 
-  .confirm-btn {
-    margin: 14px 16px; width: calc(100% - 32px);
-    padding: 12px; background: var(--accent); border: none;
-    border-radius: 11px; color: #fff; font-size: 13px; font-weight: 700;
-    font-family: 'Syne', sans-serif; cursor: pointer; transition: all 0.2s;
-    box-shadow: 0 4px 20px var(--accent-glow); flex-shrink: 0;
-  }
-  .confirm-btn:hover { background: var(--accent2); transform: translateY(-1px); }
 
   /* ══ PEDIDOS VIEW ══ */
   #v-pedidos { flex-direction: column; }
@@ -473,9 +466,12 @@
   .ped-filter-tab {
     padding: 6px 16px; border-radius: 20px;
     font-size: 12px; font-weight: 600; cursor: pointer;
-    transition: all 0.2s; border: 1px solid transparent; color: var(--text3);
-    display: flex; align-items: center; gap: 6px;
+    transition: all 0.2s; border: 1px solid transparent; color: var(--text2);
+    display: flex; align-items: center; gap: 6px; white-space: nowrap; flex-shrink: 0;
   }
+  .ped-filter-tab { background: transparent; font-family: inherit; }
+  .ped-filter-tab:focus-visible, .of-kind button:focus-visible, .of-x:focus-visible, .of-drop-item:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
+  .pft-sep { width: 1px; align-self: stretch; min-height: 20px; background: var(--border2); margin: 0 4px; }
   .ped-filter-tab:hover { color: var(--text2); background: var(--surface3); }
   .ped-filter-tab.active { background: var(--surface3); border-color: var(--border2); color: var(--text); }
   .ped-filter-tab .pft-count {
@@ -529,13 +525,13 @@
   /* Fase 3: nuevos estados de entrega (solo variables) */
   .db-preparing { background: var(--yellow-dim); color: var(--yellow); }
   .db-on-the-way { background: var(--accent-glow); color: var(--accent2); }
-  .db-cancelled { background: var(--surface3); color: var(--text3); }
+  .db-cancelled { background: var(--surface3); color: var(--text2); }
   .odm-del-btn.db-preparing { background: var(--yellow-dim); color: var(--yellow); border-color: var(--yellow); }
   .odm-del-btn.db-on-the-way { background: var(--accent-glow); color: var(--accent2); border-color: var(--accent); }
-  .odm-del-btn.db-cancelled { background: var(--surface3); color: var(--text3); border-color: var(--border2); }
-  .or-kind { display:inline-block; font-size:9.5px; font-weight:800; letter-spacing:.6px; text-transform:uppercase; padding:2px 6px; border-radius:5px; margin-left:6px; vertical-align:middle; }
+  .odm-del-btn.db-cancelled { background: var(--surface3); color: var(--text2); border-color: var(--border2); }
+  .or-kind { display:inline-block; font-size:10.5px; font-weight:800; letter-spacing:.6px; text-transform:uppercase; padding:2px 6px; border-radius:5px; margin-left:6px; vertical-align:middle; }
   .or-kind.quote { background: var(--yellow-dim); color: var(--yellow); }
-  .or-kind.cancelled { background: var(--surface3); color: var(--text3); }
+  .or-kind.cancelled { background: var(--surface3); color: var(--text2); }
   .order-row.is-cancelled .or-client-name, .order-row.is-cancelled .or-price { text-decoration: line-through; color: var(--text3); }
   .stat-credit { color: var(--green); }
   .cc-tag.credit { background: var(--green-dim); color: var(--green); }
@@ -543,15 +539,27 @@
   /* Formulario único de pedido / presupuesto */
   .of-kind { display:flex; gap:6px; margin:0 0 12px; }
   .of-kind button { flex:1; padding:8px 10px; border-radius:9px; border:1px solid var(--border2); background:var(--surface2); color:var(--text2); font-size:12.5px; font-weight:700; cursor:pointer; transition:all .15s; }
+  .of-kind button { font-family:inherit; }
   .of-kind button.active { background: var(--accent-glow); border-color: var(--accent); color: var(--accent2); }
-  .of-sec { font-size:10px; font-weight:700; color:var(--text3); text-transform:uppercase; letter-spacing:.8px; margin:14px 0 8px; display:flex; align-items:center; gap:6px; }
+  .of-sec { font-size:10px; font-weight:700; color:var(--text2); text-transform:uppercase; letter-spacing:.8px; margin:14px 0 8px; display:flex; align-items:center; gap:6px; }
   .of-client-wrap { position:relative; }
-  .of-drop { display:none; position:absolute; top:calc(100% + 4px); left:0; right:0; background:var(--surface); border:1px solid var(--border2); border-radius:11px; box-shadow:0 12px 40px rgba(0,0,0,.5); z-index:30; max-height:220px; overflow-y:auto; }
+  .of-drop { display:none; position:absolute; top:calc(100% + 4px); left:0; right:0; background:var(--surface); border:1px solid var(--border2); border-radius:11px; box-shadow:var(--shadow-pop); z-index:30; max-height:220px; overflow-y:auto; }
   .of-drop.open { display:block; }
-  .of-drop-empty { padding:10px 12px; font-size:12px; color:var(--text3); }
-  .of-hint { font-size:11.5px; color:var(--text3); margin-top:5px; }
+  .of-drop-empty { padding:10px 12px; font-size:12px; color:var(--text2); }
+  .of-hint { font-size:11.5px; color:var(--text2); margin-top:5px; }
   .of-item { display:flex; gap:6px; align-items:center; background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:6px; }
   .of-item .form-input { padding:7px 9px; font-size:12.5px; }
+  .of-item .of-i-emoji { padding:7px 4px; text-align:center; width:40px; flex:none; }
+  .of-i-main { flex:2; min-width:0; display:flex; flex-direction:column; gap:4px; }
+  .of-i-qty { width:62px; flex:none; }
+  .of-i-price { width:84px; flex:none; }
+  .of-i-lbl { font-size:10.5px; margin-bottom:2px; }
+  .of-i-line { width:66px; flex:none; text-align:right; font-size:13px; font-weight:700; color:var(--green); }
+  .of-x { width:32px; height:32px; flex:none; border-radius:8px; display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--text2); background:transparent; border:none; transition:color .15s, background .15s; }
+  .of-x:hover { color:var(--red); background:var(--red-dim); }
+  .cli-drop-item.active { background: var(--surface3); }
+  .of-fieldset { border:0; padding:0; margin:0 0 14px; min-inline-size:0; }
+  .of-fieldset legend { padding:0; }
   .of-picker { background:var(--surface2); border:1px dashed var(--accent); border-radius:10px; padding:10px; margin-bottom:10px; display:none; }
   .of-picker.open { display:block; }
   .of-sum { background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-top:12px; }
@@ -1013,6 +1021,7 @@
     cursor: pointer; transition: all 0.25s; position: relative; flex-shrink: 0;
   }
   .s-toggle.on { background: var(--accent); border-color: var(--accent); }
+  .s-toggle:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
   .s-toggle::after {
     content: ''; position: absolute;
     width: 16px; height: 16px; border-radius: 50%;
@@ -1288,7 +1297,7 @@
   /* list header */
   .cli-list-header {
     display: grid;
-    grid-template-columns: 36px 1fr 130px 110px 90px 90px 60px 32px;
+    grid-template-columns: 36px 1fr 120px 100px 70px 90px 120px 130px 28px;
     gap: 0; padding: 8px 26px;
     border-bottom: 1px solid var(--border);
     background: var(--surface2); flex-shrink: 0;
@@ -1299,7 +1308,7 @@
   /* list row */
   .client-row {
     display: grid;
-    grid-template-columns: 36px 1fr 130px 110px 90px 90px 60px 32px;
+    grid-template-columns: 36px 1fr 120px 100px 70px 90px 120px 130px 28px;
     gap: 0; padding: 10px 26px;
     border-bottom: 1px solid var(--border);
     align-items: center;
@@ -1321,6 +1330,8 @@
   .cr-orders { font-family: 'Syne', sans-serif; font-size: 13px; font-weight: 700; color: var(--text); }
   .cr-spent { font-size: 12.5px; font-weight: 700; color: var(--green); }
   .cr-tags { display: flex; flex-wrap: wrap; gap: 3px; }
+  .cr-saldo { display: flex; justify-content: flex-end; align-items: center; padding-right: 10px; font-size: 12px; }
+  .cr-saldo .cc-tag { white-space: nowrap; }
   .cr-chevron { color: var(--text3); display: flex; align-items: center; justify-content: flex-end; }
   .cr-chevron svg { width: 14px; height: 14px; }
 
@@ -1662,6 +1673,7 @@
   }
   .odm-pay-ok { background: var(--green-dim); color: var(--green); }
   .odm-pay-pend { background: var(--yellow-dim); color: var(--yellow); }
+  .odm-pay-none { background: var(--surface3); color: var(--text2); }
 
   /* actions row at bottom */
   .odm-actions {
@@ -2338,40 +2350,19 @@
         </div>
       </div>
 
-      <div class="ped-filter-bar">
-        <div class="ped-filter-tab active" id="pft-all" onclick="filterOrders('all',this)">
-          Todos <span class="pft-count" id="count-all">0</span>
-        </div>
-        <div class="ped-filter-tab" id="pft-to_deliver" onclick="filterOrders('to_deliver',this)">
-          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:13px;height:13px"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12"/></svg>
-          Por entregar <span class="pft-count" id="count-to_deliver">5</span>
-        </div>
-        <div class="ped-filter-tab" id="pft-delivered" onclick="filterOrders('delivered',this)">
-          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:13px;height:13px"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-          Entregados <span class="pft-count" id="count-delivered">5</span>
-        </div>
-        <div class="ped-filter-tab" id="pft-preparing" onclick="filterOrders('preparing',this)">
-          Preparando <span class="pft-count" id="count-preparing">0</span>
-        </div>
-        <div class="ped-filter-tab" id="pft-on_the_way" onclick="filterOrders('on_the_way',this)">
-          En camino <span class="pft-count" id="count-on_the_way">0</span>
-        </div>
-        <div class="ped-filter-tab" id="pft-today" onclick="filterOrders('today',this)">
-          Entregar hoy <span class="pft-count" id="count-today">0</span>
-        </div>
-        <div class="ped-filter-tab" id="pft-tomorrow" onclick="filterOrders('tomorrow',this)">
-          Mañana <span class="pft-count" id="count-tomorrow">0</span>
-        </div>
-        <div class="ped-filter-tab" id="pft-quote" onclick="filterOrders('quote',this)">
-          Presupuestos <span class="pft-count" id="count-quote">0</span>
-        </div>
-        <div class="ped-filter-tab" id="pft-cancelled" onclick="filterOrders('cancelled',this)">
-          Anulados <span class="pft-count" id="count-cancelled">0</span>
-        </div>
-        <div class="ped-filter-tab" id="pft-not_delivered" onclick="filterOrders('not_delivered',this)">
-          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:13px;height:13px"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>
-          No entregados <span class="pft-count" id="count-not_delivered">2</span>
-        </div>
+      <div class="ped-filter-bar" role="group" aria-label="Filtrar pedidos">
+        <button type="button" class="ped-filter-tab active" id="pft-all" aria-pressed="true" onclick="filterOrders('all',this)">Todos <span class="pft-count" id="count-all">0</span></button>
+        <button type="button" class="ped-filter-tab" id="pft-to_deliver" aria-pressed="false" onclick="filterOrders('to_deliver',this)">Por entregar <span class="pft-count" id="count-to_deliver">5</span></button>
+        <button type="button" class="ped-filter-tab" id="pft-preparing" aria-pressed="false" onclick="filterOrders('preparing',this)">Preparando <span class="pft-count" id="count-preparing">0</span></button>
+        <button type="button" class="ped-filter-tab" id="pft-on_the_way" aria-pressed="false" onclick="filterOrders('on_the_way',this)">En camino <span class="pft-count" id="count-on_the_way">0</span></button>
+        <button type="button" class="ped-filter-tab" id="pft-delivered" aria-pressed="false" onclick="filterOrders('delivered',this)">Entregados <span class="pft-count" id="count-delivered">5</span></button>
+        <button type="button" class="ped-filter-tab" id="pft-not_delivered" aria-pressed="false" onclick="filterOrders('not_delivered',this)">No entregados <span class="pft-count" id="count-not_delivered">2</span></button>
+        <span class="pft-sep" role="separator" aria-hidden="true"></span>
+        <button type="button" class="ped-filter-tab" id="pft-today" aria-pressed="false" onclick="filterOrders('today',this)">Entregar hoy <span class="pft-count" id="count-today">0</span></button>
+        <button type="button" class="ped-filter-tab" id="pft-tomorrow" aria-pressed="false" onclick="filterOrders('tomorrow',this)">Mañana <span class="pft-count" id="count-tomorrow">0</span></button>
+        <span class="pft-sep" role="separator" aria-hidden="true"></span>
+        <button type="button" class="ped-filter-tab" id="pft-quote" aria-pressed="false" onclick="filterOrders('quote',this)">Presupuestos <span class="pft-count" id="count-quote">0</span></button>
+        <button type="button" class="ped-filter-tab" id="pft-cancelled" aria-pressed="false" onclick="filterOrders('cancelled',this)">Anulados <span class="pft-count" id="count-cancelled">0</span></button>
       </div>
 
       <div class="orders-body" id="ordersList"></div>
@@ -2441,6 +2432,7 @@
         <div>Canal</div>
         <div>Pedidos</div>
         <div>Gastado</div>
+        <div style="text-align:right;">Saldo</div>
         <div>Etiquetas</div>
         <div></div>
       </div>
@@ -2583,7 +2575,7 @@
         </select>
       </div>
       <div class="stats-row" id="pagStats">
-        <div class="stat-card"><div class="stat-label">Cobrado del período</div><div class="stat-val" id="pagCobrado">$0.00</div><div class="stat-change" id="pagCobradoN">—</div></div>
+        <div class="stat-card"><div class="stat-label">Cobrado neto (pagos − reembolsos)</div><div class="stat-val" id="pagCobrado">$0.00</div><div class="stat-change" id="pagCobradoN">—</div></div>
         <div class="stat-card"><div class="stat-label">Nº de pagos</div><div class="stat-val" id="pagCount">0</div><div class="stat-change" id="pagCountN">—</div></div>
         <div class="stat-card"><div class="stat-label">Por cobrar total</div><div class="stat-val" id="pagPorCobrar">$0.00</div><div class="stat-change sc-warn" id="pagPorCobrarN">0 pedidos</div></div>
         <div class="stat-card"><div class="stat-label">Entregados sin cobrar</div><div class="stat-val" id="pagEntregadoSin">0</div><div class="stat-change sc-up" id="pagEntregadoSinN">ninguno</div></div>
@@ -2703,11 +2695,11 @@
 </div>
 
 <!-- FORMULARIO ÚNICO: pedido / presupuesto / editar (se abre desde el chat y desde Pedidos) -->
-<div class="modal-overlay" id="ofModal" onclick="if(event.target===this)closeOrderForm()" style="z-index:450;">
+<div class="modal-overlay" id="ofModal" onclick="if(event.target===this)ofRequestClose()" style="z-index:450;">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="ofTitle" style="width:680px;max-width:96vw;max-height:92vh;overflow-y:auto;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
-      <div class="modal-title" id="ofTitle">✦ Nuevo pedido</div>
-      <div onclick="closeOrderForm()" role="button" tabindex="0" aria-label="Cerrar" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();closeOrderForm();}" style="width:30px;height:30px;border-radius:8px;background:var(--surface3);border:1px solid var(--border);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text2);">
+      <div class="modal-title" id="ofTitle">Nuevo pedido</div>
+      <div onclick="ofRequestClose()" role="button" tabindex="0" aria-label="Cerrar" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();ofRequestClose();}" style="width:30px;height:30px;border-radius:8px;background:var(--surface3);border:1px solid var(--border);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text2);">
         <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="width:14px;height:14px"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
       </div>
     </div>
@@ -2721,8 +2713,9 @@
     <div class="of-sec">Cliente</div>
     <div class="form-field of-client-wrap">
       <input class="form-input" id="ofClient" type="text" autocomplete="off" placeholder="Busca un cliente o escribe el nombre de uno nuevo…"
-        oninput="ofClientInput(this.value)" onfocus="ofClientInput(this.value, true)" maxlength="200" aria-label="Cliente">
-      <div class="of-drop" id="ofClientDrop"></div>
+        oninput="ofClientInput(this.value)" onfocus="ofClientInput(this.value, true)" onkeydown="ofClientKey(event)" maxlength="200" aria-label="Cliente"
+        role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" aria-controls="ofClientDrop">
+      <div class="of-drop" id="ofClientDrop" role="listbox" aria-label="Clientes"></div>
       <div class="of-hint" id="ofClientHint"></div>
     </div>
     <div class="form-row" id="ofPhoneRow" style="display:none;">
@@ -2775,7 +2768,7 @@
     <div class="of-err" id="ofErr" role="alert"></div>
 
     <div class="modal-footer">
-      <button class="btn-ghost" onclick="closeOrderForm()">Cancelar</button>
+      <button type="button" class="btn-ghost" onclick="ofRequestClose()">Cancelar</button>
       <button class="btn-primary" id="ofSaveBtn" onclick="ofSubmit()">
         <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="width:13px;height:13px"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
         <span id="ofSaveLabel">Crear pedido</span>
@@ -3242,7 +3235,7 @@
             <button class="btn-ghost green odm-reg-pay" id="odmRegPayBtn" onclick="openPaymentDialog(currentDetailId)">Registrar pago</button>
           </div>
           <div class="odm-cobro-row">
-            <div class="odm-cobro-tile"><div class="k">Total</div><div class="v" id="odmCobTotal">—</div></div>
+            <div class="odm-cobro-tile"><div class="k" id="odmCobTotalLbl">Total</div><div class="v" id="odmCobTotal">—</div></div>
             <div class="odm-cobro-tile"><div class="k">Cobrado</div><div class="v" id="odmCobPaid" style="color:var(--green);">—</div></div>
             <div class="odm-cobro-tile"><div class="k">Saldo</div><div class="v" id="odmCobBalance">—</div></div>
           </div>
@@ -4028,7 +4021,11 @@ async function addZone() {
   const cur = Array.isArray(tenantSettings.zones) ? tenantSettings.zones : [];
   if (cur.some(x => x.name.toLowerCase() === name.toLowerCase())) { flagField('zoneName'); showToast('Esa zona ya existe', 'error'); return; }
   if (cur.length >= 50) { showToast('Máximo 50 zonas', 'error'); return; }
-  if (await saveZones([...cur, z])) showToast('Zona «' + name + '» agregada');
+  if (_zoneBusy) return;
+  const addBtn = document.getElementById('zoneAddBtn'); if (addBtn) addBtn.disabled = true;
+  try {
+    if (await saveZones([...cur, z])) showToast('Zona «' + name + '» agregada');
+  } finally { if (addBtn) addBtn.disabled = false; }
   rerenderSettingsPanel();
 }
 async function removeZone(i) {
@@ -4053,7 +4050,9 @@ function loadTenantSettings() {
   _tsLoading = (async () => {
     const putMark = _tsPutSeq;
     try {
-      const s = await apiJson('GET', '/api/tenant/settings');
+      let tzQ = '';
+      try { const tz = Intl.DateTimeFormat().resolvedOptions().timeZone; if (tz) tzQ = '?tz=' + encodeURIComponent(tz); } catch (e) {}
+      const s = await apiJson('GET', '/api/tenant/settings' + tzQ);
       if (_tsPutting || putMark !== _tsPutSeq) {
         // Se guardó algo mientras llegaba esta respuesta: puede ser anterior al guardado, se descarta
         return !!tenantSettings;
@@ -4350,7 +4349,7 @@ async function convertQuote() {
   const o = orders.find(x => x.id === currentDetailId);
   if (!o || o.kind !== 'quote' || o.cancelled || _cycleBusy) return;
   const realId = orderRealIds[o.id];
-  if (!realId) { showToast('⚠ Este presupuesto no está guardado en el servidor', 'error'); return; }
+  if (!realId) { showToast('Este presupuesto no está guardado en el servidor', 'error'); return; }
   const yes = await askConfirm({ title: 'Convertir en pedido', text: 'El presupuesto ' + o.id + ' pasará a ser un pedido y recibirá el siguiente número de pedido. Desde ahí podrás registrar cobros.', confirmLabel: 'Convertir en pedido' });
   if (!yes) return;
   _cycleBusy = true;
@@ -4363,9 +4362,9 @@ async function convertQuote() {
     currentDetailId = r.order.orderNumber;
     refreshAfterOrderChange(r.order.orderNumber);
     openOrderDetail(r.order.orderNumber);
-    showToast('Presupuesto ' + oldId + ' convertido en el pedido ' + r.order.orderNumber + ' ✓');
+    showToast('Presupuesto ' + oldId + ' convertido en el pedido ' + r.order.orderNumber);
   } catch (err) {
-    showToast('⚠ No se pudo convertir el presupuesto (' + err.message + ')', 'error');
+    showToast('No se pudo convertir el presupuesto (' + err.message + ')', 'error');
   } finally { _cycleBusy = false; }
 }
 
@@ -4374,22 +4373,42 @@ function moneyChoiceHtml(o, prefix) {
   const names = payMethodNames();
   const def = (orderExtras[o.id] || {}).pay;
   const hasClient = !!o.clientId;
-  return '<div class="form-field"><div class="form-label">Si hay dinero que devolver</div>' +
+  return '<fieldset class="form-field of-fieldset"><legend class="form-label">Si hay dinero que devolver</legend>' +
     '<label class="of-check" style="margin-top:4px;"><input type="radio" name="' + prefix + 'Res" value="refund" checked> Reembolsarlo al cliente</label>' +
     '<div style="margin:6px 0 4px 24px;"><select class="form-input" data-f="method" aria-label="Método del reembolso">' +
       names.map(n => '<option value="' + escHtml(n) + '"' + (n === def ? ' selected' : '') + '>' + escHtml(n) + '</option>').join('') + '</select></div>' +
-    '<label class="of-check" style="margin-top:6px;' + (hasClient ? '' : 'opacity:.55;') + '"><input type="radio" name="' + prefix + 'Res" value="credit"' + (hasClient ? '' : ' disabled') + '> Dejarlo como saldo a favor del cliente' + (hasClient ? '' : ' (el pedido no tiene ficha de cliente)') + '</label></div>';
+    '<label class="of-check" style="margin-top:6px;' + (hasClient ? '' : 'opacity:.55;') + '"><input type="radio" name="' + prefix + 'Res" value="credit"' + (hasClient ? '' : ' disabled') + '> Dejarlo como saldo a favor del cliente' + (hasClient ? '' : ' (el pedido no tiene ficha de cliente)') + '</label></fieldset>';
+}
+// El método del reembolso solo aplica si se elige reembolsar (con saldo a favor se desactiva)
+function bindMoneyChoice(ov) {
+  const sel = ov.querySelector('select[data-f="method"]');
+  if (!sel) return;
+  const sync = () => { const r = ov.querySelector('input[type="radio"][value="credit"]'); sel.disabled = !!(r && r.checked); };
+  ov.querySelectorAll('input[type="radio"][value="refund"], input[type="radio"][value="credit"]').forEach(r => r.addEventListener('change', sync));
+  sync();
 }
 
+let _cnDlgOpen = false, _retDlgOpen = false; // una sola ventana de anulación / devolución a la vez (doble clic)
 async function openCancelDialog() {
+  if (_cnDlgOpen) return;
+  _cnDlgOpen = true;
+  let opened = false;
+  try { opened = await openCancelDialogInner(); } finally { if (!opened) _cnDlgOpen = false; }
+}
+async function openCancelDialogInner() {
   const o = orders.find(x => x.id === currentDetailId);
-  if (!o || o.cancelled || _cycleBusy) return;
+  if (!o || o.cancelled || _cycleBusy) return false;
   const realId = orderRealIds[o.id];
-  if (!realId) { showToast('⚠ Este documento no está guardado en el servidor', 'error'); return; }
+  if (!realId) { showToast('Este documento no está guardado en el servidor', 'error'); return false; }
   const quote = o.kind === 'quote';
+  // Lo cobrado puede haber cambiado desde otro dispositivo: se relee antes de decidir si hay dinero que devolver
+  if (!quote) {
+    try { await syncOrderPayState(o.id); } catch (e) { /* si falla, se sigue con lo que hay; el servidor lo validará */ }
+    if (o.cancelled || currentDetailId !== o.id) return false;
+  }
   const money = !quote && o.paid > 0.004;
   let busy = false, done = false;
-  const finish = () => { if (done) return; done = true; d.close(); };
+  const finish = () => { if (done) return; done = true; _cnDlgOpen = false; d.close(); };
   const d = _openDialog(
     '<div class="modal-title">Anular ' + (quote ? 'presupuesto ' : 'pedido ') + escHtml(o.id) + '</div>' +
     '<div class="modal-sub">Quedará en el historial con su motivo. ' + (quote ? '' : 'Un pedido anulado deja de contar en ventas, informes y saldo del cliente. ') + 'No se puede deshacer.</div>' +
@@ -4398,6 +4417,7 @@ async function openCancelDialog() {
     '<div class="dlg-error" data-err></div>' +
     '<div class="modal-footer"><button class="btn-ghost" data-act="no">Volver</button><button class="btn-danger" data-act="yes">Anular ' + (quote ? 'presupuesto' : 'pedido') + '</button></div>',
     () => { if (!busy) finish(); }, '#cnReason');
+  bindMoneyChoice(d.ov);
   const q = k => d.ov.querySelector('[data-f="' + k + '"]');
   const err = d.ov.querySelector('[data-err]'), yes = d.ov.querySelector('[data-act="yes"]'), no = d.ov.querySelector('[data-act="no"]');
   no.onclick = () => { if (!busy) finish(); };
@@ -4419,41 +4439,66 @@ async function openCancelDialog() {
       storeServerOrder(r.order, 'replace');
       finish();
       refreshAfterOrderChange(r.order.orderNumber);
-      if (money) refreshClientsAfterMoney();
-      showToast((quote ? 'Presupuesto ' : 'Pedido ') + r.order.orderNumber + ' anulado' + (money ? (body.resolution === 'credit' ? ' · quedó como saldo a favor' : ' · reembolso registrado') : ''));
+      let note = '';
+      if (money) {
+        refreshClientsAfterMoney();
+        // Con las filas de reembolso: cuánto salió en dinero y cuánto volvió como saldo a favor
+        let rows = Array.isArray(r.refunds) ? r.refunds : null;
+        if (!rows) { try { rows = ((await apiJson('GET', '/api/orders/' + encodeURIComponent(realId) + '/returns')).refunds || []).filter(x => !x.creditNoteId); } catch (e2) { rows = null; } }
+        if (rows && rows.length) {
+          const cash = rows.filter(x => x.method !== 'Saldo a favor').reduce((s, x) => s + (Number(x.amountBase) || 0), 0);
+          const cred = rows.filter(x => x.method === 'Saldo a favor').reduce((s, x) => s + (Number(x.amountBase) || 0), 0);
+          note = ' · ' + [cash > 0.004 ? fmtMoney(cash) + ' reembolsado' : '', cred > 0.004 ? fmtMoney(cred) + ' vuelve al saldo a favor' : ''].filter(Boolean).join(' · ');
+        } else note = body.resolution === 'credit' ? ' · quedó como saldo a favor' : ' · reembolso registrado';
+      }
+      showToast((quote ? 'Presupuesto ' : 'Pedido ') + r.order.orderNumber + ' anulado' + note);
     } catch (e) {
       err.textContent = (e && e.message) || 'No se pudo anular';
       busy = false; yes.disabled = false; no.disabled = false;
+      // Si el pedido tenía cobros que esta ventana no mostraba, se relee y se vuelve a pintar con la opción del dinero
+      if (!money && !quote) {
+        let again = false;
+        try { await syncOrderPayState(o.id); again = o.paid > 0.004; } catch (e3) {}
+        if (again) { finish(); showToast('Este pedido tiene cobros: elige qué hacer con el dinero', 'error'); setTimeout(openCancelDialog, 0); }
+      }
     } finally { _cycleBusy = false; }
   };
   yes.onclick = submit;
   d.ov.querySelectorAll('input[type="text"],input:not([type])').forEach(i => i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }));
+  return true;
 }
 
 // Devolución: por artículos (con cantidades) o por un importe libre. El servidor calcula el importe exacto.
 async function openReturnDialog() {
+  if (_retDlgOpen) return;
+  _retDlgOpen = true; // se activa antes de cualquier espera: un segundo clic no abre otra ventana
+  let opened = false;
+  try { opened = await openReturnDialogInner(); } finally { if (!opened) _retDlgOpen = false; }
+}
+async function openReturnDialogInner() {
   const o = orders.find(x => x.id === currentDetailId);
-  if (!o || o.kind !== 'order' || o.cancelled || _cycleBusy) return;
+  if (!o || o.kind !== 'order' || o.cancelled || _cycleBusy) return false;
   const realId = orderRealIds[o.id];
-  if (!realId) { showToast('⚠ Este pedido no está guardado en el servidor', 'error'); return; }
+  if (!realId) { showToast('Este pedido no está guardado en el servidor', 'error'); return false; }
   let prev;
   try { prev = await apiJson('GET', '/api/orders/' + encodeURIComponent(realId) + '/returns'); }
-  catch (e) { showToast('⚠ No se pudieron leer las devoluciones anteriores (' + e.message + ')', 'error'); return; }
+  catch (e) { showToast('No se pudieron leer las devoluciones anteriores (' + e.message + ')', 'error'); return false; }
+  if (currentDetailId !== o.id) return false;
   const returned = {};
   (prev.creditNotes || []).forEach(n => (n.items || []).forEach(i => { if (i.orderItemId) returned[i.orderItemId] = (returned[i.orderItemId] || 0) + i.qty; }));
   const rows = (o.items || []).filter(i => i.id).map(i => ({ ...i, left: Math.max(0, (Number(i.qty) || 0) - (returned[i.id] || 0)) }));
   const room = _round2(o.total); // lo que queda del pedido (total efectivo)
-  if (room <= 0.004) { showToast('Este pedido ya fue devuelto por completo', 'error'); return; }
+  if (room <= 0.004) { showToast('Este pedido ya fue devuelto por completo', 'error'); return false; }
   let mode = rows.some(r => r.left > 0) ? 'items' : 'amount';
   let busy = false, done = false;
-  const finish = () => { if (done) return; done = true; d.close(); };
+  const finish = () => { if (done) return; done = true; _retDlgOpen = false; d.close(); };
   const itemsHtml = rows.map((r, i) => '<div class="of-item" style="margin-bottom:6px;"><div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:13px;">' + escHtml(r.emoji || '📦') + ' ' + escHtml(r.name) + '</div>' +
     '<div style="font-size:11px;color:var(--text3);">' + escHtml(r.detail || '') + ' · ' + fmtMoney(r.unitPrice) + ' c/u · quedan ' + r.left + ' de ' + r.qty + '</div></div>' +
     '<div style="width:90px;"><input class="form-input" type="number" min="0" max="' + r.left + '" step="1" value="0" data-rq="' + i + '" ' + (r.left ? '' : 'disabled') + ' aria-label="Unidades a devolver de ' + escHtml(r.name) + '"></div></div>').join('');
   const d = _openDialog(
     '<div class="modal-title">Devolución · ' + escHtml(o.id) + '</div>' +
     '<div class="modal-sub">Se crea una nota de crédito. Si el pedido ya estaba cobrado por encima de su nuevo total, el exceso se reembolsa o queda como saldo a favor. Una devolución no se puede deshacer: un error se corrige con una operación nueva.</div>' +
-    '<div class="of-kind"><button type="button" data-mode="items">Por artículos</button><button type="button" data-mode="amount">Por importe</button></div>' +
+    '<div class="of-kind" role="group" aria-label="Cómo devolver"><button type="button" data-mode="items" aria-pressed="false">Por artículos</button><button type="button" data-mode="amount" aria-pressed="false">Por importe</button></div>' +
     '<div data-pane="items">' + (itemsHtml || '<div class="of-hint">Este pedido no tiene artículos detallados: usa «Por importe».</div>') + '<div class="of-hint" data-est></div></div>' +
     '<div data-pane="amount" style="display:none;"><div class="form-field"><label class="form-label" for="rtAmount">Importe a devolver (máx. ' + fmtMoney(room) + ')</label><input class="form-input" id="rtAmount" data-f="amount" type="number" min="0" step="0.01" placeholder="0.00"></div></div>' +
     '<div class="form-field"><label class="form-label" for="rtReason">Motivo</label><input class="form-input" id="rtReason" data-f="reason" maxlength="300" autocomplete="off" placeholder="Ej: talla equivocada"></div>' +
@@ -4461,13 +4506,14 @@ async function openReturnDialog() {
     '<div class="dlg-error" data-err></div>' +
     '<div class="modal-footer"><button class="btn-ghost" data-act="no">Cancelar</button><button class="btn-primary" data-act="yes">Registrar devolución</button></div>',
     () => { if (!busy) finish(); }, '.of-kind button');
+  bindMoneyChoice(d.ov);
   const q = k => d.ov.querySelector('[data-f="' + k + '"]');
   const err = d.ov.querySelector('[data-err]'), yes = d.ov.querySelector('[data-act="yes"]'), no = d.ov.querySelector('[data-act="no"]');
   const taxF = 1 + (Number(o.taxRate) || 0) / 100;
   const discF = o.subtotal > 0 ? Math.max(0, 1 - (Number((orderExtras[o.id] || {}).discount) || 0) / o.subtotal) : 1;
   const readItems = () => rows.map((r, i) => { const el = d.ov.querySelector('[data-rq="' + i + '"]'); return { id: r.id, qty: el ? parseInt(el.value, 10) || 0 : 0, r }; }).filter(x => x.qty > 0);
   const refreshMode = () => {
-    d.ov.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+    d.ov.querySelectorAll('[data-mode]').forEach(b => { const on = b.dataset.mode === mode; b.classList.toggle('active', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
     d.ov.querySelectorAll('[data-pane]').forEach(p => { p.style.display = p.dataset.pane === mode ? '' : 'none'; });
     const est = d.ov.querySelector('[data-est]');
     if (est) { const tot = readItems().reduce((s, x) => s + x.qty * x.r.unitPrice * discF * taxF, 0); est.textContent = tot > 0 ? 'Importe aproximado: ' + fmtMoney(tot) + ' (el servidor calcula el exacto, con su parte de descuento e impuesto)' : ''; }
@@ -4511,6 +4557,7 @@ async function openReturnDialog() {
     } finally { _cycleBusy = false; }
   };
   yes.onclick = submit;
+  return true;
 }
 
 // ── Detalle del pedido: devoluciones y reembolsos ──
@@ -4686,7 +4733,8 @@ async function loadOrderHistory(orderId) {
 // ═══════════════════════════════════════════════════════════════
 const _round2 = n => Math.round((Number(n) || 0) * 100) / 100;
 const OF = { mode: 'create', kind: 'order', orderId: null, realId: null, convoKey: null, items: [], clientId: null, linkConvo: false,
-  busy: false, pick: null, taxRate: 0, taxLabel: 'IVA', edited: false, startingShipping: null, locked: false };
+  busy: false, pick: null, taxRate: 0, taxLabel: 'IVA', edited: false, startingShipping: null, locked: false,
+  origClientId: null, opener: null, sig0: '', closing: false, dropIdx: -1, opening: false, clientLocked: false };
 
 function ofTaxSetting() {
   const t = tenantSettings && tenantSettings.tax;
@@ -4697,20 +4745,26 @@ const ofVal = id => ofEl(id).value;
 
 async function openOrderForm(opts) {
   opts = opts || {};
-  if (ofEl('ofModal').classList.contains('visible')) return;
+  if (ofEl('ofModal').classList.contains('visible') || OF.opening) return;
+  const opener = document.activeElement;
+  OF.opening = true;
+  try { await ofOpenInner(opts, opener); } finally { OF.opening = false; }
+}
+async function ofOpenInner(opts, opener) {
   if (!tenantSettings) { try { await loadTenantSettings(); } catch (e) {} }
   const edit = opts.mode === 'edit';
   let o = null;
   if (edit) {
     o = orders.find(x => x.id === (opts.orderId || currentDetailId));
     if (!o) return;
-    if (!orderRealIds[o.id]) { showToast('⚠ Este documento no está guardado en el servidor'); return; }
+    if (!orderRealIds[o.id]) { showToast('Este documento no está guardado en el servidor', 'error'); return; }
     if (o.cancelled) { showToast('Un pedido anulado ya no se puede modificar', 'error'); return; }
   }
   const convo = !edit && opts.convoKey ? convos[opts.convoKey] : null;
   Object.assign(OF, { mode: edit ? 'edit' : 'create', kind: edit ? o.kind : (opts.kind === 'quote' ? 'quote' : 'order'),
     orderId: edit ? o.id : null, realId: edit ? orderRealIds[o.id] : null, convoKey: convo ? opts.convoKey : null,
-    items: [], clientId: null, linkConvo: false, busy: false, pick: null, edited: false });
+    items: [], clientId: null, linkConvo: false, busy: false, pick: null, edited: false,
+    origClientId: edit ? (o.clientId || null) : null, opener: opener || null, closing: false, dropIdx: -1 });
   // Con notas de crédito los artículos, el envío y el descuento ya no se tocan (las devoluciones dependen de ellos)
   OF.locked = !!(edit && o.credited > 0.004);
   const tax = ofTaxSetting();
@@ -4731,6 +4785,7 @@ async function openOrderForm(opts) {
     ofEl('ofClient').value = o.client || '';
     const fic = o.clientId && clientsDB.find(c => c.id === o.clientId);
     if (fic) ofPickClient(fic.id, true);
+    else if (o.clientId) OF.clientId = o.clientId; // la ficha puede no estar cargada: el pedido conserva su vínculo
   } else if (convo) {
     const existing = findClientForConvo(convo);
     if (existing) { ofPickClient(existing.id, true); OF.linkConvo = true; }
@@ -4739,6 +4794,9 @@ async function openOrderForm(opts) {
       if (convo.platform === 'wa' && convo.waId) ofEl('ofPhone').value = '+' + convo.waId;
     }
   }
+  // El servidor rechaza cambiar el cliente de un pedido con devoluciones o pagos con saldo a favor
+  OF.clientLocked = !!(edit && (o.credited > 0.004 || (_odmPayments || []).some(p => p.method === 'Saldo a favor')));
+  ofEl('ofClient').disabled = OF.clientLocked;
   ofClientRefreshHint();
 
   // Artículos
@@ -4765,6 +4823,8 @@ async function openOrderForm(opts) {
   ofFillSelect('ofPay', payMethodNames(), clean(ex.pay), '— Por confirmar —');
   const zones = tenantSettings && Array.isArray(tenantSettings.zones) ? tenantSettings.zones : [];
   ofFillSelect('ofZone', zones.map(z => z.name), edit ? (o.deliveryZone || '') : '', '— Sin zona —');
+  // Sin zonas creadas el selector no aporta nada: se oculta (se crean en Ajustes → Impuesto y zonas)
+  ofEl('ofZone').parentElement.style.display = (zones.length || (edit && o.deliveryZone)) ? '' : 'none';
   ofEl('ofDate').value = edit ? (o.deliveryDate || '') : '';
   ofEl('ofAddress').value = clean(ex.address);
   ofEl('ofNotes').value = ex.notes || '';
@@ -4781,14 +4841,56 @@ async function openOrderForm(opts) {
   ofEl('ofShipping').disabled = OF.locked; ofEl('ofDiscount').disabled = OF.locked;
   ofEl('ofAddProduct').parentElement.style.display = OF.locked ? 'none' : '';
   ofEl('ofModal').classList.add('visible');
+  OF.sig0 = ofSignature();
   if (edit) { ofEl('orderDetailOverlay').classList.remove('visible'); }
   setTimeout(() => { try { (ofEl('ofClient').value ? ofEl('ofAddProduct') : ofEl('ofClient')).focus(); } catch (e) {} }, 60);
 }
 
+// Huella de lo escrito en el formulario: sirve para saber si hay algo que perder al cerrar
+function ofSignature() {
+  const ids = ['ofClient', 'ofPhone', 'ofDelivery', 'ofPay', 'ofZone', 'ofDate', 'ofAddress', 'ofNotes', 'ofShipping', 'ofDiscount', 'ofCobroMode', 'ofCobroAmt'];
+  return JSON.stringify([ids.map(id => (ofEl(id) ? ofEl(id).value : '')), OF.items.map(i => [i.name, i.detail, i.qty, i.unitPrice, i.emoji])]);
+}
+async function ofRequestClose() {
+  if (!ofEl('ofModal').classList.contains('visible') || OF.closing || OF.busy) return;
+  if (ofSignature() !== OF.sig0) {
+    OF.closing = true;
+    let ok = false;
+    try {
+      ok = await askConfirm({ title: '¿Descartar este ' + (OF.kind === 'quote' ? 'presupuesto' : 'pedido') + '?', text: OF.mode === 'edit' ? 'Se perderán los cambios que hiciste.' : 'Se perderá lo que escribiste.', confirmLabel: 'Descartar', cancelLabel: 'Seguir editando', danger: true });
+    } finally { OF.closing = false; }
+    if (!ok) return;
+  }
+  closeOrderForm();
+}
+// Escape cierra (con confirmación si hay datos) y el foco del teclado no sale del formulario mientras está abierto
+document.addEventListener('keydown', e => {
+  const m = document.getElementById('ofModal');
+  if (!m || !m.classList.contains('visible') || document.querySelector('.dlg-overlay')) return;
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    const drop = document.getElementById('ofClientDrop');
+    if (drop && drop.classList.contains('open')) { ofDropOpen(false); return; }
+    ofRequestClose();
+    return;
+  }
+  if (e.key !== 'Tab') return;
+  const box = m.querySelector('.modal');
+  const items = [...box.querySelectorAll('button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex="0"]')]
+    .filter(el => el.offsetParent !== null);
+  if (!items.length) return;
+  const first = items[0], last = items[items.length - 1];
+  if (!box.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+  else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+}, true);
+
 function closeOrderForm(reopenDetail = true) {
   ofEl('ofModal').classList.remove('visible');
-  ofEl('ofClientDrop').classList.remove('open');
+  ofDropOpen(false);
   OF.pick = null;
+  const op = OF.opener; OF.opener = null;
+  if (op && op.isConnected && typeof op.focus === 'function' && !(OF.mode === 'edit' && reopenDetail)) { try { op.focus(); } catch (e) {} }
   if (OF.mode === 'edit' && reopenDetail && currentDetailId) {
     openOrderDetail(currentDetailId);
     ofEl('orderDetailOverlay').classList.add('visible');
@@ -4801,8 +4903,8 @@ function ofApplyKind() {
   ofEl('ofKindOrder').classList.toggle('active', !q); ofEl('ofKindQuote').classList.toggle('active', q);
   ofEl('ofKindOrder').setAttribute('aria-pressed', String(!q)); ofEl('ofKindQuote').setAttribute('aria-pressed', String(q));
   ofEl('ofTitle').textContent = edit
-    ? '✦ Editar ' + (q ? 'presupuesto ' : 'pedido ') + OF.orderId
-    : (q ? '✦ Nuevo presupuesto' : '✦ Nuevo pedido');
+    ? 'Editar ' + (q ? 'presupuesto ' : 'pedido ') + OF.orderId
+    : (q ? 'Nuevo presupuesto' : 'Nuevo pedido');
   ofEl('ofSaveLabel').textContent = edit ? 'Guardar cambios' : (q ? 'Guardar presupuesto' : 'Crear pedido');
   // Un presupuesto no admite cobros; el cobro inicial solo existe al crear un pedido
   ofEl('ofCobroWrap').style.display = (!edit && !q) ? '' : 'none';
@@ -4851,6 +4953,7 @@ function ofClientRefreshHint() {
     const debt = clientBalanceMap()[cl.id] || 0;
     if (debt > 0.004) bits.push('Debe ' + fmtMoney(debt));
   }
+  if (OF.clientLocked) { hint.textContent = 'No se puede cambiar el cliente: tiene devoluciones o saldo a favor'; return; }
   hint.textContent = cl ? ('Cliente con ficha' + (bits.length ? ' · ' + bits.join(' · ') : ''))
     : isNew ? (OF.mode === 'edit' ? 'Sin ficha: el pedido solo guarda este nombre.' : 'Cliente nuevo: se creará su ficha al guardar.') : '';
 }
@@ -4863,25 +4966,61 @@ function ofClientInput(q, onlyOpen) {
   const low = val.trim().toLowerCase();
   const list = clientsDB.filter(c => isServerId(c.id) && (!low || c.name.toLowerCase().includes(low) || (c.phone || '').includes(low) || (c.ig || '').toLowerCase().includes(low))).slice(0, 30);
   const drop = ofEl('ofClientDrop');
-  if (OF.clientId && onlyOpen) { drop.classList.remove('open'); ofClientRefreshHint(); return; }
-  if (!list.length && val.trim()) { drop.classList.remove('open'); ofClientRefreshHint(); return; } // nombre nuevo: sin lista vacía encima
-  drop.innerHTML = list.length ? list.map(c => {
+  if (OF.clientId && onlyOpen) { ofDropOpen(false); ofClientRefreshHint(); return; }
+  if (!list.length && val.trim()) { ofDropOpen(false); ofClientRefreshHint(); return; } // nombre nuevo: sin lista vacía encima
+  drop.innerHTML = list.length ? list.map((c, n) => {
     const initials = c.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
     const contact = c.phone || c.ig || '';
-    return '<div class="cli-drop-item" role="option" tabindex="0" onmousedown="event.preventDefault();ofPickClient(' + escJsAttr(c.id) + ')">' +
+    return '<div class="cli-drop-item" role="option" id="ofCliOpt' + n + '" aria-selected="false" tabindex="-1" onmousedown="event.preventDefault();ofPickClient(' + escJsAttr(c.id) + ')" onkeydown="ofClientOptKey(event,' + escJsAttr(c.id) + ')">' +
       '<div class="cli-drop-av" style="background:' + escHtml(c.grad) + '">' + escHtml(initials) + '</div>' +
       '<div style="flex:1;min-width:0;"><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escHtml(c.name) + '</div>' +
       (contact ? '<div style="font-size:11px;color:var(--text2);">' + escHtml(contact) + '</div>' : '') + '</div></div>';
   }).join('') : '<div class="of-drop-empty">' + (val.trim() ? 'Sin coincidencias: se creará un cliente nuevo con ese nombre.' : 'Aún no hay clientes.') + '</div>';
-  drop.classList.add('open');
+  OF.dropIdx = -1;
+  ofDropOpen(true);
   ofClientRefreshHint();
+}
+// Abre o cierra la lista de clientes y mantiene los atributos del combobox
+function ofDropOpen(open) {
+  const drop = ofEl('ofClientDrop'), inp = ofEl('ofClient');
+  if (!drop || !inp) return;
+  drop.classList.toggle('open', !!open);
+  inp.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (!open) { OF.dropIdx = -1; inp.removeAttribute('aria-activedescendant'); }
+}
+function ofDropMove(step) {
+  const opts = [...ofEl('ofClientDrop').querySelectorAll('.cli-drop-item')];
+  if (!opts.length) return;
+  OF.dropIdx = (OF.dropIdx + step + opts.length) % opts.length;
+  opts.forEach((el, n) => { const on = n === OF.dropIdx; el.setAttribute('aria-selected', on ? 'true' : 'false'); el.classList.toggle('active', on); });
+  const cur = opts[OF.dropIdx];
+  ofEl('ofClient').setAttribute('aria-activedescendant', cur.id);
+  cur.scrollIntoView({ block: 'nearest' });
+}
+function ofClientKey(e) {
+  const drop = ofEl('ofClientDrop');
+  const open = drop.classList.contains('open');
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (!open) ofClientInput(ofVal('ofClient'));
+    ofDropMove(e.key === 'ArrowDown' ? 1 : -1);
+  } else if (e.key === 'Enter' && open && OF.dropIdx >= 0) {
+    e.preventDefault();
+    const cur = drop.querySelectorAll('.cli-drop-item')[OF.dropIdx];
+    if (cur) cur.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+  }
+}
+// Con el foco sobre una opción (clic o Tab): Enter o Espacio la eligen
+function ofClientOptKey(e, id) {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ofPickClient(id); try { ofEl('ofClient').focus(); } catch (x) {} }
+  else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); ofDropMove(e.key === 'ArrowDown' ? 1 : -1); try { ofEl('ofClient').focus(); } catch (x) {} }
 }
 function ofPickClient(id, quiet) {
   const c = clientsDB.find(x => x.id === id);
   if (!c || !isServerId(c.id)) return;
   OF.clientId = c.id;
   ofEl('ofClient').value = c.name;
-  ofEl('ofClientDrop').classList.remove('open');
+  ofDropOpen(false);
   const convo = OF.convoKey ? convos[OF.convoKey] : null;
   OF.linkConvo = !!(convo && findClientForConvo(convo) && findClientForConvo(convo).id === c.id);
   ofFillAddressList();
@@ -4894,9 +5033,17 @@ function ofFillAddressList() {
   const addrs = c ? [c.address, ...(c.extraAddresses || [])].filter(Boolean) : [];
   ofEl('ofAddrList').innerHTML = addrs.map(a => '<option value="' + escHtml(a) + '">').join('');
 }
+// Interruptores (.s-toggle con role=switch): Enter/Espacio los activan y aria-checked sigue a la clase 'on'
+document.addEventListener('keydown', e => {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target && e.target.matches && e.target.matches('.s-toggle[role="switch"]')) { e.preventDefault(); e.target.click(); }
+});
+new MutationObserver(muts => muts.forEach(m => {
+  const el = m.target;
+  if (el.classList && el.classList.contains('s-toggle') && el.getAttribute('role') === 'switch') el.setAttribute('aria-checked', el.classList.contains('on') ? 'true' : 'false');
+})).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ['class'] });
 document.addEventListener('click', e => {
   const drop = document.getElementById('ofClientDrop');
-  if (drop && drop.classList.contains('open') && e.target !== document.getElementById('ofClient') && !drop.contains(e.target)) drop.classList.remove('open');
+  if (drop && drop.classList.contains('open') && e.target !== document.getElementById('ofClient') && !drop.contains(e.target)) ofDropOpen(false);
 });
 
 // ── Artículos ──
@@ -4966,19 +5113,19 @@ function ofRenderItems() {
   if (!OF.items.length) { box.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:6px 2px;">Sin artículos: elige uno del catálogo o añade un artículo libre.</div>'; ofRecalc(); return; }
   box.innerHTML = OF.items.map((it, i) =>
     '<div class="of-item">' +
-    '<input class="form-input" style="padding:7px 4px;text-align:center;width:40px;flex:none;" value="' + escHtml(it.emoji) + '" maxlength="4" oninput="OF.items[' + i + '].emoji=this.value" title="Emoji" aria-label="Emoji">' +
-    '<div style="flex:2;min-width:0;display:flex;flex-direction:column;gap:4px;">' +
+    '<input class="form-input of-i-emoji" value="' + escHtml(it.emoji) + '" maxlength="4" oninput="OF.items[' + i + '].emoji=this.value" title="Emoji" aria-label="Emoji">' +
+    '<div class="of-i-main">' +
       '<input class="form-input" data-of="name" value="' + escHtml(it.name) + '" placeholder="Artículo" maxlength="200" oninput="OF.items[' + i + '].name=this.value" aria-label="Artículo">' +
       '<input class="form-input" value="' + escHtml(it.detail) + '" placeholder="Talla, color… (opcional)" maxlength="300" oninput="OF.items[' + i + '].detail=this.value" aria-label="Detalle">' +
     '</div>' +
-    '<div style="width:62px;flex:none;"><div class="form-label" style="font-size:9px;margin-bottom:2px;">Cant.</div><input class="form-input" type="number" min="1" step="1" value="' + it.qty + '" oninput="OF.items[' + i + '].qty=parseInt(this.value,10)||0;ofRecalc()" aria-label="Cantidad"></div>' +
-    '<div style="width:84px;flex:none;"><div class="form-label" style="font-size:9px;margin-bottom:2px;">Precio u.</div><input class="form-input" type="number" min="0" step="0.01" value="' + _round2(it.unitPrice) + '" oninput="OF.items[' + i + '].unitPrice=parseFloat(this.value)||0;ofRecalc()" aria-label="Precio unitario"></div>' +
-    '<div id="ofLine' + i + '" style="width:66px;flex:none;text-align:right;font-size:13px;font-weight:700;color:var(--green);"></div>' +
-    '<div onclick="ofRemoveItem(' + i + ')" role="button" tabindex="0" aria-label="Quitar artículo" onkeydown="if(event.key===\'Enter\'){ofRemoveItem(' + i + ')}" title="Quitar" style="width:26px;height:26px;flex:none;border-radius:7px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text3);font-size:16px;" onmouseover="this.style.color=\'var(--red)\'" onmouseout="this.style.color=\'var(--text3)\'">×</div>' +
+    '<div class="of-i-qty"><div class="form-label of-i-lbl">Cant.</div><input class="form-input" type="number" min="1" step="1" value="' + it.qty + '" oninput="OF.items[' + i + '].qty=parseInt(this.value,10)||0;ofRecalc()" aria-label="Cantidad"></div>' +
+    '<div class="of-i-price"><div class="form-label of-i-lbl">Precio u.</div><input class="form-input" type="number" min="0" step="0.01" value="' + _round2(it.unitPrice) + '" oninput="OF.items[' + i + '].unitPrice=parseFloat(this.value)||0;ofRecalc()" aria-label="Precio unitario"></div>' +
+    '<div id="ofLine' + i + '" class="of-i-line"></div>' +
+    '<button type="button" class="of-x" onclick="ofRemoveItem(' + i + ')" aria-label="Quitar artículo" title="Quitar"><svg fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" style="width:14px;height:14px" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg></button>' +
     '</div>').join('');
   if (OF.locked) {
     box.querySelectorAll('input').forEach(i => { i.disabled = true; });
-    box.querySelectorAll('[role="button"]').forEach(b => { b.style.display = 'none'; });
+    box.querySelectorAll('.of-x').forEach(b => { b.style.display = 'none'; });
   }
   ofRecalc();
 }
@@ -5039,7 +5186,8 @@ async function ofSubmit() {
   try {
     if (edit) {
       saved = await apiJson('PATCH', '/api/orders/' + OF.realId, {
-        client_id: OF.clientId && isServerId(OF.clientId) ? OF.clientId : null, client_name: clientName,
+        ...((OF.clientId || null) !== (OF.origClientId || null) ? { client_id: OF.clientId && isServerId(OF.clientId) ? OF.clientId : null } : {}),
+        client_name: clientName,
         ...(OF.locked ? {} : { items, product_summary: summary, shipping: a.ship, discount: a.disc }),
         pay_method_label: payLabel, delivery_method_label: delLabel,
         address, notes, delivery_date: date, delivery_zone: zone });
@@ -5077,11 +5225,11 @@ async function ofSubmit() {
   refreshAfterOrderChange(saved.orderNumber);
   if (edit) {
     openOrderDetail(saved.orderNumber);
-    showToast((saved.kind === 'quote' ? 'Presupuesto ' : 'Pedido ') + saved.orderNumber + ' actualizado ✓');
+    showToast((saved.kind === 'quote' ? 'Presupuesto ' : 'Pedido ') + saved.orderNumber + ' actualizado');
   } else if (convo) {
     ofPostTicket(saved, ctx);
   } else {
-    showToast((saved.kind === 'quote' ? 'Presupuesto ' : 'Pedido ') + saved.orderNumber + ' creado ✓');
+    showToast((saved.kind === 'quote' ? 'Presupuesto ' : 'Pedido ') + saved.orderNumber + ' creado');
   }
 }
 
@@ -5152,10 +5300,10 @@ function ofPostTicket(saved, ctx) {
         caption: t.quote ? '📋 Presupuesto ' + saved.orderNumber + ' — escríbenos para confirmar tu pedido' : 'Aquí está tu resguardo de compra 🧾',
         orderType: t.quote ? 'presupuesto' : 'confirmacion' }),
     }).then(r => r.json()).then(data => {
-      if (!data.success) showToast('⚠ ' + label + ' guardado, pero el ticket no llegó al cliente (' + (data.error || 'error') + ')');
-      else showToast(label + ' guardado · Ticket enviado al cliente ✓');
-    }).catch(() => showToast('⚠ ' + label + ' guardado, pero no se pudo enviar el ticket al cliente'));
-  } else showToast(label + ' guardado ✓');
+      if (!data.success) showToast(label + ' guardado, pero el ticket no llegó al cliente (' + (data.error || 'error') + ')', 'error');
+      else showToast(label + ' guardado · Ticket enviado al cliente');
+    }).catch(() => showToast(label + ' guardado, pero no se pudo enviar el ticket al cliente', 'error'));
+  } else showToast(label + ' guardado');
 }
 
 // ── Cobro al crear un pedido (formulario único) ──
@@ -5306,10 +5454,10 @@ async function loadPagos() {
   let html = '';
   if (d.truncated) html += '<div class="pagr-notice">Se muestran los primeros ' + escHtml(d.limit || list.length) + ' de ' + escHtml(d.totalCount) + ' pagos. Acota el período o filtra por método para ver el resto. Los totales incluyen todos.</div>';
   if ((tot.byMethod || []).length) {
-    const max = Math.max.apply(null, tot.byMethod.map(m => m.total)) || 1;
+    const max = Math.max.apply(null, tot.byMethod.map(m => Math.max(0, m.total))) || 1;
     html += '<div class="pagr-card"><div class="pagr-card-title">Total por método <small>' + escHtml(label) + '</small></div>' +
       tot.byMethod.map(m => '<div class="pagr-method"><div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml(m.method) + '</div>' +
-        '<div class="pagr-bar"><div style="width:' + Math.max(2, Math.round(m.total / max * 100)) + '%"></div></div>' +
+        '<div class="pagr-bar"><div style="width:' + Math.max(2, Math.round(Math.max(0, m.total) / max * 100)) + '%"></div></div>' +
         '<div style="font-weight:700;text-align:right;">' + fmtMoney(m.total) + ' <span class="pagr-sub">· ' + m.count + (m.count === 1 ? ' pago' : ' pagos') + '</span></div></div>').join('') + '</div>';
   }
   html += '<div class="pagr-card"><div class="pagr-card-title">Pagos y reembolsos <small>' + escHtml(list.length) + (d.truncated ? ' de ' + escHtml(d.totalCount) : '') + '</small></div>';
@@ -5523,8 +5671,8 @@ function openOrderDetail(orderId) {
 
   // pay badge
   const payBadge = document.getElementById('odmPayBadge');
-  if (o.cancelled) { payBadge.className = 'odm-pay-badge odm-pay-pend'; payBadge.textContent = 'Anulado'; }
-  else if (quote) { payBadge.className = 'odm-pay-badge odm-pay-pend'; payBadge.textContent = 'Sin cobros'; }
+  if (o.cancelled) { payBadge.className = 'odm-pay-badge odm-pay-none'; payBadge.textContent = 'Anulado'; }
+  else if (quote) { payBadge.className = 'odm-pay-badge odm-pay-none'; payBadge.textContent = 'Sin cobros'; }
   else {
     payBadge.className = 'odm-pay-badge ' + (o.pay === 'ok' ? 'odm-pay-ok' : 'odm-pay-pend');
     payBadge.textContent = o.pay === 'ok' ? 'Cobrado' : o.pay === 'partial' ? 'Abonado ' + fmtMoney(o.paid) : 'Pendiente';
@@ -5558,8 +5706,8 @@ function openOrderDetail(orderId) {
   // pay & delivery
   document.getElementById('odmPayMethod').textContent = ex.pay;
   document.getElementById('odmPayStatus').innerHTML = o.cancelled
-    ? '<span style="color:var(--text3);font-weight:700;">Anulado</span>'
-    : quote ? '<span style="color:var(--text3);font-weight:700;">No aplica (presupuesto)</span>'
+    ? '<span style="color:var(--text2);font-weight:700;">Anulado</span>'
+    : quote ? '<span style="color:var(--text2);font-weight:700;">No aplica (presupuesto)</span>'
     : o.pay === 'ok'
       ? '<span style="color:var(--green);font-weight:700;">Cobrado</span>'
       : o.pay === 'partial'
@@ -5646,6 +5794,7 @@ function openOrderDetail(orderId) {
   // cobro: total, cobrado, saldo y lista de pagos (un presupuesto no admite cobros)
   setShow('odmCobroCard', !quote);
   document.getElementById('odmCobTotal').textContent = fmtMoney(o.total);
+  document.getElementById('odmCobTotalLbl').textContent = o.credited > 0.004 ? 'Total efectivo' : 'Total';
   document.getElementById('odmCobPaid').textContent = fmtMoney(o.paid);
   const balEl = document.getElementById('odmCobBalance');
   balEl.textContent = fmtMoney(o.balance);
@@ -5674,13 +5823,13 @@ const _patchSeq = {};
 function patchOrder(orderId, fields, undo) {
   const realId = orderRealIds[orderId];
   if (!realId) {
-    showToast('⚠ El pedido ' + orderId + ' no está guardado en el servidor');
+    showToast('El pedido ' + orderId + ' no está guardado en el servidor', 'error');
     if (undo) undo();
     return Promise.resolve(false);
   }
   const seq = _patchSeq[orderId] = (_patchSeq[orderId] || 0) + 1;
   return apiJson('PATCH', '/api/orders/' + realId, fields).then(() => true).catch(async err => {
-    showToast('⚠ No se guardó el cambio del pedido ' + orderId + ' (' + err.message + ')');
+    showToast('No se guardó el cambio del pedido ' + orderId + ' (' + err.message + ')', 'error');
     if (seq !== _patchSeq[orderId]) return false; // hay un cambio más nuevo en curso: él decide
     // Volver a lo que de verdad tiene el servidor; si tampoco se puede leer, deshacer este cambio
     try {
@@ -5707,12 +5856,12 @@ function printOrder() {
   const now = new Date();
   const dateStr = now.toLocaleDateString('es-VE', { day:'2-digit', month:'long', year:'numeric' });
   const timeStr = now.toLocaleTimeString('es-VE', { hour:'2-digit', minute:'2-digit' });
-  const num = parseFloat((o.price+'').replace(/[^0-9.]/g,'')) || 0;
-  const total = '$' + (num).toFixed(2) + ' USD';
-  const payStatus = o.pay === 'ok' ? 'Cobrado' : o.pay === 'partial' ? 'Abonado ' + fmtMoney(o.paid) + ' · Saldo ' + fmtMoney(o.balance) : 'Pendiente';
-  const delStatus = o.delivery === 'delivered' ? '✓ Entregado' : o.delivery === 'not_delivered' ? '⚠ No entregado' : '🚀 Por entregar';
-  const payClass = o.pay === 'ok' ? 's-ok' : 's-pend';
-  const delClass2 = o.delivery === 'delivered' ? 's-done' : o.delivery === 'not_delivered' ? 's-warn' : 's-deliver';
+  const quote = o.kind === 'quote', cancelled = !!o.cancelled, cur = baseCurrency();
+  const total = fmtMoney(o.total) + ' ' + cur; // total efectivo (sin lo devuelto)
+  const payStatus = cancelled ? 'Anulado' : o.pay === 'ok' ? 'Cobrado' : o.pay === 'partial' ? 'Abonado ' + fmtMoney(o.paid) + ' · Saldo ' + fmtMoney(o.balance) : 'Pendiente';
+  const delStatus = cancelled ? 'Anulado' : ((DELIVERY_META[o.delivery] || DELIVERY_META.to_deliver).label);
+  const payClass = cancelled ? 's-void' : o.pay === 'ok' ? 's-ok' : 's-pend';
+  const delClass2 = cancelled ? 's-void' : ({ delivered: 's-done', not_delivered: 's-warn', preparing: 's-pend', on_the_way: 's-deliver' }[o.delivery] || 's-deliver');
 
   const css = `
     *{box-sizing:border-box;margin:0;padding:0}
@@ -5738,6 +5887,7 @@ function printOrder() {
     .s-deliver{background:#dbeafe;color:#1e40af}
     .s-done{background:#d1fae5;color:#065f46}
     .s-warn{background:#fee2e2;color:#991b1b}
+    .s-void{background:#e5e5e5;color:#444}
     .ft{margin-top:20px;border-top:1px solid #e5e5e5;padding-top:12px;text-align:center;font-size:10px;color:#999;line-height:1.6}
     .bc{font-family:monospace;font-size:10px;letter-spacing:2px;color:#aaa;margin-top:6px}
     @media print{button{display:none!important}}
@@ -5757,24 +5907,26 @@ function printOrder() {
     '<div class="sec"><div class="st">Producto<\/div><div class="pb"><div class="pn">' + escHtml(ex.emoji) + ' ' + escHtml(o.product) + '<\/div>' + (ex.notes?'<div class="pd">'+escHtml(ex.notes)+'<\/div>':'') + '<\/div><\/div>',
     '<div class="sec"><div class="st">Pago y entrega<\/div>',
     '<div class="row"><span class="rl">Método de pago<\/span><span class="rv">' + escHtml(ex.pay) + '<\/span><\/div>',
-    '<div class="row"><span class="rl">Estado pago<\/span><span class="rv"><span class="badge ' + payClass + '">' + payStatus + '<\/span><\/span><\/div>',
+    (quote ? '' : '<div class="row"><span class="rl">Estado pago<\/span><span class="rv"><span class="badge ' + payClass + '">' + escHtml(payStatus) + '<\/span><\/span><\/div>'),
     '<div class="row"><span class="rl">Tipo entrega<\/span><span class="rv">' + escHtml(ex.delivery) + '<\/span><\/div>',
-    '<div class="row"><span class="rl">Estado entrega<\/span><span class="rv"><span class="badge ' + delClass2 + '">' + delStatus + '<\/span><\/span><\/div>',
+    (quote && !cancelled ? '' : '<div class="row"><span class="rl">Estado entrega<\/span><span class="rv"><span class="badge ' + delClass2 + '">' + escHtml(delStatus) + '<\/span><\/span><\/div>'),
+    (cancelled ? '<div class="row"><span class="rl">Motivo de la anulación<\/span><span class="rv">' + escHtml(o.cancelReason || '—') + '<\/span><\/div>' : ''),
     '<div class="row"><span class="rl">Dirección<\/span><span class="rv">' + escHtml(ex.address||'—') + '<\/span><\/div><\/div>',
     '<div class="sec"><div class="st">Resumen<\/div>',
     '<div class="row"><span class="rl">Subtotal<\/span><span class="rv">' + escHtml(fmtMoney(o.subtotal)) + '<\/span><\/div>',
     (Number(ex.discount) > 0 ? '<div class="row"><span class="rl">Descuento<\/span><span class="rv">−' + escHtml(fmtMoney(ex.discount)) + '<\/span><\/div>' : ''),
     (o.taxRate > 0 ? '<div class="row"><span class="rl">' + escHtml(((tenantSettings && tenantSettings.tax && tenantSettings.tax.label) || 'IVA') + ' ' + o.taxRate + ' %') + '<\/span><span class="rv">' + escHtml(fmtMoney(o.taxAmount)) + '<\/span><\/div>' : ''),
     (ex.shipping ? '<div class="row"><span class="rl">Envío<\/span><span class="rv">' + escHtml(fmtMoney(moneyToNum(ex.shipping))) + '<\/span><\/div>' : ''),
-    '<div class="tr"><span>Total<\/span><span>' + total + '<\/span><\/div><\/div>',
-    '<div class="ft">Gracias por tu compra 🙌<br>' + escHtml(businessProfile.businessName || 'CENTRAL') + ' · ' + dateStr + '<br><div class="bc">' + escHtml(o.id) + '-' + Date.now().toString(36).toUpperCase() + '<\/div><\/div>',
+    (o.credited > 0.004 ? '<div class="row"><span class="rl">Total del pedido<\/span><span class="rv">' + escHtml(fmtMoney(o.realTotal)) + '<\/span><\/div><div class="row"><span class="rl">Devuelto<\/span><span class="rv">−' + escHtml(fmtMoney(o.credited)) + '<\/span><\/div>' : ''),
+    '<div class="tr"><span>' + (quote ? 'Total estimado' : o.credited > 0.004 ? 'Total efectivo' : 'Total') + '<\/span><span>' + escHtml(total) + '<\/span><\/div><\/div>',
+    '<div class="ft">' + (quote ? 'Este presupuesto no es un pedido confirmado ni un comprobante de pago.' : cancelled ? 'Documento anulado.' : 'Gracias por tu compra 🙌') + '<br>' + escHtml(businessProfile.businessName || 'CENTRAL') + ' · ' + dateStr + '<br><div class="bc">' + escHtml(o.id) + '-' + Date.now().toString(36).toUpperCase() + '<\/div><\/div>',
     '<scr' + 'ipt>window.onload=function(){window.print();}<\/scr' + 'ipt>',
     '<\/' + 'bo'+'dy><\/' + 'ht'+'ml>'
   ].join('');
 
   const win = window.open('', '_blank', 'width=440,height=620');
   if (win) { win.document.write(html); win.document.close(); }
-  else { showToast('⚠ Permite ventanas emergentes para imprimir'); }
+  else { showToast('Permite ventanas emergentes para imprimir', 'error'); }
 }
 
 function closeOrderDetail(e) {
@@ -5844,8 +5996,8 @@ function renderOrders() {
 
 function filterOrders(type, el) {
   currentFilter = type;
-  document.querySelectorAll('.ped-filter-tab').forEach(t => t.classList.remove('active'));
-  el.classList.add('active');
+  document.querySelectorAll('.ped-filter-tab').forEach(t => { t.classList.remove('active'); t.setAttribute('aria-pressed', 'false'); });
+  el.classList.add('active'); el.setAttribute('aria-pressed', 'true');
   renderOrders();
 }
 
@@ -7054,7 +7206,7 @@ const settingsPanels = {
             </div>
             <div class="s-row-action" style="display:flex;align-items:center;gap:10px;">
               <button class="btn-ghost" id="pmedit_${m.id}" style="font-size:11px;${m.on ? '' : 'display:none'}" onclick="openPayEdit('${m.id}')">Editar</button>
-              <div class="s-toggle ${m.on ? 'on' : ''}" id="pmtoggle_${m.id}" onclick="togglePayMethod('${m.id}',this)"></div>
+              <div class="s-toggle ${m.on ? 'on' : ''}" id="pmtoggle_${m.id}" role="switch" tabindex="0" aria-checked="${m.on ? 'true' : 'false'}" aria-label="Activar ${escHtml(PAY_METHOD_NAMES[m.id] || m.name)}" onclick="togglePayMethod('${m.id}',this)"></div>
             </div>
           </div>
           <div class="pay-edit-area" id="pmform_${m.id}" style="display:none;padding:0 20px 14px;border-top:1px solid var(--border);margin-top:2px;">
@@ -7104,7 +7256,7 @@ const settingsPanels = {
           </div>
           <div class="s-row-action" style="display:flex;align-items:center;gap:8px;">
             ${m.editable ? `<button class="btn-ghost" style="font-size:11px;" onclick="toggleDeliverySubEditor('${m.id}')">Editar</button>` : ''}
-            <div class="s-toggle ${cfg.enabled ? 'on' : ''}" onclick="toggleDeliveryMethod('${m.id}',this)"></div>
+            <div class="s-toggle ${cfg.enabled ? 'on' : ''}" role="switch" tabindex="0" aria-checked="${cfg.enabled ? 'true' : 'false'}" aria-label="Activar ${escHtml(m.name)}" onclick="toggleDeliveryMethod('${m.id}',this)"></div>
           </div>
         </div>
         ${m.editable ? `
@@ -7155,15 +7307,15 @@ const settingsPanels = {
       <div class="s-row"><div class="s-row-info"><div class="s-row-desc">Al elegir una zona en un pedido, el costo de envío se rellena solo (lo puedes cambiar). Máximo 50 zonas.</div></div></div>
       ${zones.map((z, i) => `
         <div class="s-row">
-          <div class="s-row-info"><div class="s-row-label">${escHtml(z.name)}</div><div class="s-row-desc">${z.cost !== undefined ? 'Envío ' + fmtMoney(z.cost) : 'Sin costo fijo'}</div></div>
-          <div class="s-row-action"><button class="btn-ghost" style="font-size:11px;" onclick="removeZone(${i})">Quitar</button></div>
+          <div class="s-row-info"><div class="s-row-label">${escHtml(z.name)}</div></div>
+          <div class="s-row-action" style="display:flex;align-items:center;gap:12px;"><span style="font-size:12.5px;font-weight:700;color:${z.cost !== undefined ? 'var(--green)' : 'var(--text2)'};">${z.cost !== undefined ? fmtMoney(z.cost) : 'Sin costo fijo'}</span><button class="btn-ghost" style="font-size:11px;" onclick="removeZone(${i})">Quitar</button></div>
         </div>`).join('') || '<div class="s-row"><div class="s-row-info"><div class="s-row-desc">Aún no tienes zonas.</div></div></div>'}
       <div class="s-row">
         <div class="s-row-info" style="display:flex;gap:8px;flex-wrap:wrap;">
           <input class="s-input" id="zoneName" maxlength="60" placeholder="Nombre de la zona" style="flex:2;min-width:140px;" onkeydown="if(event.key==='Enter')addZone()" aria-label="Nombre de la zona">
           <input class="s-input" id="zoneCost" type="number" min="0" step="0.01" placeholder="Envío (opcional)" style="flex:1;min-width:110px;" onkeydown="if(event.key==='Enter')addZone()" aria-label="Costo de envío de la zona">
         </div>
-        <div class="s-row-action"><button class="s-btn-sm s-btn-accent" onclick="addZone()">+ Agregar</button></div>
+        <div class="s-row-action"><button class="s-btn-sm s-btn-accent" id="zoneAddBtn" onclick="addZone()">+ Agregar</button></div>
       </div>
     </div>`;
   },
@@ -7187,7 +7339,7 @@ const settingsPanels = {
                    <input type="time" class="sched-time" value="${d.close}" onchange="saveScheduleField(${i},'close',this.value)">`
                 : `<span class="sched-closed">Cerrado</span>`}
             </div>
-            <div class="s-toggle ${d.active ? 'on' : ''}" style="margin-left:auto" onclick="toggleScheduleDay(${i},this)"></div>
+            <div class="s-toggle ${d.active ? 'on' : ''}" style="margin-left:auto" role="switch" tabindex="0" aria-checked="${d.active ? 'true' : 'false'}" aria-label="Abierto el ${escHtml(d.day)}" onclick="toggleScheduleDay(${i},this)"></div>
           </div>
         `).join('')}
       </div>
@@ -7201,7 +7353,7 @@ const settingsPanels = {
           <div class="s-row-label">Respuesta automática</div>
           <div class="s-row-desc">Se envía cuando escriben fuera de tu horario</div>
         </div>
-        <div class="s-row-action"><div class="s-toggle ${autoReplyCfg.enabled ? 'on' : ''}" onclick="toggleAutoReply(this)"></div></div>
+        <div class="s-row-action"><div class="s-toggle ${autoReplyCfg.enabled ? 'on' : ''}" role="switch" tabindex="0" aria-checked="${autoReplyCfg.enabled ? 'true' : 'false'}" aria-label="Respuesta automática fuera de horario" onclick="toggleAutoReply(this)"></div></div>
       </div>
       <div style="padding:0 20px 16px;">
         <textarea id="offHoursMsg" class="s-input" style="width:100%;resize:none;height:70px;margin-bottom:8px;" readonly>${escHtml(autoReplyCfg.message)}</textarea>
@@ -7669,9 +7821,10 @@ function renderClients() {
         c.isVip    ? `<span class="cc-tag vip">⭐ VIP</span>` : '',
         c.isNew    ? `<span class="cc-tag new">Nuevo</span>` : '',
         c.orders.length > 1 ? `<span class="cc-tag recurrent">Recurrente</span>` : '',
-        debt > 0.004 ? `<span class="cc-tag debt">Debe ${fmtMoney(debt)}</span>` : '',
-        c.credit > 0.004 ? `<span class="cc-tag credit">A favor ${fmtMoney(c.credit)}</span>` : '',
       ].filter(Boolean).join('') || `<span class="cc-tag">${escHtml(c.pay || '—')}</span>`;
+      // Un solo dato de saldo por fila: si debe, lo que debe; si no, lo que tiene a favor
+      const saldo = debt > 0.004 ? `<span class="cc-tag debt">Debe ${fmtMoney(debt)}</span>`
+        : c.credit > 0.004 ? `<span class="cc-tag credit">A favor ${fmtMoney(c.credit)}</span>` : '<span style="color:var(--text2);">—</span>';
 
       row.innerHTML = `
         <div><div class="cr-avatar" style="background:${c.grad}">${escHtml(initials)}</div></div>
@@ -7686,6 +7839,7 @@ function renderClients() {
         </div>
         <div class="cr-orders">${c.orders.length}</div>
         <div class="cr-spent">${totalSpent > 0 ? '$' + totalSpent : '—'}</div>
+        <div class="cr-saldo">${saldo}</div>
         <div class="cr-tags">${tags}</div>
         <div class="cr-chevron"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg></div>
       `;
@@ -8111,7 +8265,7 @@ async function renderInforme(tab) {
       <!-- KPIs -->
       <div class="inf-kpi-row k5">
         <div class="inf-kpi"><div class="inf-kpi-label">💰 Ventas totales</div><div class="inf-kpi-val">$${d.ventas.toLocaleString()}</div><div class="inf-kpi-sub inf-kpi-neutral">${periodLabel}</div></div>
-        <div class="inf-kpi"><div class="inf-kpi-label">Cobrado</div><div class="inf-kpi-val">$${(Number(d.cobrado) || 0).toLocaleString()}</div><div class="inf-kpi-sub inf-kpi-neutral">Pagos recibidos ${periodLabel}</div></div>
+        <div class="inf-kpi"><div class="inf-kpi-label">Cobrado neto (pagos − reembolsos)</div><div class="inf-kpi-val">$${(Number(d.cobrado) || 0).toLocaleString()}</div><div class="inf-kpi-sub inf-kpi-neutral">Pagos recibidos ${periodLabel}</div></div>
         <div class="inf-kpi"><div class="inf-kpi-label">📦 Pedidos</div><div class="inf-kpi-val">${d.pedidos}</div><div class="inf-kpi-sub inf-kpi-neutral">${periodLabel}</div></div>
         <div class="inf-kpi"><div class="inf-kpi-label">💵 Ticket promedio</div><div class="inf-kpi-val">$${d.pedidos > 0 ? (d.ventas/d.pedidos).toFixed(0) : '0'}</div><div class="inf-kpi-sub inf-kpi-neutral">Por pedido</div></div>
         <div class="inf-kpi"><div class="inf-kpi-label">✅ Tasa de entrega</div><div class="inf-kpi-val">${d.pedidos > 0 ? Math.round(d.entregados/d.pedidos*100) : 0}%</div><div class="inf-kpi-sub inf-kpi-neutral">${periodLabel}</div></div>
@@ -8309,13 +8463,13 @@ function renderBarChart(data, labels, color='accent', maxH=100) {
   if (!data || data.length === 0) {
     return '<div style="padding:20px 0;text-align:center;font-size:12px;color:var(--text3);">Sin datos aún</div>';
   }
-  const max = Math.max(...data);
+  const max = Math.max(...data.map(v => Math.max(0, Number(v) || 0)));
   const colorMap = { accent:'var(--accent)', green:'var(--green)', yellow:'var(--yellow)' };
   const c = colorMap[color] || colorMap.accent;
   return `
     <div style="display:flex;align-items:flex-end;gap:6px;height:${maxH+20}px;">
       ${data.map((v,i)=>{
-        const h = max > 0 ? Math.max(4, Math.round(v/max*maxH)) : 2;
+        const h = max > 0 ? Math.max(4, Math.round(Math.max(0, v)/max*maxH)) : 2;
         return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
           <div style="font-size:9px;color:var(--text3);font-weight:600;">${v>999?'$'+Math.round(v/1000)+'k':v}</div>
           <div style="width:100%;height:${maxH}px;display:flex;align-items:flex-end;">
@@ -8912,7 +9066,7 @@ const TOUR_TIPS = [
   { sel: '#nav-pagos',     icon: '💳', text: 'Pagos — valida Pago Móvil y Zelle automáticamente. Sin revisión manual' },
   { sel: '#nav-ajustes',   icon: '⚙️', text: 'Ajustes — configura tu perfil, canales conectados y plan de suscripción' },
   { sel: '#nav-tour',      icon: '✦',  text: 'Tour guiado — haz clic para activar o desactivar este cursor de exploración' },
-  { sel: '.confirm-btn',   icon: '✅', text: 'Confirmar pedido — guarda el pedido y genera el resguardo de compra para el cliente' },
+  { sel: '#ofSaveBtn',     icon: '✅', text: 'Guardar — crea el pedido o presupuesto en el servidor y genera el resguardo para el cliente' },
   { sel: '.btn-primary[onclick*="convoKey"]', icon: '➕', text: 'Nuevo pedido o presupuesto — se crea desde esta conversación usando el catálogo completo' },
   { sel: '.btn-primary[onclick="openOrderForm({})"]', icon: '🆕', text: 'Nuevo pedido o presupuesto independiente — sin conversación activa' },
   { sel: '[onclick*="openProfileModal"]', icon: '👤', text: 'Perfil del cliente — abre la ficha con historial de pedidos y datos de contacto' },
@@ -9244,16 +9398,21 @@ function orderClientFields(clientId, convo, linkConvo) {
   return out;
 }
 
+let _clientsLoadSeq = 0;
 async function loadRealClients() {
+  const seq = ++_clientsLoadSeq;
   try {
     const res = await fetch(BACKEND_URL + '/api/clients', { headers: apiAuthHeader() });
     if (!res.ok) throw new Error('Backend respondió ' + res.status);
     const realClients = await res.json();
     if (!Array.isArray(realClients)) return false;
+    if (seq !== _clientsLoadSeq) return true; // llegó una carga más nueva: esta respuesta ya es vieja
 
+    const unsaved = clientsDB.filter(c => c._unsaved); // fichas a medio crear, aún sin servidor
     clientsDB.length = 0;
 
     realClients.forEach(rc => clientsDB.push(clientFromServer(rc)));
+    unsaved.forEach(c => clientsDB.push(c));
     relinkClientOrders();
 
     if (typeof renderClients === 'function') { try { renderClients(); } catch (e) {} }
@@ -10071,6 +10230,41 @@ function renderQrSettingsHtml() {
     .demo-banner .db-extra, .demo-banner .db-sep, .demo-banner .db-long { display: none; }
     .demo-banner .db-short { display: inline; }
     .demo-banner a { padding: 4px 9px; font-size: 11.5px; }
+  }
+  /* ══ MÓVIL ══ */
+  @media (max-width: 680px) {
+    .form-row { flex-wrap: wrap; }
+    .form-row .form-field { min-width: 140px; }
+    .ped-header, .cli-header { flex-wrap: wrap; padding: 14px; gap: 10px; }
+    .stats-row, .cli-stats { flex-wrap: wrap; padding: 12px 14px; gap: 8px; }
+    .stat-card { flex: 1 1 calc(50% - 8px); min-width: 0; }
+    .orders-body { padding: 12px 14px; }
+    .order-row { flex-wrap: wrap; gap: 8px 10px; padding: 12px; }
+    .or-client { flex: 1 1 calc(100% - 80px); }
+    .or-time { width: auto; text-align: left; }
+    .or-id { width: auto; min-width: 56px; }
+    .order-detail-modal { max-width: 98vw; }
+    .odm-grid { grid-template-columns: 1fr; }
+    .odm-body { padding: 14px; }
+    .odm-cobro-row { grid-template-columns: 1fr; }
+    .modal { padding: 18px; }
+    .dlg-overlay .modal { width: 400px; max-width: 94vw; }
+    #ofModal .modal { width: 98vw !important; max-width: 98vw !important; max-height: 96vh !important; padding: 16px 14px; }
+    .of-item { flex-wrap: wrap; }
+    .of-i-main { flex: 1 1 calc(100% - 50px); }
+    .of-i-line { flex: 1; width: auto; text-align: right; }
+    .of-sum, .of-picker { padding: 10px; }
+    .odm-actions { flex-wrap: wrap; padding: 12px 14px; }
+    .odm-actions > * { flex: 1 1 auto; justify-content: center; }
+    .ped-filter-bar { flex-wrap: nowrap; overflow-x: auto; padding: 10px 14px; -webkit-overflow-scrolling: touch; }
+    .cli-list-header { display: none; }
+    .client-row { grid-template-columns: 36px 1fr auto; grid-template-rows: auto auto; row-gap: 6px; padding: 10px 14px; }
+    .client-row > :nth-child(1) { grid-column: 1; grid-row: 1; }
+    .client-row > .cr-info { grid-column: 2; grid-row: 1; }
+    .client-row > .cr-saldo { grid-column: 3; grid-row: 1; padding-right: 0; }
+    .client-row > .cr-spent { grid-column: 2; grid-row: 2; }
+    .client-row > .cr-tags { grid-column: 3; grid-row: 2; justify-content: flex-end; }
+    .client-row > .cr-city, .client-row > .cr-channel, .client-row > .cr-orders, .client-row > .cr-chevron { display: none; }
   }
 </style>
 <script>
