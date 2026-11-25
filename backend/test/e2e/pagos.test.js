@@ -351,10 +351,10 @@ run(async () => {
   const dOrders = (await j('/api/orders', { headers: DH })).body;
   const st = s => dOrders.filter(o => o.payStatus === s).length;
   ok(st('ok') > 0 && st('partial') > 0 && st('pend') > 0, `Demo: pedidos pagados (${st('ok')}), abonados (${st('partial')}) y sin cobrar (${st('pend')})`);
-  ok(dOrders.every(o => (o.payStatus === 'ok') === (o.balance === 0) && o.amountPaid <= Number(o.totalPrice)), 'Demo: estado, cobrado y saldo coherentes');
+  ok(dOrders.filter(o => o.kind === 'order' && !o.cancelled).every(o => (o.payStatus === 'ok') === (o.balance === 0) && o.amountPaid <= o.effectiveTotal), 'Demo: estado, cobrado y saldo coherentes (pedidos vigentes)');
   const dbDemo = (await db.query(`
-    SELECT COUNT(*)::int bad FROM orders o WHERE tenant_id=$1 AND amount_paid <> COALESCE((SELECT SUM(amount_base) FROM payments p WHERE p.order_id=o.id AND p.voided_at IS NULL),0)`, [demo.tenantId])).rows[0];
-  ok(dbDemo.bad === 0, 'Demo: amount_paid = suma de pagos vigentes en todos los pedidos');
+    SELECT COUNT(*)::int bad FROM orders o WHERE tenant_id=$1 AND amount_paid <> COALESCE((SELECT SUM(amount_base) FROM payments p WHERE p.order_id=o.id AND p.voided_at IS NULL),0) - COALESCE((SELECT SUM(amount_base) FROM refunds r WHERE r.order_id=o.id),0)`, [demo.tenantId])).rows[0];
+  ok(dbDemo.bad === 0, 'Demo: amount_paid = pagos vigentes − reembolsos en todos los pedidos');
   ok(Number((await db.query('SELECT COUNT(*) n FROM payments WHERE tenant_id=$1 AND voided_at IS NOT NULL', [demo.tenantId])).rows[0].n) > 0, 'Demo: incluye un pago anulado');
   ok(Number((await db.query(`SELECT COUNT(DISTINCT type) n FROM order_events WHERE tenant_id=$1`, [demo.tenantId])).rows[0].n) >= 4, 'Demo: historial de ejemplo');
   const dp = dOrders.find(o => o.payStatus === 'pend');

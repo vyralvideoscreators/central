@@ -47,7 +47,20 @@ const ORDERS = [
   { c: 'c2', d: 4, h: 15, items: [['p3', 'S', 1, 1]],                       pay: 'ok',   del: 'delivered',     payL: 'Zelle',         delL: 'Encomienda',               ship: 6 },
   { c: 'c6', d: 5, h: 9,  items: [['p5', '40', 1, 1]],                      pay: 'pend', paid: 40, del: 'not_delivered', payL: 'Tarjeta',       delL: 'Motorizado independiente', ship: 4 },
   { c: 'c4', d: 6, h: 19, items: [['p4', '37', 1, 1], ['p1', 'XS', 0, 1]],  pay: 'ok',   del: 'delivered',     payL: 'Transferencia', delL: 'Motorizado independiente', ship: 4 },
-  { c: 'c3', d: 9, h: 14, items: [['p2', 'L', 0, 1]],                       pay: 'ok',   del: 'delivered',     payL: 'Efectivo',      delL: 'Retiro en tienda',         ship: 0 },
+  { c: 'c3', d: 9, h: 14, items: [['p2', 'L', 0, 1]],                       pay: 'ok',   del: 'delivered',     payL: 'Efectivo',      delL: 'Retiro en tienda',         ship: 0 },  // Fase 3: estados intermedios, un pedido anulado, una devolución con saldo a favor y dos presupuestos
+  { c: 'c5', d: 0, h: 9,  items: [['p2', 'S', 0, 1]],                       pay: 'pend', del: 'preparing',     payL: 'Zelle',         delL: 'Motorizado independiente', ship: 4, dz: 'Jardines del Este', dd: 1 },
+  { c: 'c3', d: 1, h: 15, items: [['p5', '39', 1, 1]],                      pay: 'ok',   del: 'on_the_way',    payL: 'Efectivo',      delL: 'Motorizado independiente', ship: 4, dz: 'Centro', dd: 0 },
+  { c: 'c6', d: 4, h: 11, items: [['p1', 'M', 0, 1]],                       pay: 'pend', del: 'cancelled',     payL: 'Tarjeta',       delL: 'Retiro en tienda',         ship: 0, cancelReason: 'El cliente cambió de opinión antes del pago' },
+  { c: 'c4', d: 7, h: 13, items: [['p5', '38', 0, 1]],                      pay: 'ok',   del: 'delivered',     payL: 'Transferencia', delL: 'Motorizado independiente', ship: 4, dz: 'Valle Alto',
+    ret: { reason: 'Le quedó pequeño: devolvió el par y dejó el dinero como saldo a favor' } },
+  { c: 'c2', d: 1, h: 17, items: [['p3', 'M', 1, 1], ['p1', 'XS', 1, 1]],   pay: 'pend', del: 'to_deliver',    payL: 'Zelle',         delL: 'Motorizado independiente', ship: 4, quote: true },
+  { c: 'c6', d: 2, h: 10, items: [['p4', '40', 0, 2]],                      pay: 'pend', del: 'to_deliver',    payL: 'Tarjeta',       delL: 'Retiro en tienda',         ship: 0, quote: true },
+];
+
+// Zonas de entrega de ejemplo (impuesto apagado)
+const ZONES = [
+  { name: 'Los Pinos', cost: 4 }, { name: 'El Mirador', cost: 4 }, { name: 'Centro', cost: 3 },
+  { name: 'Valle Alto', cost: 5 }, { name: 'Jardines del Este', cost: 6 },
 ];
 
 // m = minutos desde el último mensaje; msgs = [rol, texto]
@@ -105,6 +118,11 @@ function money(n) { return Math.round(n * 100) / 100; }
 async function wipeDemoData(client, tenantId) {
   const { rows } = await client.query('SELECT is_demo FROM tenants WHERE id = $1', [tenantId]);
   if (!rows[0]?.is_demo) throw new Error('Solo se pueden vaciar cuentas demo');
+  // Fase 3: primero lo que cuelga de pedidos y clientes (reembolsos, notas de crédito, saldo a favor)
+  await client.query('DELETE FROM client_credit_entries WHERE tenant_id = $1', [tenantId]);
+  await client.query('DELETE FROM refunds WHERE tenant_id = $1', [tenantId]);
+  await client.query('DELETE FROM credit_note_items WHERE tenant_id = $1', [tenantId]);
+  await client.query('DELETE FROM credit_notes WHERE tenant_id = $1', [tenantId]);
   await client.query('DELETE FROM payments WHERE tenant_id = $1', [tenantId]);
   await client.query('DELETE FROM order_events WHERE tenant_id = $1', [tenantId]);
   await client.query('DELETE FROM tenant_settings WHERE tenant_id = $1', [tenantId]);
@@ -114,7 +132,7 @@ async function wipeDemoData(client, tenantId) {
   await client.query('DELETE FROM orders WHERE tenant_id = $1', [tenantId]);
   await client.query('DELETE FROM clients WHERE tenant_id = $1', [tenantId]);
   await client.query('DELETE FROM catalog_products WHERE tenant_id = $1', [tenantId]);
-  await client.query(`UPDATE tenants SET order_seq = 0, base_currency = 'USD' WHERE id = $1 AND is_demo = true`, [tenantId]);
+  await client.query(`UPDATE tenants SET order_seq = 0, quote_seq = 0, credit_note_seq = 0, base_currency = 'USD' WHERE id = $1 AND is_demo = true`, [tenantId]);
 }
 
 async function seedDemoTenant(client, tenantId, { city = 'Ciudad Demo' } = {}) {
@@ -158,19 +176,25 @@ async function seedDemoTenant(client, tenantId, { city = 'Ciudad Demo' } = {}) {
     const subtotal = lines.reduce((s, l) => s + l.line, 0);
     const summary = lines.map(l => `${l.qty > 1 ? l.qty + 'x ' : ''}${l.p.name}`).join(' + ');
     const created = at(o.d, o.h);
+    const dDate = o.dd === undefined ? null : new Date(now + o.dd * 86400000).toISOString().slice(0, 10);
+    const cancelled = o.del === 'cancelled';
     const { rows } = await client.query(
       `INSERT INTO orders (tenant_id, client_id, client_name, platform, product_summary, total_price, pay_status, delivery_status,
-         pay_method_label, delivery_method_label, address, notes, shipping, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$14) RETURNING id`,
+         pay_method_label, delivery_method_label, address, notes, shipping, created_at, updated_at,
+         kind, delivery_zone, delivery_date, cancelled_at, cancel_reason)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$14,$15,$16,$17,$18,$19) RETURNING id`,
       [tenantId, clientIds[o.c], c.name, c.channel, summary, money(subtotal + o.ship), 'pend', o.del,
-       o.payL, o.delL, o.delL.startsWith('Retiro') ? 'Retiro en tienda' : `${c.zone}, ${city}`, null, o.ship, created]
+       o.payL, o.delL, o.delL.startsWith('Retiro') ? 'Retiro en tienda' : `${c.zone}, ${city}`, null, o.ship, created,
+       o.quote ? 'quote' : 'order', o.dz || null, dDate, cancelled ? new Date(created.getTime() + 3600000) : null, cancelled ? o.cancelReason : null]
     );
+    const itemIds = [];
     for (const l of lines) {
-      await client.query(
+      const { rows: ir } = await client.query(
         `INSERT INTO order_items (order_id, tenant_id, product_id, emoji, name, detail, qty, unit_price, line_price)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
         [rows[0].id, tenantId, productIds[l.pk], l.p.emoji, l.p.name, l.detail, l.qty, l.unit, l.line]
       );
+      itemIds.push(ir[0].id);
     }
 
     // Cobros coherentes: pagado completo ('ok'), abonado (paid) o sin cobrar; uno en bolívares y uno anulado
@@ -196,11 +220,35 @@ async function seedDemoTenant(client, tenantId, { city = 'Ciudad Demo' } = {}) {
       if (p.voided) events.push(['payment_voided', { paymentId: pr[0].id, amountBase: p.amountBase, method: o.payL, reason: 'Registrado dos veces' }, new Date(created.getTime() + 20 * 60000)]);
     }
     if (o.del === 'delivered') events.push(['status_changed', { from: 'to_deliver', to: 'delivered' }, new Date(Math.min(now, created.getTime() + 3 * 3600000))]);
+    if (o.del === 'preparing' || o.del === 'on_the_way') events.push(['status_changed', { from: 'to_deliver', to: o.del }, new Date(Math.min(now, created.getTime() + 2 * 3600000))]);
+    if (cancelled) events.push(['cancelled', { reason: o.cancelReason, from: 'to_deliver', resolution: null, refundedBase: 0 }, new Date(created.getTime() + 3600000)]);
     for (const [type, data, when] of events) {
       await client.query('INSERT INTO order_events (tenant_id, order_id, type, data, created_at) VALUES ($1,$2,$3,$4,$5)',
         [tenantId, orderId, type, JSON.stringify(data), when]);
     }
     await recalcOrderPayment(client, tenantId, orderId);
+    // Devolución de un artículo con el dinero dejado como saldo a favor del cliente (nota NC-0001)
+    if (o.ret) {
+      const l0 = lines[0], l0Amount = l0.line;
+      const when = new Date(Math.min(now, created.getTime() + 2 * 86400000));
+      const { rows: [cn] } = await client.query(
+        `INSERT INTO credit_notes (tenant_id, order_id, client_id, number, amount_base, reason, created_at)
+         VALUES ($1,$2,$3,1,$4,$5,$6) RETURNING id`, [tenantId, orderId, clientIds[o.c], l0Amount, o.ret.reason, when]);
+      await client.query(`INSERT INTO credit_note_items (tenant_id, credit_note_id, order_item_id, name, qty, amount)
+        VALUES ($1,$2,$3,$4,$5,$6)`, [tenantId, cn.id, itemIds[0], l0.p.name, l0.qty, l0Amount]);
+      const { rows: [rf] } = await client.query(
+        `INSERT INTO refunds (tenant_id, order_id, credit_note_id, amount, currency, exchange_rate, amount_base, method, reason, created_at)
+         VALUES ($1,$2,$3,$4,'USD',1,$4,'Saldo a favor',$5,$6) RETURNING id`, [tenantId, orderId, cn.id, l0Amount, o.ret.reason, when]);
+      await client.query(`INSERT INTO client_credit_entries (tenant_id, client_id, amount, kind, order_id, ref_id, created_at)
+        VALUES ($1,$2,$3,'refund_to_credit',$4,$5,$6)`, [tenantId, clientIds[o.c], l0Amount, orderId, rf.id, when]);
+      await client.query('UPDATE tenants SET credit_note_seq = 1 WHERE id = $1', [tenantId]);
+      for (const [type, data] of [
+        ['returned', { creditNoteId: cn.id, number: 'NC-0001', amountBase: l0Amount, reason: o.ret.reason, resolution: 'credit', items: [{ name: l0.p.name, qty: l0.qty }] }],
+        ['refunded', { refundId: rf.id, amountBase: l0Amount, method: 'Saldo a favor', creditNoteId: cn.id, reason: o.ret.reason }],
+      ]) await client.query('INSERT INTO order_events (tenant_id, order_id, type, data, created_at) VALUES ($1,$2,$3,$4,$5)',
+        [tenantId, orderId, type, JSON.stringify(data), when]);
+      await recalcOrderPayment(client, tenantId, orderId);
+    }
     // recalcOrderPayment toca updated_at: un pedido sembrado no debe parecer editado
     await client.query('UPDATE orders SET updated_at = created_at WHERE id = $1 AND tenant_id = $2', [orderId, tenantId]);
 
@@ -210,13 +258,27 @@ async function seedDemoTenant(client, tenantId, { city = 'Ciudad Demo' } = {}) {
   await client.query(`
     WITH n AS (
       SELECT id, ROW_NUMBER() OVER (ORDER BY created_at, order_number) AS rn
-      FROM orders WHERE tenant_id = $1
+      FROM orders WHERE tenant_id = $1 AND kind = 'order'
     )
     UPDATE orders o SET tenant_order_number = n.rn FROM n WHERE o.id = n.id AND o.tenant_id = $1
   `, [tenantId]);
+  await client.query(`
+    WITH n AS (
+      SELECT id, ROW_NUMBER() OVER (ORDER BY created_at, order_number) AS rn
+      FROM orders WHERE tenant_id = $1 AND kind = 'quote'
+    )
+    UPDATE orders o SET quote_number = n.rn FROM n WHERE o.id = n.id AND o.tenant_id = $1
+  `, [tenantId]);
   await client.query(
-    'UPDATE tenants SET order_seq = (SELECT COUNT(*) FROM orders WHERE tenant_id = $1) WHERE id = $1',
+    `UPDATE tenants SET order_seq = (SELECT COUNT(*) FROM orders WHERE tenant_id = $1 AND kind = 'order'),
+       quote_seq = (SELECT COUNT(*) FROM orders WHERE tenant_id = $1 AND kind = 'quote') WHERE id = $1`,
     [tenantId]
+  );
+  // Ajustes de ejemplo: zonas de entrega con su costo e impuesto apagado
+  await client.query(
+    `INSERT INTO tenant_settings (tenant_id, zones, tax) VALUES ($1, $2, $3)
+     ON CONFLICT (tenant_id) DO UPDATE SET zones = EXCLUDED.zones, tax = EXCLUDED.tax`,
+    [tenantId, JSON.stringify(ZONES), JSON.stringify({ enabled: false, rate: 0, label: 'IVA' })]
   );
 
   for (const cv of CONVOS) {

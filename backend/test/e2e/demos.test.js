@@ -33,7 +33,8 @@ run(async () => {
   ok(orders.length > 0, 'Demo: tiene pedidos de ejemplo');
   const linked = orders.filter(o => o.clientId).length;
   ok(linked > 0, `Demo: pedidos de ejemplo vinculados a su ficha (${linked}/${orders.length})`);
-  r = await j('/api/orders/' + orders[0].id, { method: 'PATCH', headers: H, body: JSON.stringify({ notes: 'editado en demo', items: [{ name: 'A', qty: 1, unitPrice: 1 }] }) });
+  const editable = orders.find(o => o.kind === 'order' && !o.cancelled && o.amountPaid === 0 && o.items.length); // un pedido sin cobros (el total no puede bajar de lo cobrado)
+  r = await j('/api/orders/' + editable.id, { method: 'PATCH', headers: H, body: JSON.stringify({ notes: 'editado en demo', items: [{ name: 'A', qty: 1, unitPrice: 1 }] }) });
   ok(r.status === 200 && r.body.notes === 'editado en demo', 'Demo: puede editar un pedido');
   r = await j('/api/orders/' + orders[0].id, { method: 'PATCH', headers: H, body: JSON.stringify({ items: Array.from({ length: 31 }, () => ({ name: 'A', qty: 1, unitPrice: 1 })) }) });
   ok(r.status === 400 && r.body.error === 'demo_limit', 'Demo: máximo 30 artículos también al editar');

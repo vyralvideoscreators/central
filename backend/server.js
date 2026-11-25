@@ -11,12 +11,13 @@ const { WebSocketServer } = require('ws');
 const multer     = require('multer');
 const FormData   = require('form-data');
 const puppeteer  = require('puppeteer');
-const { Pool }   = require('pg');
+const { Pool, types: pgTypes } = require('pg');
+pgTypes.setTypeParser(1082, v => v); // DATE llega como 'YYYY-MM-DD' (sin convertir a la zona del servidor)
 const bcrypt     = require('bcrypt');
 const jwt        = require('jsonwebtoken');
 const Stripe     = require('stripe');
 const crypto     = require('crypto');
-const { ensurePaymentsSchema, runPaymentsBackfill, recalcOrderPayment,
+const { ensurePaymentsSchema, ensureOrderCycleSchema, CREDIT_METHOD, isCreditMethod, runPaymentsBackfill, recalcOrderPayment,
   normalizeMethodName, mergeMethodTotals, rawMethodsFor } = require('./pagos');
 
 const app = express();
@@ -440,6 +441,17 @@ async function initDB() {
       console.error('❌ Falta el esquema de pagos. Se detiene el arranque para reintentar.');
       process.exit(1);
     }
+    // Fase 3 — ciclo del pedido: presupuestos, anulación, impuesto, devoluciones y saldo a favor (ver
+    // pagos.js → ensureOrderCycleSchema y migrations/2026-11-26-ciclo-pedido.sql). Mismo criterio que arriba.
+    let cycleReady = false;
+    for (let attempt = 1; attempt <= 4 && !cycleReady; attempt++) {
+      cycleReady = await ensureOrderCycleSchema(pool);
+      if (!cycleReady && attempt < 4) await new Promise(r => setTimeout(r, 1000 * 2 ** (attempt - 1)));
+    }
+    if (!cycleReady) {
+      console.error('❌ Falta el esquema del ciclo del pedido. Se detiene el arranque para reintentar.');
+      process.exit(1);
+    }
     // Relleno de pedidos pagados "a la antigua" (por lotes; un fallo solo se registra). En el PRIMER arranque
     // de la Fase 2 (sin la marca) se espera antes de escuchar, para que nadie vea un pedido pagado con saldo.
     // Después corre en segundo plano tras listen y otra vez a los 10 min (recoge lo que la versión vieja
@@ -572,10 +584,17 @@ async function dbGetTenantByIgAccountId(igAccountId) {
 
 function money2(v) { return Math.round((Number(v) || 0) * 100) / 100; }
 
+const DELIVERY_STATUSES = ['to_deliver', 'preparing', 'on_the_way', 'delivered', 'not_delivered']; // 'cancelled' solo por /cancel
+const pad4 = (n) => String(n).padStart(4, '0');
 function mapOrderRow(r) {
+  const isQuote = r.kind === 'quote';
+  const items = r.items || [];
+  const total = Number(r.total_price || 0), credited = money2(r.credited_total);
+  const effective = money2(total - credited);
   return {
     id:                  r.id,
-    orderNumber:         '#' + String(r.tenant_order_number ?? r.order_number).padStart(4, '0'),
+    kind:                isQuote ? 'quote' : 'order',
+    orderNumber:         isQuote ? 'P-' + pad4(r.quote_number || 0) : '#' + pad4(r.tenant_order_number ?? r.order_number),
     clientId:            r.client_id,
     clientName:          r.client_name,
     platform:            r.platform,
@@ -589,12 +608,25 @@ function mapOrderRow(r) {
     notes:               r.notes,
     shipping:            r.shipping,
     discount:            r.discount ?? 0,
-    // Cobro: derivado de los pagos (payStatus: pend | partial | ok). amountPaid y balance en moneda base.
+    // Impuesto: foto tomada al crear (taxRate en %, taxAmount en moneda base). subtotal = Σ artículos
+    taxRate:             Number(r.tax_rate || 0),
+    taxAmount:           money2(r.tax_amount),
+    subtotal:            items.length ? money2(items.reduce((a, i) => a + Number(i.linePrice || 0), 0))
+                           : money2(total - Number(r.shipping || 0) + Number(r.discount || 0) - Number(r.tax_amount || 0)),
+    deliveryDate:        r.delivery_date || null,
+    deliveryZone:        r.delivery_zone || null,
+    cancelled:           r.delivery_status === 'cancelled',
+    cancelledAt:         r.cancelled_at || null,
+    cancelReason:        r.cancel_reason || null,
+    // Cobro: derivado de los pagos (payStatus: pend | partial | ok). amountPaid = cobrado NETO (pagos − reembolsos)
+    // y balance, en moneda base. creditedTotal = Σ notas de crédito; effectiveTotal = totalPrice − creditedTotal.
     amountPaid:          money2(r.amount_paid),
-    balance:             Math.max(0, money2(Number(r.total_price || 0) - Number(r.amount_paid || 0))),
+    creditedTotal:       credited,
+    effectiveTotal:      effective,
+    balance:             (isQuote || r.delivery_status === 'cancelled') ? 0 : Math.max(0, money2(effective - Number(r.amount_paid || 0))),
     createdAt:           r.created_at,
     updatedAt:           r.updated_at,
-    items:               r.items || [],
+    items,
   };
 }
 
@@ -623,35 +655,53 @@ async function dbGetOrders(tenantId) {
 
 async function dbCreateOrder(tenantId, data) {
   if (!dbReady) return null;
+  // Presupuesto o pedido (Fase 3). Un presupuesto no admite cobros ni se numera como pedido.
+  const kind = data.kind === undefined || data.kind === null || data.kind === '' ? 'order' : data.kind;
+  if (kind !== 'order' && kind !== 'quote') throw new BadRequest('Tipo de documento inválido');
+  const isQuote = kind === 'quote';
+  if (isQuote && data.initialPayment !== undefined && data.initialPayment !== null) throw new BadRequest('Un presupuesto no admite cobros: conviértelo en pedido primero');
+  const deliveryStatus = data.deliveryStatus === undefined || data.deliveryStatus === null || data.deliveryStatus === '' ? 'to_deliver' : data.deliveryStatus;
+  if (!DELIVERY_STATUSES.includes(deliveryStatus)) throw new BadRequest('Estado de entrega inválido');
+  const deliveryDate = cleanDeliveryDate(data.deliveryDate);
+  const deliveryZone = cleanDeliveryZone(data.deliveryZone);
   // Validación y total ANTES de abrir la transacción: el servidor calcula el total, no el cliente
   const items = cleanOrderItems(data.items || []);
   const shipping = cleanMoneyField(data.shipping, 'Costo de envío');
   const discount = cleanMoneyField(data.discount, 'Descuento');
-  const total = items.length ? computeOrderTotal(items, shipping, discount) : cleanMoneyField(data.totalPrice, 'Total');
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    // Siguiente número del negocio. El UPDATE bloquea la fila del tenant, así dos pedidos
-    // simultáneos nunca reciben el mismo número.
-    const { rows: seqRows } = await client.query(`
+    // Impuesto: foto de la tasa vigente al crear (solo si hay artículos sobre los que calcularlo)
+    const taxRate = items.length ? await getTenantTaxRate(client, tenantId) : 0;
+    const amounts = items.length ? computeOrderAmounts(items, shipping, discount, taxRate) : null;
+    const total = amounts ? amounts.total : cleanMoneyField(data.totalPrice, 'Total');
+    // Siguiente número del negocio (pedido: #0001; presupuesto: P-0001, contador propio). El UPDATE bloquea
+    // la fila del tenant, así dos documentos simultáneos nunca reciben el mismo número.
+    const { rows: seqRows } = await client.query(isQuote ? `
+      UPDATE tenants SET quote_seq = GREATEST(quote_seq,
+        COALESCE((SELECT MAX(quote_number) FROM orders WHERE tenant_id = $1), 0)) + 1
+      WHERE id = $1 RETURNING quote_seq AS seq
+    ` : `
       UPDATE tenants SET order_seq = GREATEST(order_seq,
         COALESCE((SELECT MAX(tenant_order_number) FROM orders WHERE tenant_id = $1), 0)) + 1
-      WHERE id = $1 RETURNING order_seq
+      WHERE id = $1 RETURNING order_seq AS seq
     `, [tenantId]);
     if (!seqRows[0]) throw new Error('Tenant no encontrado');
     const { clientId, createdClient } = await resolveOrderClient(client, tenantId, data);
     const { rows } = await client.query(`
       INSERT INTO orders (tenant_id, client_id, client_name, platform, product_summary,
         total_price, pay_status, delivery_status, pay_method_label, delivery_method_label,
-        address, notes, shipping, tenant_order_number, discount)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+        address, notes, shipping, tenant_order_number, discount,
+        kind, quote_number, tax_rate, tax_amount, delivery_date, delivery_zone)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
       RETURNING *
     `, [
       tenantId, clientId, data.clientName || null, data.platform || null,
       data.productSummary || null, total, 'pend', // el estado de cobro lo derivan los pagos (payStatus del body se ignora)
-      data.deliveryStatus || 'to_deliver', data.payMethodLabel || null,
+      deliveryStatus, data.payMethodLabel || null,
       data.deliveryMethodLabel || null, data.address || null, data.notes || null,
-      shipping, seqRows[0].order_seq, discount,
+      shipping, isQuote ? null : seqRows[0].seq, discount,
+      kind, isQuote ? seqRows[0].seq : null, amounts ? taxRate : 0, amounts ? amounts.tax : 0, deliveryDate, deliveryZone,
     ]);
     const order = rows[0];
 
@@ -666,7 +716,7 @@ async function dbCreateOrder(tenantId, data) {
     }
 
     await addOrderEvent(client, tenantId, order.id, 'created', {
-      total, items: items.length, clientName: data.clientName || null, platform: data.platform || null });
+      total, items: items.length, clientName: data.clientName || null, platform: data.platform || null, kind });
     // Pago inicial opcional: nace en la misma transacción que el pedido (nunca se marca pagado sin pago)
     if (data.initialPayment !== undefined && data.initialPayment !== null) {
       if (typeof data.initialPayment !== 'object' || Array.isArray(data.initialPayment)) throw new BadRequest('El pago inicial no es válido');
@@ -774,14 +824,44 @@ function cleanMoneyField(v, label) {
   return Math.round(n * 100) / 100;
 }
 // Total de un pedido con artículos: Σ subtotales + envío − descuento (en centavos, sin errores de coma flotante)
-function computeOrderTotal(lines, shipping, discount) {
+// Fase 3: subtotal = Σ líneas; base = max(0, subtotal − descuento); impuesto = round2(base × tasa / 100);
+// total = subtotal − descuento + impuesto + envío (el envío no lleva impuesto).
+function computeOrderAmounts(lines, shipping, discount, taxRate = 0) {
   const cents = (n) => Math.round(Number(n) * 100);
-  const gross = lines.reduce((a, l) => a + cents(l.linePrice), 0) + cents(shipping);
-  const disc = cents(discount);
-  if (disc > gross) throw new BadRequest('El descuento no puede ser mayor que el total');
-  const total = (gross - disc) / 100;
-  if (total > MAX_MONEY) throw new BadRequest('El total es demasiado grande');
-  return total;
+  const subtotalC = lines.reduce((a, l) => a + cents(l.linePrice), 0);
+  const shipC = cents(shipping), disc = cents(discount);
+  if (disc > subtotalC + shipC) throw new BadRequest('El descuento no puede ser mayor que el total');
+  const baseC = Math.max(0, subtotalC - disc);
+  const taxC = Math.round(baseC * (Number(taxRate) || 0) / 100);
+  const totalC = subtotalC - disc + taxC + shipC;
+  if (totalC / 100 > MAX_MONEY) throw new BadRequest('El total es demasiado grande');
+  return { subtotal: subtotalC / 100, tax: taxC / 100, total: totalC / 100 };
+}
+const computeOrderTotal = (lines, shipping, discount, taxRate = 0) => computeOrderAmounts(lines, shipping, discount, taxRate).total;
+
+// Ajustes de impuesto y zonas del negocio (tenant_settings). Sin fila → impuesto apagado.
+const DEFAULT_TAX = { enabled: false, rate: 0, label: 'IVA' };
+function mapTax(v) {
+  const t = v && typeof v === 'object' ? v : {};
+  return { enabled: t.enabled === true, rate: Math.round((Number(t.rate) || 0) * 100) / 100, label: String(t.label || DEFAULT_TAX.label).slice(0, 30) };
+}
+async function getTenantTaxRate(db, tenantId) {
+  const { rows } = await db.query('SELECT tax FROM tenant_settings WHERE tenant_id = $1', [tenantId]);
+  const t = mapTax(rows[0] && rows[0].tax);
+  return t.enabled ? t.rate : 0;
+}
+// Fecha de entrega (YYYY-MM-DD real o null) y zona (texto ≤ 60 o null)
+function cleanDeliveryDate(v) {
+  if (v === undefined || v === null || v === '') return null;
+  const s = String(v).trim();
+  if (!isRealDate(s) || Number(s.slice(0, 4)) < 2000 || Number(s.slice(0, 4)) > 2100) throw new BadRequest('Fecha de entrega inválida (formato AAAA-MM-DD)');
+  return s;
+}
+function cleanDeliveryZone(v) {
+  if (v === undefined || v === null || v === '') return null;
+  const s = String(v).trim();
+  if (s.length > 60) throw new BadRequest('La zona de entrega es demasiado larga (máx. 60 caracteres)');
+  return s || null;
 }
 
 // Valida la lista de artículos de un pedido que llega por la API
@@ -896,17 +976,29 @@ const payStr = (v, max, label, required) => {
   return s;
 };
 
+// Saldo a favor de un cliente, en centavos, bloqueando antes su ficha (FOR UPDATE): dentro de una transacción
+// que ya tiene bloqueado el pedido. Nunca puede ser negativo.
+async function lockedClientCreditC(db, tenantId, clientId) {
+  const { rows: lk } = await db.query('SELECT 1 FROM clients WHERE id = $1 AND tenant_id = $2 FOR UPDATE', [clientId, tenantId]);
+  if (!lk[0]) throw new BadRequest('Cliente no encontrado');
+  const { rows: [r] } = await db.query('SELECT COALESCE(SUM(amount), 0) AS b FROM client_credit_entries WHERE client_id = $1 AND tenant_id = $2', [clientId, tenantId]);
+  return centsOf(r.b);
+}
+
 // Registra un pago (DENTRO de una transacción). Bloquea la fila del pedido para que dos pagos
 // simultáneos no superen el saldo. Devuelve { payment, order (fila ya recalculada) } o null si no existe.
 async function addPaymentTx(db, tenantId, orderId, body, createdBy = 'owner') {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new BadRequest('Datos del pago inválidos');
   const { rows: ord } = await db.query('SELECT * FROM orders WHERE id = $1 AND tenant_id = $2 FOR UPDATE', [orderId, tenantId]);
   if (!ord[0]) return null;
+  if (ord[0].kind === 'quote') throw new BadRequest('Un presupuesto no admite cobros: conviértelo en pedido primero');
+  if (ord[0].delivery_status === 'cancelled') throw new BadRequest('El pedido está anulado: no admite cobros');
   // KEY SHARE: un cambio de moneda base (FOR UPDATE) espera a que termine este pago, y viceversa
   const { rows: [t] } = await db.query('SELECT base_currency, timezone FROM tenants WHERE id = $1 FOR KEY SHARE', [tenantId]);
   const base = t.base_currency || 'USD';
 
-  const totalC = centsOf(ord[0].total_price), balanceC = totalC - centsOf(ord[0].amount_paid);
+  // Total EFECTIVO: el total del pedido menos sus notas de crédito. amount_paid ya es el cobrado neto.
+  const totalC = centsOf(ord[0].total_price) - centsOf(ord[0].credited_total), balanceC = totalC - centsOf(ord[0].amount_paid);
   // full: true → se cobra el saldo completo que calcula el servidor (el amount enviado se ignora)
   if (body.full !== undefined && typeof body.full !== 'boolean') throw new BadRequest('"full" debe ser verdadero o falso');
   const full = body.full === true;
@@ -936,7 +1028,9 @@ async function addPaymentTx(db, tenantId, orderId, body, createdBy = 'owner') {
     } else amountBaseC = Math.round(amountR / rate * 100);
     if (amountBaseC < 1) throw new BadRequest('El monto es demasiado pequeño para esa tasa');
   } else if (full) amountR = balanceC / 100;
-  const method = payStr(body.method, 60, 'Método de pago', true);
+  let method = payStr(body.method, 60, 'Método de pago', true);
+  const withCredit = isCreditMethod(method);
+  if (withCredit) method = CREDIT_METHOD;
   const reference = payStr(body.reference, 80, 'Referencia', false);
   const note = payStr(body.note, 300, 'Nota', false);
 
@@ -964,11 +1058,23 @@ async function addPaymentTx(db, tenantId, orderId, body, createdBy = 'owner') {
     else throw new BadRequest(`El pago supera el saldo pendiente (${(balanceC / 100).toFixed(2)} ${base})`);
   }
 
+  if (withCredit) {
+    // Saldo a favor: solo en la moneda base, de un cliente del pedido y sin pasarse de lo que tiene. La fila del
+    // cliente se bloquea (siempre DESPUÉS de la del pedido), así dos pagos simultáneos no gastan el mismo saldo.
+    if (foreign) throw new BadRequest('El saldo a favor se usa en la moneda base');
+    if (!ord[0].client_id) throw new BadRequest('El pedido no tiene cliente: el saldo a favor es de un cliente');
+    const credit = await lockedClientCreditC(db, tenantId, ord[0].client_id);
+    if (amountBaseC > credit) throw new BadRequest(`El cliente solo tiene ${(credit / 100).toFixed(2)} ${base} de saldo a favor`);
+  }
   const { rows } = await db.query(`
     INSERT INTO payments (tenant_id, order_id, client_id, amount, currency, exchange_rate, amount_base,
                           method, reference, paid_at, note, created_by)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10::timestamptz, now()), $11, $12) RETURNING *
   `, [tenantId, orderId, ord[0].client_id, amountR, currency, rate, amountBaseC / 100, method, reference, paidAt, note, createdBy]);
+  if (withCredit) {
+    await db.query(`INSERT INTO client_credit_entries (tenant_id, client_id, amount, kind, order_id, ref_id)
+      VALUES ($1, $2, $3, 'credit_payment', $4, $5)`, [tenantId, ord[0].client_id, -amountBaseC / 100, orderId, rows[0].id]);
+  }
   await addOrderEvent(db, tenantId, orderId, 'payment_added', {
     paymentId: rows[0].id, amount: amountR, currency, amountBase: amountBaseC / 100, method, reference }, createdBy);
   const order = await recalcOrderPayment(db, tenantId, orderId);
@@ -980,16 +1086,239 @@ async function voidPaymentTx(db, tenantId, paymentId, reason, createdBy = 'owner
   const why = payStr(reason, 200, 'Motivo', true);
   const { rows: pr } = await db.query('SELECT order_id FROM payments WHERE id = $1 AND tenant_id = $2', [paymentId, tenantId]);
   if (!pr[0]) return null;
-  // Mismo orden de bloqueo que addPaymentTx: primero el pedido
-  await db.query('SELECT 1 FROM orders WHERE id = $1 AND tenant_id = $2 FOR UPDATE', [pr[0].order_id, tenantId]);
+  // Mismo orden de bloqueo que addPaymentTx: primero el pedido (y después el cliente, si el pago fue con saldo a favor)
+  const { rows: [ord] } = await db.query('SELECT client_id FROM orders WHERE id = $1 AND tenant_id = $2 FOR UPDATE', [pr[0].order_id, tenantId]);
   const { rows } = await db.query(
     'UPDATE payments SET voided_at = now(), void_reason = $3 WHERE id = $1 AND tenant_id = $2 AND voided_at IS NULL RETURNING *',
     [paymentId, tenantId, why]);
   if (!rows[0]) throw new BadRequest('Este pago ya fue anulado');
+  // Lo cobrado neto (pagos − reembolsos) no puede quedar negativo: un pago ya devuelto no se anula (se corrige con una operación nueva)
+  const { rows: [net] } = await db.query(`SELECT
+      (SELECT COALESCE(SUM(amount_base), 0) FROM payments WHERE order_id = $1 AND tenant_id = $2 AND voided_at IS NULL) -
+      (SELECT COALESCE(SUM(amount_base), 0) FROM refunds  WHERE order_id = $1 AND tenant_id = $2) AS n`, [rows[0].order_id, tenantId]);
+  if (centsOf(net.n) < 0) throw new BadRequest('Este pago ya fue devuelto al cliente (reembolso o saldo a favor): no se puede anular');
+  if (isCreditMethod(rows[0].method)) {
+    // Pagó con saldo a favor: se le devuelve
+    const clientId = rows[0].client_id || (ord && ord.client_id);
+    if (!clientId) throw new BadRequest('El cliente de este pago ya no existe: no se puede devolver el saldo a favor');
+    await lockedClientCreditC(db, tenantId, clientId);
+    await db.query(`INSERT INTO client_credit_entries (tenant_id, client_id, amount, kind, order_id, ref_id)
+      VALUES ($1, $2, $3, 'credit_payment_void', $4, $5)`, [tenantId, clientId, Number(rows[0].amount_base), rows[0].order_id, paymentId]);
+  }
   await addOrderEvent(db, tenantId, rows[0].order_id, 'payment_voided', {
     paymentId, amountBase: Number(rows[0].amount_base), method: rows[0].method, reason: why }, createdBy);
   const order = await recalcOrderPayment(db, tenantId, rows[0].order_id);
   return { payment: mapPaymentRow(rows[0]), order };
+}
+
+// ── Fase 3: devoluciones, reembolsos, saldo a favor, anulación y conversión de presupuestos ──
+// Reglas (no romper): el dinero no se edita, se registra. Notas de crédito y reembolsos solo se añaden (esta
+// fase NO los anula: un error se corrige con una operación nueva). Orden de bloqueo SIEMPRE: pedido → tenant
+// (contadores) → cliente. Todo dentro de la transacción de quien llama.
+
+const cleanResolution = (v) => {
+  if (v !== 'refund' && v !== 'credit') throw new BadRequest('Indica si el dinero se reembolsa o queda como saldo a favor del cliente');
+  return v;
+};
+const fmtCreditNote = (n) => 'NC-' + pad4(n);
+
+function mapRefundRow(r) {
+  return {
+    id: r.id, orderId: r.order_id, creditNoteId: r.credit_note_id,
+    amount: Number(r.amount), currency: r.currency, exchangeRate: Number(r.exchange_rate), amountBase: Number(r.amount_base),
+    method: r.method, reference: r.reference, reason: r.reason, createdAt: r.created_at, createdBy: r.created_by,
+  };
+}
+
+// Reembolsa `amountC` centavos de un pedido (DENTRO de una transacción, con el pedido ya bloqueado y `ord` recién
+// recalculado). 'refund' → con el método elegido (lo que se cobró con saldo a favor vuelve al saldo del cliente,
+// no sale como efectivo); 'credit' → todo al saldo a favor. Devuelve las filas de refunds creadas.
+async function settleRefundTx(db, tenantId, ord, amountC, o) {
+  if (amountC <= 0) return [];
+  let method = null;
+  if (o.resolution === 'refund') {
+    method = payStr(o.method, 60, 'Método de reembolso', true);
+    if (isCreditMethod(method)) throw new BadRequest('Para dejar el dinero como saldo a favor elige esa opción, no un método de reembolso');
+    method = normalizeMethodName(method);
+  }
+  const { rows: [sp] } = await db.query(`SELECT
+      (SELECT COALESCE(SUM(amount_base), 0) FROM payments WHERE order_id = $1 AND tenant_id = $2 AND voided_at IS NULL AND method = $3) AS pay_credit,
+      (SELECT COALESCE(SUM(amount_base), 0) FROM refunds  WHERE order_id = $1 AND tenant_id = $2 AND method = $3) AS ref_credit`,
+    [ord.id, tenantId, CREDIT_METHOD]);
+  const creditNetC = Math.max(0, centsOf(sp.pay_credit) - centsOf(sp.ref_credit));
+  const cashNetC = Math.max(0, centsOf(ord.amount_paid) - creditNetC);
+  const cashC = o.resolution === 'refund' ? Math.min(amountC, cashNetC) : 0;
+  const creditC = amountC - cashC;
+  if (creditC > 0) {
+    if (!ord.client_id) throw new BadRequest('El pedido no tiene cliente: no se puede dejar saldo a favor');
+    await lockedClientCreditC(db, tenantId, ord.client_id);
+  }
+  const { rows: [t] } = await db.query('SELECT base_currency FROM tenants WHERE id = $1', [tenantId]);
+  const base = (t && t.base_currency) || 'USD';
+  const out = [];
+  for (const [c, m] of [[cashC, method], [creditC, CREDIT_METHOD]]) {
+    if (c <= 0) continue;
+    const { rows } = await db.query(`
+      INSERT INTO refunds (tenant_id, order_id, credit_note_id, amount, currency, exchange_rate, amount_base, method, reason, created_by)
+      VALUES ($1, $2, $3, $4, $5, 1, $4, $6, $7, $8) RETURNING *`,
+      [tenantId, ord.id, o.creditNoteId || null, c / 100, base, m, o.reason, o.createdBy]);
+    if (m === CREDIT_METHOD) {
+      await db.query(`INSERT INTO client_credit_entries (tenant_id, client_id, amount, kind, order_id, ref_id)
+        VALUES ($1, $2, $3, 'refund_to_credit', $4, $5)`, [tenantId, ord.client_id, c / 100, ord.id, rows[0].id]);
+    }
+    await addOrderEvent(db, tenantId, ord.id, 'refunded', {
+      refundId: rows[0].id, amountBase: c / 100, method: m, creditNoteId: o.creditNoteId || null, reason: o.reason }, o.createdBy);
+    out.push(rows[0]);
+  }
+  return out;
+}
+
+// Parte del total (con su descuento y su impuesto) que corresponde a `units` unidades de un artículo
+function itemShareC(it, ord, subtotalC, units) {
+  const lineC = Math.round(centsOf(it.line_price) * units / Math.max(1, Number(it.qty)));
+  const discC = subtotalC > 0 ? Math.min(lineC, Math.round(centsOf(ord.discount) * lineC / subtotalC)) : 0;
+  const baseC = lineC - discC;
+  return baseC + Math.round(baseC * Number(ord.tax_rate || 0) / 100);
+}
+
+async function mapCreditNoteFull(db, tenantId, noteRows) {
+  if (!noteRows.length) return [];
+  const ids = noteRows.map(n => n.id);
+  const [items, refs] = await Promise.all([
+    db.query('SELECT * FROM credit_note_items WHERE tenant_id = $1 AND credit_note_id = ANY($2::uuid[]) ORDER BY ctid', [tenantId, ids]),
+    db.query('SELECT * FROM refunds WHERE tenant_id = $1 AND credit_note_id = ANY($2::uuid[]) ORDER BY created_at', [tenantId, ids]),
+  ]);
+  return noteRows.map(n => ({
+    id: n.id, orderId: n.order_id, clientId: n.client_id, number: fmtCreditNote(n.number),
+    amountBase: Number(n.amount_base), reason: n.reason, createdAt: n.created_at, createdBy: n.created_by,
+    items: items.rows.filter(i => i.credit_note_id === n.id).map(i => ({
+      id: i.id, orderItemId: i.order_item_id, name: i.name, qty: i.qty, amount: Number(i.amount) })),
+    refunds: refs.rows.filter(r => r.credit_note_id === n.id).map(mapRefundRow),
+  }));
+}
+
+// Devolución: nota de crédito + (si ya se había cobrado de más) el reembolso o saldo a favor, todo en UNA transacción.
+async function createReturnTx(db, tenantId, orderId, body, createdBy = 'owner') {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new BadRequest('Datos de la devolución inválidos');
+  const reason = payStr(body.reason, 300, 'Motivo', true);
+  const resolution = cleanResolution(body.resolution);
+  const hasItems = body.items !== undefined && body.items !== null;
+  const hasAmount = body.amount !== undefined && body.amount !== null && body.amount !== '';
+  if (hasItems === hasAmount) throw new BadRequest('Indica los artículos devueltos o un importe (solo uno de los dos)');
+  const { rows: [ord0] } = await db.query('SELECT * FROM orders WHERE id = $1 AND tenant_id = $2 FOR UPDATE', [orderId, tenantId]);
+  if (!ord0) return null;
+  if (ord0.kind === 'quote') throw new BadRequest('Un presupuesto no admite devoluciones');
+  if (ord0.delivery_status === 'cancelled') throw new BadRequest('El pedido está anulado: no admite devoluciones');
+  if (resolution === 'credit' && !ord0.client_id) throw new BadRequest('El pedido no tiene cliente: no se puede dejar saldo a favor');
+  const { rows: [bt] } = await db.query('SELECT base_currency FROM tenants WHERE id = $1', [tenantId]);
+  const base = (bt && bt.base_currency) || 'USD';
+  const effectiveC = centsOf(ord0.total_price) - centsOf(ord0.credited_total);
+
+  let amountC = 0, lines = [];
+  if (hasItems) {
+    if (!Array.isArray(body.items) || !body.items.length) throw new BadRequest('Indica al menos un artículo devuelto');
+    if (body.items.length > MAX_ORDER_ITEMS) throw new BadRequest('Demasiados artículos');
+    const want = new Map();
+    for (const it of body.items) {
+      if (!it || typeof it !== 'object') throw new BadRequest('Artículo inválido');
+      const id = String(it.orderItemId || '');
+      if (!UUID_RE.test(id)) throw new BadRequest('Artículo no encontrado en este pedido');
+      const qty = Number(it.qty);
+      if (!Number.isInteger(qty) || qty < 1 || qty > 100000) throw new BadRequest('Cantidad devuelta inválida');
+      want.set(id, (want.get(id) || 0) + qty);
+    }
+    const { rows: oi } = await db.query('SELECT * FROM order_items WHERE order_id = $1 AND tenant_id = $2', [orderId, tenantId]);
+    const byId = new Map(oi.map(r => [r.id, r]));
+    const { rows: ret } = await db.query(`
+      SELECT cni.order_item_id, SUM(cni.qty)::int AS n FROM credit_note_items cni
+      JOIN credit_notes cn ON cn.id = cni.credit_note_id AND cn.tenant_id = cni.tenant_id
+      WHERE cn.order_id = $1 AND cn.tenant_id = $2 AND cni.order_item_id IS NOT NULL GROUP BY cni.order_item_id`, [orderId, tenantId]);
+    const returned = new Map(ret.map(r => [r.order_item_id, r.n]));
+    const subtotalC = oi.reduce((a, r) => a + centsOf(r.line_price), 0);
+    for (const [id, qty] of want) {
+      const it = byId.get(id);
+      if (!it) throw new BadRequest('Artículo no encontrado en este pedido');
+      const before = returned.get(id) || 0;
+      if (before + qty > Number(it.qty)) {
+        throw new BadRequest(`No se pueden devolver ${qty} unidad(es) de «${it.name}»: se vendieron ${it.qty} y ya se devolvieron ${before}`);
+      }
+      const amtC = itemShareC(it, ord0, subtotalC, before + qty) - itemShareC(it, ord0, subtotalC, before);
+      amountC += amtC;
+      lines.push({ orderItemId: id, name: String(it.name || 'Artículo').slice(0, 200), qty, amountC: amtC });
+    }
+    if (amountC > effectiveC && amountC - effectiveC <= 2) { // redondeos de impuesto/descuento
+      lines[lines.length - 1].amountC -= amountC - effectiveC; amountC = effectiveC;
+    }
+  } else {
+    const amount = payNum(body.amount);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > MAX_MONEY) throw new BadRequest('Importe de la devolución inválido');
+    amountC = centsOf(amount);
+    if (amountC <= 0) throw new BadRequest('Importe de la devolución inválido');
+    lines = [{ orderItemId: null, name: 'Devolución por importe', qty: 1, amountC }];
+  }
+  if (amountC <= 0) throw new BadRequest('La devolución no tiene importe');
+  if (amountC > effectiveC) throw new BadRequest(`La devolución supera lo que queda del pedido (${(effectiveC / 100).toFixed(2)} ${base})`);
+
+  const { rows: [sq] } = await db.query(`
+    UPDATE tenants SET credit_note_seq = GREATEST(credit_note_seq,
+      COALESCE((SELECT MAX(number) FROM credit_notes WHERE tenant_id = $1), 0)) + 1
+    WHERE id = $1 RETURNING credit_note_seq AS seq`, [tenantId]);
+  const { rows: [note] } = await db.query(`
+    INSERT INTO credit_notes (tenant_id, order_id, client_id, number, amount_base, reason, created_by)
+    VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+    [tenantId, orderId, ord0.client_id, sq.seq, amountC / 100, reason, createdBy]);
+  for (const l of lines) {
+    await db.query(`INSERT INTO credit_note_items (tenant_id, credit_note_id, order_item_id, name, qty, amount)
+      VALUES ($1, $2, $3, $4, $5, $6)`, [tenantId, note.id, l.orderItemId, l.name, l.qty, l.amountC / 100]);
+  }
+  const ord = await recalcOrderPayment(db, tenantId, orderId);
+  await addOrderEvent(db, tenantId, orderId, 'returned', {
+    creditNoteId: note.id, number: fmtCreditNote(note.number), amountBase: amountC / 100, reason, resolution,
+    items: lines.map(l => ({ name: l.name, qty: l.qty })) }, createdBy);
+  // Si ya estaba cobrado más de lo que ahora vale el pedido, el exceso (hasta el importe de la nota) se resuelve ya
+  const excessC = Math.max(0, centsOf(ord.amount_paid) - (centsOf(ord.total_price) - centsOf(ord.credited_total)));
+  const refunds = await settleRefundTx(db, tenantId, ord, Math.min(excessC, amountC), {
+    resolution, method: body.refundMethod, reason, creditNoteId: note.id, createdBy });
+  const order = refunds.length ? await recalcOrderPayment(db, tenantId, orderId) : ord;
+  const [full] = await mapCreditNoteFull(db, tenantId, [note]);
+  return { creditNote: full, order };
+}
+
+// Anula un pedido (o un presupuesto). Lo cobrado neto se devuelve en la misma transacción.
+async function cancelOrderTx(db, tenantId, orderId, body, createdBy = 'owner') {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new BadRequest('Datos de la anulación inválidos');
+  const reason = payStr(body.reason, 300, 'Motivo', true);
+  const { rows: [ord] } = await db.query('SELECT * FROM orders WHERE id = $1 AND tenant_id = $2 FOR UPDATE', [orderId, tenantId]);
+  if (!ord) return null;
+  if (ord.delivery_status === 'cancelled') throw new BadRequest('El pedido ya está anulado');
+  const paidC = ord.kind === 'quote' ? 0 : centsOf(ord.amount_paid);
+  const noRes = body.resolution === undefined || body.resolution === null || body.resolution === '';
+  const resolution = noRes ? (paidC > 0 ? cleanResolution(body.resolution) : null) : cleanResolution(body.resolution);
+  if (resolution === 'credit' && !ord.client_id) throw new BadRequest('El pedido no tiene cliente: no se puede dejar saldo a favor');
+  const refunds = await settleRefundTx(db, tenantId, ord, paidC, { resolution, method: body.refundMethod, reason, creditNoteId: null, createdBy });
+  await db.query(`UPDATE orders SET delivery_status = 'cancelled', cancelled_at = now(), cancel_reason = $3, updated_at = NOW()
+    WHERE id = $1 AND tenant_id = $2`, [orderId, tenantId, reason]);
+  await addOrderEvent(db, tenantId, orderId, 'cancelled', {
+    reason, from: ord.delivery_status, resolution, refundedBase: refunds.reduce((a, r) => a + Number(r.amount_base), 0) }, createdBy);
+  return refunds.length ? await recalcOrderPayment(db, tenantId, orderId)
+    : (await db.query('SELECT * FROM orders WHERE id = $1 AND tenant_id = $2', [orderId, tenantId])).rows[0];
+}
+
+// Convierte un presupuesto en pedido: recibe el siguiente número de pedido (#0001…) y cuenta desde hoy
+async function convertQuoteTx(db, tenantId, orderId, createdBy = 'owner') {
+  const { rows: [ord] } = await db.query('SELECT * FROM orders WHERE id = $1 AND tenant_id = $2 FOR UPDATE', [orderId, tenantId]);
+  if (!ord) return null;
+  if (ord.kind !== 'quote') throw new BadRequest('Este documento ya es un pedido');
+  if (ord.delivery_status === 'cancelled') throw new BadRequest('El presupuesto está anulado: no se puede convertir');
+  const { rows: [sq] } = await db.query(`
+    UPDATE tenants SET order_seq = GREATEST(order_seq,
+      COALESCE((SELECT MAX(tenant_order_number) FROM orders WHERE tenant_id = $1), 0)) + 1
+    WHERE id = $1 RETURNING order_seq AS seq`, [tenantId]);
+  await db.query(`UPDATE orders SET kind = 'order', tenant_order_number = $3, created_at = NOW(), updated_at = NOW()
+    WHERE id = $1 AND tenant_id = $2`, [orderId, tenantId, sq.seq]);
+  await addOrderEvent(db, tenantId, orderId, 'converted', {
+    quote: 'P-' + pad4(ord.quote_number || 0), order: '#' + pad4(sq.seq), quoteCreatedAt: ord.created_at }, createdBy);
+  return true;
 }
 
 // Actualiza un pedido (campos en snake_case). Con `items` reemplaza todos sus artículos;
@@ -1000,24 +1329,31 @@ async function dbUpdateOrder(tenantId, orderId, fields) {
   // El estado de cobro lo derivan los pagos (POST /api/orders/:id/payments): ya no se acepta por aquí
   if (fields.pay_status !== undefined) throw new BadRequest('Recarga la página: el cobro ahora se registra con «Registrar pago»');
   const allowed = ['delivery_status', 'pay_method_label', 'delivery_method_label',
-    'address', 'notes', 'client_name', 'product_summary', 'total_price', 'shipping', 'discount'];
+    'address', 'notes', 'client_name', 'product_summary', 'total_price', 'shipping', 'discount', 'delivery_date', 'delivery_zone'];
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const { rows: found } = await client.query('SELECT * FROM orders WHERE id = $1 AND tenant_id = $2 FOR UPDATE', [orderId, tenantId]);
     if (!found[0]) { await client.query('ROLLBACK'); return null; }
+    if (found[0].delivery_status === 'cancelled') throw new BadRequest('El pedido está anulado: ya no se puede modificar');
+    const hasCredit = Number(found[0].credited_total || 0) > 0;
+    if (hasCredit && fields.items !== undefined) throw new BadRequest('Este pedido tiene devoluciones: no se pueden cambiar sus artículos');
 
     const sets = [];
     const values = [];
     let newShipping, newDiscount, sentTotal;
     const FIELD_LABELS = { delivery_status: 'Estado de entrega', total_price: 'Total', shipping: 'Costo de envío', discount: 'Descuento' };
-    const ENUMS = { delivery_status: ['to_deliver', 'delivered', 'not_delivered'] };
+    const ENUMS = { delivery_status: DELIVERY_STATUSES };
     for (const [key, raw] of Object.entries(fields)) {
       if (!allowed.includes(key)) continue;
       let val = raw;
+      if (key === 'delivery_status' && raw === 'cancelled') throw new BadRequest('Para anular un pedido usa «Anular pedido» (indica el motivo y qué pasa con el dinero)');
       if (ENUMS[key] && !ENUMS[key].includes(val)) throw new BadRequest(FIELD_LABELS[key] + ' inválido');
-      if (key === 'total_price' || key === 'shipping' || key === 'discount') {
+      if (key === 'delivery_date') val = cleanDeliveryDate(raw);
+      else if (key === 'delivery_zone') val = cleanDeliveryZone(raw);
+      else if (key === 'total_price' || key === 'shipping' || key === 'discount') {
         val = cleanMoneyField(raw, FIELD_LABELS[key]);
+        if (hasCredit && key !== 'total_price' && centsOf(val) !== centsOf(found[0][key])) throw new BadRequest('Este pedido tiene devoluciones: no se puede cambiar el envío ni el descuento');
         if (key === 'shipping') newShipping = val;
         if (key === 'discount') newDiscount = val;
         // El total se decide más abajo: con artículos lo calcula el servidor
@@ -1049,9 +1385,12 @@ async function dbUpdateOrder(tenantId, orderId, fields) {
     const hasItems = !!(lines && lines.length);
     if (hasItems) {
       if (items || newShipping !== undefined || newDiscount !== undefined) {
-        const total = computeOrderTotal(lines, newShipping ?? Number(found[0].shipping || 0), newDiscount ?? Number(found[0].discount || 0));
-        values.push(total);
+        // El impuesto usa la tasa de ESTE pedido (la foto de cuando se creó), no el ajuste actual del negocio
+        const am = computeOrderAmounts(lines, newShipping ?? Number(found[0].shipping || 0), newDiscount ?? Number(found[0].discount || 0), found[0].tax_rate);
+        values.push(am.total);
         sets.push(`total_price = $${values.length}`);
+        values.push(am.tax);
+        sets.push(`tax_amount = $${values.length}`);
       }
     } else if (sentTotal !== undefined) {
       values.push(sentTotal);
@@ -1067,7 +1406,7 @@ async function dbUpdateOrder(tenantId, orderId, fields) {
     );
     // Nunca por debajo de lo ya cobrado; si el total cambió, el estado de cobro se vuelve a derivar
     const paidCents = Math.round(Number(rows[0].amount_paid || 0) * 100);
-    const totalCents = Math.round(Number(rows[0].total_price || 0) * 100);
+    const totalCents = Math.round(Number(rows[0].total_price || 0) * 100) - Math.round(Number(rows[0].credited_total || 0) * 100);
     if (totalCents < paidCents) {
       const { rows: [bt] } = await client.query('SELECT base_currency FROM tenants WHERE id = $1', [tenantId]);
       throw new BadRequest(`El total no puede quedar por debajo de lo ya cobrado (${(paidCents / 100).toFixed(2)} ${(bt && bt.base_currency) || 'USD'})`);
@@ -1087,7 +1426,7 @@ async function dbUpdateOrder(tenantId, orderId, fields) {
     const clip = (v) => v === null || v === undefined ? null : String(v).slice(0, 200);
     const changes = {};
     for (const k of ['delivery_status', 'pay_method_label', 'delivery_method_label', 'address', 'notes', 'client_name',
-      'product_summary', 'total_price', 'shipping', 'discount', 'client_id']) {
+      'product_summary', 'total_price', 'shipping', 'discount', 'client_id', 'delivery_date', 'delivery_zone', 'tax_amount']) {
       if (String(found[0][k] ?? '') !== String(rows[0][k] ?? '')) changes[k] = { from: clip(found[0][k]), to: clip(rows[0][k]) };
     }
     if (items) changes.items = { count: items.length };
@@ -1135,6 +1474,8 @@ function mapClientRow(r) {
     // Saldo por cobrar (moneda base): Σ (total − cobrado) de sus pedidos con saldo
     balance:           money2(r.balance),
     ordersWithBalance: Number(r.orders_with_balance) || 0,
+    // Saldo a favor (moneda base): lo que el negocio le debe al cliente (devoluciones dejadas como crédito)
+    credit:            money2(r.credit),
     createdAt:      r.created_at,
     updatedAt:      r.updated_at,
   };
@@ -1143,13 +1484,18 @@ function mapClientRow(r) {
 async function dbGetClients(tenantId) {
   if (!dbReady) return [];
   const { rows } = await pool.query(`
-    SELECT c.*, COALESCE(b.balance, 0) AS balance, COALESCE(b.n, 0) AS orders_with_balance
+    SELECT c.*, COALESCE(b.balance, 0) AS balance, COALESCE(b.n, 0) AS orders_with_balance, COALESCE(cr.credit, 0) AS credit
     FROM clients c
     LEFT JOIN (
-      SELECT client_id, SUM(total_price - amount_paid) AS balance, COUNT(*) AS n
-      FROM orders WHERE tenant_id = $1 AND client_id IS NOT NULL AND total_price > amount_paid
+      -- Presupuestos y pedidos anulados no cuentan; el total es el EFECTIVO (menos notas de crédito)
+      SELECT client_id, SUM(total_price - credited_total - amount_paid) AS balance, COUNT(*) AS n
+      FROM orders WHERE tenant_id = $1 AND client_id IS NOT NULL AND kind = 'order' AND delivery_status <> 'cancelled'
+        AND total_price - credited_total > amount_paid
       GROUP BY client_id
     ) b ON b.client_id = c.id
+    LEFT JOIN (
+      SELECT client_id, SUM(amount) AS credit FROM client_credit_entries WHERE tenant_id = $1 GROUP BY client_id
+    ) cr ON cr.client_id = c.id
     WHERE c.tenant_id = $1 ORDER BY c.created_at DESC`, [tenantId]);
   return rows.map(mapClientRow);
 }
@@ -1202,6 +1548,10 @@ async function dbUpsertClient(tenantId, data) {
 async function dbDeleteClient(tenantId, clientId) {
   if (!dbReady) return false;
   if (!UUID_RE.test(String(clientId))) return false;
+  // Un cliente con saldo a favor no se borra: ese dinero es suyo
+  const { rows: [cr] } = await pool.query(
+    'SELECT COALESCE(SUM(amount), 0) AS b FROM client_credit_entries WHERE client_id = $1 AND tenant_id = $2', [clientId, tenantId]);
+  if (centsOf(cr.b) !== 0) throw new BadRequest('Este cliente tiene saldo a favor: úsalo o devuélvelo antes de eliminarlo');
   const { rowCount } = await pool.query(
     'DELETE FROM clients WHERE id = $1 AND tenant_id = $2',
     [clientId, tenantId]
@@ -1408,6 +1758,9 @@ const DEMO_ALLOWED_ROUTES = new Set([
   'GET /api/orders', 'POST /api/orders', 'PATCH /api/orders/:id',
   'GET /api/orders/:id/payments', 'POST /api/orders/:id/payments', 'POST /api/payments/:id/void',
   'GET /api/payments', 'GET /api/orders/:id/events',
+  // Fase 3: ciclo del pedido (nada de esto llama a servicios externos)
+  'POST /api/orders/:id/convert', 'POST /api/orders/:id/cancel', 'POST /api/orders/:id/returns',
+  'GET /api/orders/:id/returns', 'GET /api/clients/:id/credit',
   'GET /api/tenant/settings', 'PUT /api/tenant/settings',
   'GET /api/reports',
   'GET /api/clients', 'POST /api/clients', 'PATCH /api/clients/:id', 'DELETE /api/clients/:id',
@@ -1419,12 +1772,16 @@ const DEMO_MAX_BODY = 1024 * 1024;
 const DEMO_MAX_EVENTS = 5000;   // filas de order_events por demo (cada edición/pago/anulación añade una)
 const DEMO_MAX_PAYMENTS = 600;
 const EV_LIMIT = ['order_events', DEMO_MAX_EVENTS];
+const CN_LIMIT = ['credit_notes', 200], REFUND_LIMIT = ['refunds', 300], CREDIT_LIMIT = ['client_credit_entries', 600];
 // ruta → lista de [tabla, máximo]; todas cuentan filas del propio negocio
 const DEMO_ROW_LIMITS = {
   'POST /api/orders': [['orders', 300], EV_LIMIT],
   'PATCH /api/orders/:id': [EV_LIMIT],
-  'POST /api/orders/:id/payments': [['payments', DEMO_MAX_PAYMENTS], EV_LIMIT],
-  'POST /api/payments/:id/void': [EV_LIMIT],
+  'POST /api/orders/:id/payments': [['payments', DEMO_MAX_PAYMENTS], EV_LIMIT, CREDIT_LIMIT],
+  'POST /api/payments/:id/void': [EV_LIMIT, CREDIT_LIMIT],
+  'POST /api/orders/:id/convert': [EV_LIMIT],
+  'POST /api/orders/:id/cancel': [EV_LIMIT, REFUND_LIMIT, CREDIT_LIMIT],
+  'POST /api/orders/:id/returns': [CN_LIMIT, REFUND_LIMIT, CREDIT_LIMIT, EV_LIMIT],
   'POST /api/clients': [['clients', 300]], 'POST /api/catalog': [['catalog_products', 100]],
   'POST /api/send': [['messages', 600]], 'POST /api/send-media': [['messages', 600]],
   'POST /api/send-ticket': [['messages', 600]], 'POST /api/send-instagram': [['messages', 600]],
@@ -2318,6 +2675,66 @@ app.patch('/api/orders/:id', requireAuth, async (req, res) => {
   } catch (err) { sendApiError(res, err, 'Editar pedido'); }
 });
 
+// ── Ciclo del pedido (Fase 3): convertir presupuesto, anular, devoluciones, saldo a favor ──
+
+// Ejecuta una operación del ciclo sobre un pedido y responde con el pedido completo
+const cycleRoute = (label, notFound, op) => async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  if (!UUID_RE.test(req.params.id)) return res.status(404).json({ error: notFound });
+  const tenantId = req.tenant.tenantId;
+  try {
+    const out = await inTx(async (c) => {
+      const r = await op(c, tenantId, req);
+      if (!r) return null;
+      return { ...r.extra, order: await fetchOrderFull(c, tenantId, req.params.id) };
+    });
+    if (!out) return res.status(404).json({ error: notFound });
+    res.json(out);
+  } catch (err) { sendApiError(res, err, label); }
+};
+app.post('/api/orders/:id/convert', requireAuth, cycleRoute('Convertir presupuesto', 'Pedido no encontrado',
+  async (c, t, req) => (await convertQuoteTx(c, t, req.params.id)) ? { extra: {} } : null));
+app.post('/api/orders/:id/cancel', requireAuth, cycleRoute('Anular pedido', 'Pedido no encontrado',
+  async (c, t, req) => (await cancelOrderTx(c, t, req.params.id, req.body)) ? { extra: {} } : null));
+app.post('/api/orders/:id/returns', requireAuth, cycleRoute('Devolución', 'Pedido no encontrado',
+  async (c, t, req) => { const r = await createReturnTx(c, t, req.params.id, req.body); return r && { extra: { creditNote: r.creditNote } }; }));
+
+app.get('/api/orders/:id/returns', requireAuth, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  if (!UUID_RE.test(req.params.id)) return res.status(404).json({ error: 'Pedido no encontrado' });
+  const tenantId = req.tenant.tenantId;
+  try {
+    const { rows: ord } = await pool.query('SELECT 1 FROM orders WHERE id = $1 AND tenant_id = $2', [req.params.id, tenantId]);
+    if (!ord[0]) return res.status(404).json({ error: 'Pedido no encontrado' });
+    const [{ rows: notes }, { rows: refs }] = await Promise.all([
+      pool.query('SELECT * FROM credit_notes WHERE order_id = $1 AND tenant_id = $2 ORDER BY number', [req.params.id, tenantId]),
+      pool.query('SELECT * FROM refunds WHERE order_id = $1 AND tenant_id = $2 ORDER BY created_at', [req.params.id, tenantId]),
+    ]);
+    res.json({ creditNotes: await mapCreditNoteFull(pool, tenantId, notes), refunds: refs.map(mapRefundRow) });
+  } catch (err) { sendApiError(res, err, 'Devoluciones del pedido'); }
+});
+
+// Saldo a favor de un cliente y sus movimientos (el más reciente primero)
+app.get('/api/clients/:id/credit', requireAuth, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  if (!UUID_RE.test(req.params.id)) return res.status(404).json({ error: 'Cliente no encontrado' });
+  const tenantId = req.tenant.tenantId;
+  try {
+    const { rows: c } = await pool.query('SELECT 1 FROM clients WHERE id = $1 AND tenant_id = $2', [req.params.id, tenantId]);
+    if (!c[0]) return res.status(404).json({ error: 'Cliente no encontrado' });
+    const [{ rows: [b] }, { rows }] = await Promise.all([
+      pool.query('SELECT COALESCE(SUM(amount), 0) AS b FROM client_credit_entries WHERE client_id = $1 AND tenant_id = $2', [req.params.id, tenantId]),
+      pool.query(`SELECT e.id, e.amount, e.kind, e.order_id, e.created_at,
+          CASE WHEN o.kind = 'quote' THEN 'P-' || lpad(COALESCE(o.quote_number, 0)::text, 4, '0')
+               ELSE '#' || lpad(COALESCE(o.tenant_order_number, o.order_number)::text, 4, '0') END AS order_number
+        FROM client_credit_entries e LEFT JOIN orders o ON o.id = e.order_id AND o.tenant_id = e.tenant_id
+        WHERE e.client_id = $1 AND e.tenant_id = $2 ORDER BY e.created_at DESC, e.id LIMIT 200`, [req.params.id, tenantId]),
+    ]);
+    res.json({ balance: money2(b.b), entries: rows.map(r => ({
+      id: r.id, amount: Number(r.amount), kind: r.kind, orderId: r.order_id, orderNumber: r.order_number, createdAt: r.created_at })) });
+  } catch (err) { sendApiError(res, err, 'Saldo a favor'); }
+});
+
 // ── Pagos de un pedido ────────────────────────────────────────
 
 app.get('/api/orders/:id/payments', requireAuth, async (req, res) => {
@@ -2395,28 +2812,53 @@ app.get('/api/payments', requireAuth, async (req, res) => {
     // El filtro por método usa el nombre canónico: se buscan los nombres guardados que le corresponden
     let methodList = null;
     if (method) {
-      const { rows: ms } = await pool.query(`SELECT DISTINCT p.method FROM payments p WHERE ${RANGE}`, [tenantId, tz, start, endExclusive]);
+      const { rows: ms } = await pool.query(`
+        SELECT p.method FROM payments p WHERE ${RANGE}
+        UNION SELECT r.method FROM refunds r WHERE r.tenant_id = $1 AND r.created_at >= ($3::timestamp AT TIME ZONE $2) AND r.created_at < ($4::timestamp AT TIME ZONE $2)`,
+        [tenantId, tz, start, endExclusive]);
       methodList = rawMethodsFor(ms.map(r => r.method), method);
     }
     const W = `${RANGE} AND ($5::text[] IS NULL OR p.method = ANY($5::text[]))`;
     const P = [tenantId, tz, start, endExclusive, methodList];
-    const [list, totals, cnt, base] = await Promise.all([
+    // Reembolsos del mismo rango y método (su fecha es created_at)
+    const RW = `r.tenant_id = $1 AND r.created_at >= ($3::timestamp AT TIME ZONE $2) AND r.created_at < ($4::timestamp AT TIME ZONE $2)
+      AND ($5::text[] IS NULL OR r.method = ANY($5::text[]))`;
+    const [list, refList, totals, cnt, base] = await Promise.all([
       pool.query(`
         SELECT p.*, COALESCE(o.tenant_order_number, o.order_number) AS order_num, o.client_name
         FROM payments p JOIN orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
         WHERE ${W} ORDER BY p.paid_at DESC, p.created_at DESC LIMIT ${PAYMENTS_LIST_LIMIT + 1}`, P),
       pool.query(`
-        SELECT p.method, COALESCE(SUM(p.amount_base), 0)::float AS total, COUNT(*)::int AS n
-        FROM payments p WHERE ${W} AND p.voided_at IS NULL GROUP BY p.method ORDER BY total DESC, p.method`, P),
-      pool.query(`SELECT COUNT(*)::int AS n FROM payments p WHERE ${W}`, P),
+        SELECT r.*, COALESCE(o.tenant_order_number, o.order_number) AS order_num, o.client_name
+        FROM refunds r JOIN orders o ON o.id = r.order_id AND o.tenant_id = r.tenant_id
+        WHERE ${RW} ORDER BY r.created_at DESC LIMIT ${PAYMENTS_LIST_LIMIT + 1}`, P),
+      // Cobrado = pagos − reembolsos; el saldo a favor no es dinero nuevo: fuera de ambos lados
+      pool.query(`
+        SELECT method, SUM(total)::float AS total, SUM(n)::int AS n FROM (
+          SELECT p.method, COALESCE(SUM(p.amount_base), 0) AS total, COUNT(*) AS n
+          FROM payments p WHERE ${W} AND p.voided_at IS NULL AND p.method <> $6 GROUP BY p.method
+          UNION ALL
+          SELECT r.method, -COALESCE(SUM(r.amount_base), 0), COUNT(*)
+          FROM refunds r WHERE ${RW} AND r.method <> $6 GROUP BY r.method
+        ) x GROUP BY method ORDER BY total DESC, method`, [...P, CREDIT_METHOD]),
+      pool.query(`SELECT (SELECT COUNT(*) FROM payments p WHERE ${W}) + (SELECT COUNT(*) FROM refunds r WHERE ${RW}) AS n`, P),
       pool.query('SELECT base_currency FROM tenants WHERE id = $1', [tenantId]),
     ]);
-    const truncated = list.rows.length > PAYMENTS_LIST_LIMIT;
+    const mapRefundAsPayment = (r) => ({
+      id: r.id, kind: 'refund', orderId: r.order_id, creditNoteId: r.credit_note_id, clientId: null,
+      amount: -Number(r.amount), currency: r.currency, exchangeRate: Number(r.exchange_rate), amountBase: -Number(r.amount_base),
+      method: r.method, reference: r.reference, paidAt: r.created_at, note: r.reason, createdAt: r.created_at, createdBy: r.created_by,
+      voided: false, voidedAt: null, voidReason: null,
+      orderNumber: '#' + String(r.order_num).padStart(4, '0'), clientName: r.client_name || null,
+    });
+    const merged = [...list.rows.map(p => ({ ...mapPaymentRow(p), kind: 'payment' })), ...refList.rows.map(mapRefundAsPayment)]
+      .sort((a, b) => new Date(b.paidAt) - new Date(a.paidAt));
+    const truncated = list.rows.length > PAYMENTS_LIST_LIMIT || refList.rows.length > PAYMENTS_LIST_LIMIT || merged.length > PAYMENTS_LIST_LIMIT;
     const byMethod = mergeMethodTotals(totals.rows);
     res.json({
       timezone: tz, from: start, to, baseCurrency: base.rows[0] ? base.rows[0].base_currency : 'USD',
-      payments: list.rows.slice(0, PAYMENTS_LIST_LIMIT).map(mapPaymentRow),
-      truncated, limit: PAYMENTS_LIST_LIMIT, totalCount: cnt.rows[0].n,
+      payments: merged.slice(0, PAYMENTS_LIST_LIMIT),
+      truncated, limit: PAYMENTS_LIST_LIMIT, totalCount: Number(cnt.rows[0].n),
       totals: { total: money2(byMethod.reduce((a, r) => a + r.total, 0)), count: byMethod.reduce((a, r) => a + r.count, 0), byMethod },
     });
   } catch (err) { sendApiError(res, err, 'Cobros'); }
@@ -2496,17 +2938,58 @@ function cleanDeliveryMethods(v) {
   return out;
 }
 
+// Impuesto: { enabled, rate 0–100 (2 decimales), label ≤ 30 (por defecto "IVA") }. Se suma ENCIMA de los artículos.
+function cleanTax(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) throw new BadRequest('El impuesto debe ser un objeto');
+  for (const k of Object.keys(v)) if (!['enabled', 'rate', 'label'].includes(k)) throw new BadRequest(`Impuesto: campo desconocido "${k.slice(0, 40)}"`);
+  if (typeof v.enabled !== 'boolean') throw new BadRequest('Impuesto: "enabled" debe ser verdadero o falso');
+  let rate = 0;
+  if (v.rate !== undefined && v.rate !== null && v.rate !== '') {
+    rate = payNum(v.rate);
+    if (!Number.isFinite(rate) || rate < 0 || rate > 100) throw new BadRequest('Impuesto: la tasa debe estar entre 0 y 100');
+    rate = Math.round(rate * 100) / 100;
+  } else if (v.enabled) throw new BadRequest('Impuesto: indica la tasa (entre 0 y 100)');
+  let label = DEFAULT_TAX.label;
+  if (v.label !== undefined && v.label !== null) {
+    if (typeof v.label !== 'string' || v.label.trim().length > 30) throw new BadRequest('Impuesto: el nombre es texto de hasta 30 caracteres');
+    label = v.label.trim() || DEFAULT_TAX.label;
+  }
+  return { enabled: v.enabled, rate, label };
+}
+// Zonas de entrega: [{ name ≤ 60, cost ≥ 0 opcional }], máximo 50
+function cleanZones(v) {
+  if (!Array.isArray(v)) throw new BadRequest('Las zonas deben ser una lista');
+  if (v.length > 50) throw new BadRequest('Máximo 50 zonas');
+  const seen = new Set();
+  return v.map(z => {
+    if (!z || typeof z !== 'object' || Array.isArray(z)) throw new BadRequest('Zona inválida');
+    for (const k of Object.keys(z)) if (!['name', 'cost'].includes(k)) throw new BadRequest(`Zona: campo desconocido "${k.slice(0, 40)}"`);
+    const name = typeof z.name === 'string' ? z.name.trim() : '';
+    if (!name || name.length > 60) throw new BadRequest('Zona: el nombre es obligatorio (máx. 60 caracteres)');
+    if (seen.has(name.toLowerCase())) throw new BadRequest(`Zona repetida: "${name}"`);
+    seen.add(name.toLowerCase());
+    const out = { name };
+    if (z.cost !== undefined && z.cost !== null && z.cost !== '') {
+      const c = payNum(z.cost);
+      if (!Number.isFinite(c) || c < 0 || c > MAX_MONEY) throw new BadRequest('Zona: el costo debe ser 0 o más');
+      out.cost = Math.round(c * 100) / 100;
+    }
+    return out;
+  });
+}
+
 app.get('/api/tenant/settings', requireAuth, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   const tenantId = req.tenant.tenantId;
   try {
     const { rows } = await pool.query(`
-      SELECT t.base_currency, s.payment_methods, s.delivery_methods,
+      SELECT t.base_currency, s.payment_methods, s.delivery_methods, s.tax, s.zones,
              EXISTS (SELECT 1 FROM payments p WHERE p.tenant_id = t.id) AS has_payments
       FROM tenants t LEFT JOIN tenant_settings s ON s.tenant_id = t.id WHERE t.id = $1`, [tenantId]);
     const r = rows[0] || {};
     res.json({
       baseCurrency: r.base_currency || 'USD', paymentMethods: r.payment_methods || [], deliveryMethods: r.delivery_methods || {},
+      tax: mapTax(r.tax), zones: Array.isArray(r.zones) ? r.zones : [], timezone: await resolveTenantTz(tenantId, req.query.tz),
       canChangeBaseCurrency: !r.has_payments, currencies: BASE_CURRENCIES,
     });
   } catch (err) { sendApiError(res, err, 'Ajustes'); }
@@ -2524,7 +3007,9 @@ app.put('/api/tenant/settings', requireAuth, async (req, res) => {
       cur = String(b.baseCurrency).trim().toUpperCase();
       if (!BASE_CURRENCIES.includes(cur)) throw new BadRequest('Moneda base inválida');
     }
-    if (pm === null && dm === null && cur === null) throw new BadRequest('No hay cambios para guardar');
+    const tax = b.tax !== undefined ? cleanTax(b.tax) : null;
+    const zones = b.zones !== undefined ? cleanZones(b.zones) : null;
+    if (pm === null && dm === null && cur === null && tax === null && zones === null) throw new BadRequest('No hay cambios para guardar');
     const out = await inTx(async (c) => {
       const { rows: [t] } = await c.query('SELECT base_currency FROM tenants WHERE id = $1 FOR UPDATE', [tenantId]);
       if (cur && cur !== t.base_currency) {
@@ -2533,17 +3018,20 @@ app.put('/api/tenant/settings', requireAuth, async (req, res) => {
         await c.query('UPDATE tenants SET base_currency = $1 WHERE id = $2', [cur, tenantId]);
       }
       const { rows: [s] } = await c.query(`
-        INSERT INTO tenant_settings (tenant_id, payment_methods, delivery_methods)
-        VALUES ($1, COALESCE($2::jsonb, '[]'::jsonb), COALESCE($3::jsonb, '{}'::jsonb))
+        INSERT INTO tenant_settings (tenant_id, payment_methods, delivery_methods, tax, zones)
+        VALUES ($1, COALESCE($2::jsonb, '[]'::jsonb), COALESCE($3::jsonb, '{}'::jsonb), COALESCE($4::jsonb, '{}'::jsonb), COALESCE($5::jsonb, '[]'::jsonb))
         ON CONFLICT (tenant_id) DO UPDATE SET
           payment_methods  = COALESCE($2::jsonb, tenant_settings.payment_methods),
           delivery_methods = COALESCE($3::jsonb, tenant_settings.delivery_methods),
+          tax              = COALESCE($4::jsonb, tenant_settings.tax),
+          zones            = COALESCE($5::jsonb, tenant_settings.zones),
           updated_at = now()
-        RETURNING payment_methods, delivery_methods`,
-        [tenantId, pm === null ? null : JSON.stringify(pm), dm === null ? null : JSON.stringify(dm)]);
+        RETURNING payment_methods, delivery_methods, tax, zones`,
+        [tenantId, pm === null ? null : JSON.stringify(pm), dm === null ? null : JSON.stringify(dm),
+         tax === null ? null : JSON.stringify(tax), zones === null ? null : JSON.stringify(zones)]);
       const { rows: [has] } = await c.query('SELECT EXISTS (SELECT 1 FROM payments WHERE tenant_id = $1) AS x', [tenantId]);
       return { baseCurrency: cur || t.base_currency, paymentMethods: s.payment_methods, deliveryMethods: s.delivery_methods,
-        canChangeBaseCurrency: !has.x, currencies: BASE_CURRENCIES };
+        tax: mapTax(s.tax), zones: s.zones || [], canChangeBaseCurrency: !has.x, currencies: BASE_CURRENCIES };
     });
     res.json(out);
   } catch (err) { sendApiError(res, err, 'Guardar ajustes'); }
@@ -2668,29 +3156,43 @@ app.get('/api/reports', requireAuth, async (req, res) => {
     const P = [tenantId, tz, startLocal, endExclusive, canal];
     const ENC = `lower(coalesce(o.delivery_method_label, '')) LIKE '%encomienda%'`;
     const DLV = `(NOT ${ENC} AND (lower(coalesce(o.delivery_method_label, '')) LIKE '%motorizado%' OR lower(coalesce(o.delivery_method_label, '')) LIKE '%delivery%'))`;
-    const W = `o.tenant_id = $1 AND ${inPeriod('o.created_at')} AND ${canalCond}`;
+    // Solo pedidos de verdad: los presupuestos no cuentan, y los anulados salen de ventas e informes (se cuentan aparte)
+    const W = `o.tenant_id = $1 AND o.kind = 'order' AND o.delivery_status <> 'cancelled' AND ${inPeriod('o.created_at')} AND ${canalCond}`;
+    const WC = `o.tenant_id = $1 AND o.kind = 'order' AND o.delivery_status = 'cancelled' AND ${inPeriod('o.created_at')} AND ${canalCond}`;
+    const OPEN = "('to_deliver', 'preparing', 'on_the_way')"; // sin entregar todavía
     const { kind, buckets } = reportBuckets(period, now, from, to);
     const bucketFmt = { hour: 'YYYY-MM-DD"T"HH24', day: 'YYYY-MM-DD', month: 'YYYY-MM' }[kind];
 
-    // Cobros reales: pagos no anulados cuya FECHA DE PAGO cae en el periodo (zona del negocio), en moneda base
+    // Cobros reales: pagos no anulados − reembolsos, cada uno en SU fecha (zona del negocio), en moneda base.
+    // El saldo a favor no es dinero nuevo: queda fuera de ambos lados.
     const cobros = pool.query(`
-      SELECT p.method, COALESCE(SUM(p.amount_base), 0)::float AS total
-      FROM payments p JOIN orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
-      WHERE p.tenant_id = $1 AND p.voided_at IS NULL
-        AND p.paid_at >= ($3::timestamp AT TIME ZONE $2) AND ($4::timestamp IS NULL OR p.paid_at < ($4::timestamp AT TIME ZONE $2))
-        AND ${canalCond}
-      GROUP BY p.method ORDER BY total DESC, p.method`, P);
-    const [kpi, pays, tops, encRows, series, newCli, cobrosRows] = await Promise.all([
+      SELECT method, SUM(total)::float AS total FROM (
+        SELECT p.method, COALESCE(SUM(p.amount_base), 0) AS total
+        FROM payments p JOIN orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
+        WHERE p.tenant_id = $1 AND p.voided_at IS NULL AND p.method <> $6
+          AND p.paid_at >= ($3::timestamp AT TIME ZONE $2) AND ($4::timestamp IS NULL OR p.paid_at < ($4::timestamp AT TIME ZONE $2))
+          AND ${canalCond}
+        GROUP BY p.method
+        UNION ALL
+        SELECT r.method, -COALESCE(SUM(r.amount_base), 0)
+        FROM refunds r JOIN orders o ON o.id = r.order_id AND o.tenant_id = r.tenant_id
+        WHERE r.tenant_id = $1 AND r.method <> $6
+          AND r.created_at >= ($3::timestamp AT TIME ZONE $2) AND ($4::timestamp IS NULL OR r.created_at < ($4::timestamp AT TIME ZONE $2))
+          AND ${canalCond}
+        GROUP BY r.method
+      ) x GROUP BY method ORDER BY total DESC, method`, [...P, CREDIT_METHOD]);
+    const cancelRows = pool.query(`SELECT COUNT(*)::int AS n FROM orders o WHERE ${WC}`, P);
+    const [kpi, pays, tops, encRows, series, newCli, cobrosRows, cancelCount] = await Promise.all([
       pool.query(`
-        SELECT COALESCE(SUM(o.total_price), 0)::float AS ventas,
+        SELECT COALESCE(SUM(o.total_price - o.credited_total), 0)::float AS ventas,
                COUNT(*)::int AS pedidos,
                COUNT(*) FILTER (WHERE o.delivery_status = 'delivered')::int AS entregados,
-               COUNT(*) FILTER (WHERE o.delivery_status = 'to_deliver')::int AS pendientes,
+               COUNT(*) FILTER (WHERE o.delivery_status IN ${OPEN})::int AS pendientes,
                COUNT(*) FILTER (WHERE o.delivery_status = 'not_delivered')::int AS no_entregados,
                COUNT(*) FILTER (WHERE ${DLV})::int AS delivery,
                COUNT(*) FILTER (WHERE ${ENC})::int AS encomiendas,
                COUNT(*) FILTER (WHERE ${ENC} AND o.delivery_status = 'delivered')::int AS enc_entregadas,
-               COUNT(*) FILTER (WHERE ${ENC} AND o.delivery_status = 'to_deliver')::int AS enc_transito,
+               COUNT(*) FILTER (WHERE ${ENC} AND o.delivery_status IN ${OPEN})::int AS enc_transito,
                COALESCE(SUM(o.shipping) FILTER (WHERE ${ENC}), 0)::float AS enc_ingresos,
                COALESCE(AVG(o.shipping) FILTER (WHERE o.shipping > 0), 0)::float AS avg_shipping,
                COUNT(*) FILTER (WHERE o.platform = 'wa')::int AS count_wa,
@@ -2716,12 +3218,13 @@ app.get('/api/reports', requireAuth, async (req, res) => {
         FROM orders o WHERE ${W} AND ${ENC}
         ORDER BY o.created_at DESC LIMIT 10`, P),
       pool.query(`
-        SELECT to_char(${LOCAL('o.created_at')}, '${bucketFmt}') AS b, COALESCE(SUM(o.total_price), 0)::float AS amount, COUNT(*)::int AS n
+        SELECT to_char(${LOCAL('o.created_at')}, '${bucketFmt}') AS b, COALESCE(SUM(o.total_price - o.credited_total), 0)::float AS amount, COUNT(*)::int AS n
         FROM orders o WHERE ${W} GROUP BY b`, P),
       pool.query(`
         SELECT COUNT(*)::int AS n FROM clients c
         WHERE c.tenant_id = $1 AND ${inPeriod('c.created_at')} AND ($5 = 'todos' OR c.channel = $5)`, P),
       cobros,
+      cancelRows,
     ]);
 
     const k = kpi.rows[0];
@@ -2746,7 +3249,7 @@ app.get('/api/reports', requireAuth, async (req, res) => {
       entregados: k.entregados,
       pendientes: k.pendientes,
       noEntregados: k.no_entregados,
-      cancelados: 0, // CENTRAL aún no tiene un estado "cancelado"
+      cancelados: cancelCount.rows[0].n, // pedidos anulados creados en el periodo (no cuentan en ventas ni pedidos)
       delivery: k.delivery,
       encomiendas: k.encomiendas,
       encomiendasEntregadas: k.enc_entregadas,
@@ -2812,9 +3315,7 @@ app.delete('/api/clients/:id', requireAuth, async (req, res) => {
     const ok = await dbDeleteClient(req.tenant.tenantId, req.params.id);
     if (!ok) return res.status(404).json({ error: 'Cliente no encontrado' });
     res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { sendApiError(res, err, 'Eliminar cliente'); }
 });
 
 // ══════════════════════════════════════════════════════════════
@@ -3915,6 +4416,9 @@ const BACKGROUND_INDEXES = [
   { name: 'order_items_order_idx', sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS order_items_order_idx ON order_items (order_id)' },
   // Relleno de pagos en cada arranque (pagos.js): hace barata la búsqueda de pedidos 'ok' sin pago. Parcial:
   // solo contiene pedidos pendientes de convertir (casi siempre ninguno).
+  // Fase 3: unicidad del número de presupuesto por negocio y filtro "Entregar hoy / mañana"
+  { name: 'orders_tenant_quote_number_uniq', sql: 'CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS orders_tenant_quote_number_uniq ON orders (tenant_id, quote_number) WHERE quote_number IS NOT NULL' },
+  { name: 'orders_tenant_delivery_date_idx', sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS orders_tenant_delivery_date_idx ON orders (tenant_id, delivery_date) WHERE delivery_date IS NOT NULL' },
   { name: 'orders_legacy_paid_id_idx', sql: "CREATE INDEX CONCURRENTLY IF NOT EXISTS orders_legacy_paid_id_idx ON orders (id) WHERE pay_status = 'ok' AND amount_paid = 0 AND total_price > 0" },
 ];
 async function ensureIndexes() {
