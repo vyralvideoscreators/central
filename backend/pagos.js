@@ -12,8 +12,16 @@ const BACKFILL_LOCK_KEY = 72616103;  // un solo relleno a la vez (si otra répli
 const BACKFILL_BATCH = 1000;
 
 const hasColumn = async (db, table, col) => (await db.query(
-  `SELECT 1 FROM pg_attribute WHERE attrelid = $1::regclass AND attname = $2 AND NOT attisdropped`, [table, col])).rows.length > 0;
-const hasRelation = async (db, name) => (await db.query('SELECT to_regclass($1) IS NOT NULL AS ok', [name])).rows[0].ok;
+  `SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass($1) AND attname = $2 AND NOT attisdropped`, ['public.' + table, col])).rows.length > 0;
+// Siempre con el esquema explícito: sin él, to_regclass sigue el search_path y podría ver una tabla homónima de otro esquema
+const hasRelation = async (db, name) => (await db.query('SELECT to_regclass($1) IS NOT NULL AS ok', ['public.' + name])).rows[0].ok;
+// ¿Existe un índice con ese nombre en public? → null (no existe) | true (es de esa tabla) | false (es de OTRA tabla)
+const indexOwner = async (db, name, table) => {
+  const { rows } = await db.query(`SELECT i.indrelid = to_regclass($2) AS mine
+    FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE c.relname = $1 AND n.nspname = 'public'`, [name, 'public.' + table]);
+  return rows[0] ? !!rows[0].mine : null;
+};
 
 // ── Nombres de método de pago ─────────────────────────────────
 // "Pago móvil" / "Pago Móvil", "Efectivo $" / "Efectivo USD", "Binance Pay" → un solo nombre para agrupar
@@ -252,7 +260,57 @@ async function recalcOrderPayment(db, tenantId, orderId) {
 // Presupuestos (orders.kind), anulación, impuesto, fecha/zona de entrega, notas de crédito, reembolsos y saldo
 // a favor. SQL documentado en migrations/2026-11-26-ciclo-pedido.sql. Solo DDL, con advisory lock.
 const CYCLE_DDL_LOCK_KEY = 72616104;
+// Columnas propias de CENTRAL en cada tabla nueva: si una tabla con ese nombre ya existe SIN ellas, es de otra aplicación
+// (la base se comparte con Kisses). Nunca se escribe en ella ni se sigue arrancando.
+const CYCLE_TABLE_COLS = {
+  credit_notes:          ['tenant_id', 'order_id', 'number', 'amount_base'],
+  credit_note_items:     ['tenant_id', 'credit_note_id', 'order_item_id'],
+  refunds:               ['tenant_id', 'order_id', 'credit_note_id', 'amount_base'],
+  client_credit_entries: ['tenant_id', 'client_id', 'kind', 'amount'],
+};
+async function assertCycleTablesAreOurs(db) {
+  for (const [table, cols] of Object.entries(CYCLE_TABLE_COLS)) {
+    if (!(await hasRelation(db, table))) continue;
+    for (const col of cols) {
+      if (!(await hasColumn(db, table, col))) {
+        console.error(`❌ La tabla ${table} ya existe en la base pero NO es de CENTRAL (le falta la columna ${col}). ` +
+          'Se detiene el arranque para no escribir en datos ajenos: renombra esa tabla o cambia el nombre en pagos.js.');
+        process.exit(1);
+      }
+    }
+  }
+}
+// Crea el índice si no existe; si el nombre ya lo usa OTRA tabla, detiene el arranque (mismo motivo)
+async function ensureOwnIndex(db, name, table, sql) {
+  const owner = await indexOwner(db, name, table);
+  if (owner === false) {
+    console.error(`❌ Ya existe un índice ${name} que no es de la tabla ${table}. Se detiene el arranque: cambia el nombre del índice.`);
+    process.exit(1);
+  }
+  if (owner === null) await db.query(sql);
+}
+
+// VALIDATE del CHECK de orders.kind: se hace DESPUÉS de listen (recorre orders). Tolerante a fallos: si no puede,
+// se reintenta en el próximo arranque (mientras tanto el CHECK ya impide filas nuevas inválidas).
+async function validateOrdersKindCheck(pool) {
+  let client;
+  try {
+    client = await pool.connect();
+    const { rows: [c] } = await client.query(
+      `SELECT convalidated FROM pg_constraint WHERE conname = 'orders_kind_check' AND conrelid = to_regclass('public.orders')`);
+    if (!c || c.convalidated) return;
+    await client.query(`SET lock_timeout = '5s'`);
+    await client.query('ALTER TABLE public.orders VALIDATE CONSTRAINT orders_kind_check');
+    console.log('✅ CHECK orders_kind_check validado');
+  } catch (err) {
+    console.error('⚠️  VALIDATE orders_kind_check (se reintentará en el próximo arranque):', err.message);
+  } finally {
+    if (client) client.release();
+  }
+}
+
 async function ensureOrderCycleSchema(pool) {
+  await assertCycleTablesAreOurs(pool); // antes de tocar nada
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -334,15 +392,27 @@ async function ensureOrderCycleSchema(pool) {
         )`);
     }
     // Tablas NUEVAS (vacías): sus índices se crean aquí
-    for (const [name, sql] of [
-      ['credit_notes_order_idx',     'CREATE INDEX credit_notes_order_idx ON credit_notes (order_id)'],
-      ['credit_note_items_note_idx', 'CREATE INDEX credit_note_items_note_idx ON credit_note_items (credit_note_id)'],
-      ['credit_note_items_item_idx', 'CREATE INDEX credit_note_items_item_idx ON credit_note_items (order_item_id) WHERE order_item_id IS NOT NULL'],
-      ['refunds_tenant_created_idx', 'CREATE INDEX refunds_tenant_created_idx ON refunds (tenant_id, created_at)'],
-      ['refunds_order_idx',          'CREATE INDEX refunds_order_idx ON refunds (order_id)'],
-      ['client_credit_client_idx',   'CREATE INDEX client_credit_client_idx ON client_credit_entries (client_id)'],
-      ['client_credit_tenant_idx',   'CREATE INDEX client_credit_tenant_idx ON client_credit_entries (tenant_id)'],
-    ]) if (!(await hasRelation(client, name))) await client.query(sql);
+    for (const [name, table, sql] of [
+      ['credit_notes_order_idx',     'credit_notes',          'CREATE INDEX credit_notes_order_idx ON credit_notes (order_id)'],
+      ['credit_notes_client_idx',    'credit_notes',          'CREATE INDEX credit_notes_client_idx ON credit_notes (client_id) WHERE client_id IS NOT NULL'],
+      ['credit_note_items_note_idx', 'credit_note_items',     'CREATE INDEX credit_note_items_note_idx ON credit_note_items (credit_note_id)'],
+      ['credit_note_items_item_idx', 'credit_note_items',     'CREATE INDEX credit_note_items_item_idx ON credit_note_items (order_item_id) WHERE order_item_id IS NOT NULL'],
+      ['refunds_tenant_created_idx', 'refunds',               'CREATE INDEX refunds_tenant_created_idx ON refunds (tenant_id, created_at)'],
+      ['refunds_order_idx',          'refunds',               'CREATE INDEX refunds_order_idx ON refunds (order_id)'],
+      ['refunds_credit_note_idx',    'refunds',               'CREATE INDEX refunds_credit_note_idx ON refunds (credit_note_id) WHERE credit_note_id IS NOT NULL'],
+      // (tenant_id, client_id) INCLUDE (amount): el saldo a favor es un index-only scan y el prefijo tenant_id sirve a los informes
+      ['client_credit_tenant_client_idx', 'client_credit_entries', 'CREATE INDEX client_credit_tenant_client_idx ON client_credit_entries (tenant_id, client_id) INCLUDE (amount)'],
+      ['client_credit_order_idx',    'client_credit_entries', 'CREATE INDEX client_credit_order_idx ON client_credit_entries (order_id) WHERE order_id IS NOT NULL'],
+    ]) await ensureOwnIndex(client, name, table, sql);
+    // Versiones anteriores (redundantes con client_credit_tenant_client_idx): solo si de verdad son de esta tabla
+    for (const old of ['client_credit_client_idx', 'client_credit_tenant_idx']) {
+      if ((await indexOwner(client, old, 'client_credit_entries')) === true) await client.query(`DROP INDEX public.${old}`);
+    }
+    // CHECK de orders.kind: ADD ... NOT VALID no recorre la tabla (solo el bloqueo breve, con lock_timeout y el advisory
+    // lock de arriba). El VALIDATE, que sí la recorre, va en segundo plano tras listen (validateOrdersKindCheck).
+    const { rows: ck } = await client.query(
+      `SELECT 1 FROM pg_constraint WHERE conname = 'orders_kind_check' AND conrelid = to_regclass('public.orders')`);
+    if (!ck[0]) await client.query(`ALTER TABLE public.orders ADD CONSTRAINT orders_kind_check CHECK (kind IN ('order','quote')) NOT VALID`);
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
@@ -350,24 +420,14 @@ async function ensureOrderCycleSchema(pool) {
   } finally {
     client.release();
   }
-  // CHECK de orders.kind: NOT VALID y después VALIDATE (no bloquea escrituras). Protección extra: no impide arrancar.
-  try {
-    const q = () => pool.query(`SELECT convalidated FROM pg_constraint WHERE conname = 'orders_kind_check' AND conrelid = 'orders'::regclass`);
-    if (!(await q()).rows[0]) {
-      await pool.query(`ALTER TABLE orders ADD CONSTRAINT orders_kind_check CHECK (kind IN ('order','quote')) NOT VALID`);
-    }
-    const { rows: [c] } = await q();
-    if (c && !c.convalidated) await pool.query('ALTER TABLE orders VALIDATE CONSTRAINT orders_kind_check');
-  } catch (err) {
-    if (err.code !== '42710') console.error('⚠️  CHECK orders_kind_check (se reintentará en el próximo arranque):', err.message);
-  }
   try {
     const cols = [['tenants', 'quote_seq'], ['tenants', 'credit_note_seq'], ['orders', 'kind'], ['orders', 'quote_number'],
       ['orders', 'cancelled_at'], ['orders', 'cancel_reason'], ['orders', 'tax_rate'], ['orders', 'tax_amount'],
       ['orders', 'delivery_date'], ['orders', 'delivery_zone'], ['orders', 'credited_total'],
       ['tenant_settings', 'tax'], ['tenant_settings', 'zones']];
     for (const [t, c] of cols) if (!(await hasColumn(pool, t, c))) return false;
-    for (const r of ['credit_notes', 'credit_note_items', 'refunds', 'client_credit_entries']) if (!(await hasRelation(pool, r))) return false;
+    for (const r of Object.keys(CYCLE_TABLE_COLS)) if (!(await hasRelation(pool, r))) return false;
+    await assertCycleTablesAreOurs(pool);
     return true;
   } catch (err) {
     console.error('❌ Comprobación del esquema del ciclo del pedido:', err.message);
@@ -375,5 +435,5 @@ async function ensureOrderCycleSchema(pool) {
   }
 }
 
-module.exports = { ensurePaymentsSchema, ensureOrderCycleSchema, CREDIT_METHOD, isCreditMethod, runPaymentsBackfill, backfillLegacyPayments, recalcOrderPayment,
+module.exports = { ensurePaymentsSchema, ensureOrderCycleSchema, validateOrdersKindCheck, CREDIT_METHOD, isCreditMethod, runPaymentsBackfill, backfillLegacyPayments, recalcOrderPayment,
   normalizeMethodName, methodKey, mergeMethodTotals, rawMethodsFor };

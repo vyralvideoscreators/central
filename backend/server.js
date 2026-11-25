@@ -17,7 +17,7 @@ const bcrypt     = require('bcrypt');
 const jwt        = require('jsonwebtoken');
 const Stripe     = require('stripe');
 const crypto     = require('crypto');
-const { ensurePaymentsSchema, ensureOrderCycleSchema, CREDIT_METHOD, isCreditMethod, runPaymentsBackfill, recalcOrderPayment,
+const { ensurePaymentsSchema, ensureOrderCycleSchema, validateOrdersKindCheck, CREDIT_METHOD, isCreditMethod, runPaymentsBackfill, recalcOrderPayment,
   normalizeMethodName, mergeMethodTotals, rawMethodsFor } = require('./pagos');
 
 const app = express();
@@ -1116,6 +1116,7 @@ async function voidPaymentTx(db, tenantId, paymentId, reason, createdBy = 'owner
 // fase NO los anula: un error se corrige con una operación nueva). Orden de bloqueo SIEMPRE: pedido → tenant
 // (contadores) → cliente. Todo dentro de la transacción de quien llama.
 
+const MAX_CREDIT_NOTES_PER_ORDER = 200;
 const cleanResolution = (v) => {
   if (v !== 'refund' && v !== 'credit') throw new BadRequest('Indica si el dinero se reembolsa o queda como saldo a favor del cliente');
   return v;
@@ -1140,6 +1141,9 @@ async function settleRefundTx(db, tenantId, ord, amountC, o) {
     method = payStr(o.method, 60, 'Método de reembolso', true);
     if (isCreditMethod(method)) throw new BadRequest('Para dejar el dinero como saldo a favor elige esa opción, no un método de reembolso');
     method = normalizeMethodName(method);
+    // Decisión: el método de reembolso es libre (puede no coincidir con el del cobro: se cobró por Zelle y se devuelve en
+    // efectivo). Solo se limita el IMPORTE (nunca más de lo cobrado neto). El informe lo muestra tal cual: un método sin
+    // cobros sale en negativo en «cobros por método», que es lo que pasó con el dinero de esa caja.
   }
   const { rows: [sp] } = await db.query(`SELECT
       (SELECT COALESCE(SUM(amount_base), 0) FROM payments WHERE order_id = $1 AND tenant_id = $2 AND voided_at IS NULL AND method = $3) AS pay_credit,
@@ -1149,9 +1153,15 @@ async function settleRefundTx(db, tenantId, ord, amountC, o) {
   const cashNetC = Math.max(0, centsOf(ord.amount_paid) - creditNetC);
   const cashC = o.resolution === 'refund' ? Math.min(amountC, cashNetC) : 0;
   const creditC = amountC - cashC;
+  // Defensa: el saldo a favor vuelve a la ficha que pagó con él (PATCH ya impide cambiar de cliente a un pedido así)
+  let creditClientId = ord.client_id;
   if (creditC > 0) {
-    if (!ord.client_id) throw new BadRequest('El pedido no tiene cliente: no se puede dejar saldo a favor');
-    await lockedClientCreditC(db, tenantId, ord.client_id);
+    const { rows: payers } = await db.query(
+      'SELECT DISTINCT client_id FROM payments WHERE order_id = $1 AND tenant_id = $2 AND voided_at IS NULL AND method = $3 AND client_id IS NOT NULL',
+      [ord.id, tenantId, CREDIT_METHOD]);
+    if (payers.length === 1) creditClientId = payers[0].client_id;
+    if (!creditClientId) throw new BadRequest('El pedido no tiene cliente: no se puede dejar saldo a favor');
+    await lockedClientCreditC(db, tenantId, creditClientId);
   }
   const { rows: [t] } = await db.query('SELECT base_currency FROM tenants WHERE id = $1', [tenantId]);
   const base = (t && t.base_currency) || 'USD';
@@ -1164,7 +1174,7 @@ async function settleRefundTx(db, tenantId, ord, amountC, o) {
       [tenantId, ord.id, o.creditNoteId || null, c / 100, base, m, o.reason, o.createdBy]);
     if (m === CREDIT_METHOD) {
       await db.query(`INSERT INTO client_credit_entries (tenant_id, client_id, amount, kind, order_id, ref_id)
-        VALUES ($1, $2, $3, 'refund_to_credit', $4, $5)`, [tenantId, ord.client_id, c / 100, ord.id, rows[0].id]);
+        VALUES ($1, $2, $3, 'refund_to_credit', $4, $5)`, [tenantId, creditClientId, c / 100, ord.id, rows[0].id]);
     }
     await addOrderEvent(db, tenantId, ord.id, 'refunded', {
       refundId: rows[0].id, amountBase: c / 100, method: m, creditNoteId: o.creditNoteId || null, reason: o.reason }, o.createdBy);
@@ -1186,7 +1196,8 @@ async function mapCreditNoteFull(db, tenantId, noteRows) {
   const ids = noteRows.map(n => n.id);
   const [items, refs] = await Promise.all([
     db.query('SELECT * FROM credit_note_items WHERE tenant_id = $1 AND credit_note_id = ANY($2::uuid[]) ORDER BY ctid', [tenantId, ids]),
-    db.query('SELECT * FROM refunds WHERE tenant_id = $1 AND credit_note_id = ANY($2::uuid[]) ORDER BY created_at', [tenantId, ids]),
+    db.query('SELECT * FROM refunds WHERE tenant_id = $1 AND order_id = ANY($3::uuid[]) AND credit_note_id = ANY($2::uuid[]) ORDER BY created_at',
+      [tenantId, ids, [...new Set(noteRows.map(n => n.order_id))]]),
   ]);
   return noteRows.map(n => ({
     id: n.id, orderId: n.order_id, clientId: n.client_id, number: fmtCreditNote(n.number),
@@ -1210,6 +1221,9 @@ async function createReturnTx(db, tenantId, orderId, body, createdBy = 'owner') 
   if (ord0.kind === 'quote') throw new BadRequest('Un presupuesto no admite devoluciones');
   if (ord0.delivery_status === 'cancelled') throw new BadRequest('El pedido está anulado: no admite devoluciones');
   if (resolution === 'credit' && !ord0.client_id) throw new BadRequest('El pedido no tiene cliente: no se puede dejar saldo a favor');
+  // Tope por pedido: la ficha del pedido carga sus notas de una vez (y los pedidos reales no necesitan cientos)
+  const { rows: [nn] } = await db.query('SELECT COUNT(*)::int AS n FROM credit_notes WHERE order_id = $1 AND tenant_id = $2', [orderId, tenantId]);
+  if (nn.n >= MAX_CREDIT_NOTES_PER_ORDER) throw new BadRequest(`Este pedido ya tiene ${MAX_CREDIT_NOTES_PER_ORDER} devoluciones: no admite más`);
   const { rows: [bt] } = await db.query('SELECT base_currency FROM tenants WHERE id = $1', [tenantId]);
   const base = (bt && bt.base_currency) || 'USD';
   const effectiveC = centsOf(ord0.total_price) - centsOf(ord0.credited_total);
@@ -1234,6 +1248,11 @@ async function createReturnTx(db, tenantId, orderId, body, createdBy = 'owner') 
       JOIN credit_notes cn ON cn.id = cni.credit_note_id AND cn.tenant_id = cni.tenant_id
       WHERE cn.order_id = $1 AND cn.tenant_id = $2 AND cni.order_item_id IS NOT NULL GROUP BY cni.order_item_id`, [orderId, tenantId]);
     const returned = new Map(ret.map(r => [r.order_item_id, r.n]));
+    // Devoluciones por importe previas: se descuentan primero del envío (así se devuelve el envío por importe)
+    const { rows: [ba] } = await db.query(`
+      SELECT COALESCE(SUM(cni.amount), 0) AS n FROM credit_note_items cni
+      JOIN credit_notes cn ON cn.id = cni.credit_note_id AND cn.tenant_id = cni.tenant_id
+      WHERE cn.order_id = $1 AND cn.tenant_id = $2 AND cni.order_item_id IS NULL`, [orderId, tenantId]);
     const subtotalC = oi.reduce((a, r) => a + centsOf(r.line_price), 0);
     for (const [id, qty] of want) {
       const it = byId.get(id);
@@ -1246,9 +1265,19 @@ async function createReturnTx(db, tenantId, orderId, body, createdBy = 'owner') 
       amountC += amtC;
       lines.push({ orderItemId: id, name: String(it.name || 'Artículo').slice(0, 200), qty, amountC: amtC });
     }
-    if (amountC > effectiveC && amountC - effectiveC <= 2) { // redondeos de impuesto/descuento
-      lines[lines.length - 1].amountC -= amountC - effectiveC; amountC = effectiveC;
+    // Lo que queda por devolver de los ARTÍCULOS = total efectivo − lo que aún queda de envío. Con los redondeos de
+    // descuento e impuesto por línea, la suma de partes puede diferir en céntimos: la última devolución (sin
+    // unidades por devolver) toma EXACTAMENTE lo que queda y una intermedia nunca lo supera.
+    const shippingLeftC = Math.max(0, centsOf(ord0.shipping) - centsOf(ba.n));
+    const itemsLeftC = Math.max(0, effectiveC - shippingLeftC);
+    const allBack = oi.every(r => (returned.get(r.id) || 0) + (want.get(r.id) || 0) >= Number(r.qty));
+    const target = allBack ? itemsLeftC : Math.min(amountC, itemsLeftC);
+    if (target > amountC) lines[lines.length - 1].amountC += target - amountC;
+    else {
+      let cut = amountC - target; // se resta de las últimas líneas hacia atrás (ninguna queda negativa)
+      for (let i = lines.length - 1; i >= 0 && cut > 0; i--) { const d = Math.min(cut, lines[i].amountC); lines[i].amountC -= d; cut -= d; }
     }
+    amountC = target;
   } else {
     const amount = payNum(body.amount);
     if (!Number.isFinite(amount) || amount <= 0 || amount > MAX_MONEY) throw new BadRequest('Importe de la devolución inválido');
@@ -1371,6 +1400,16 @@ async function dbUpdateOrder(tenantId, orderId, fields) {
         if (!rows[0]) throw new BadRequest('Cliente no encontrado');
         clientId = rows[0].id;
       }
+      if (clientId !== found[0].client_id) {
+        // El saldo a favor y las notas de crédito pertenecen al cliente del pedido: cambiarlo dejaría el dinero en la ficha equivocada
+        const { rows: pm } = await client.query('SELECT DISTINCT method FROM payments WHERE order_id = $1 AND tenant_id = $2 AND voided_at IS NULL', [orderId, tenantId]);
+        const { rows: [mv] } = await client.query(`SELECT
+            EXISTS (SELECT 1 FROM credit_notes WHERE order_id = $1 AND tenant_id = $2) AS has_notes,
+            EXISTS (SELECT 1 FROM client_credit_entries WHERE order_id = $1 AND tenant_id = $2) AS has_credit`, [orderId, tenantId]);
+        if (pm.some(r => isCreditMethod(r.method)) || mv.has_notes || mv.has_credit) {
+          throw new BadRequest('Este pedido tiene saldo a favor o devoluciones registradas a nombre de su cliente: no se puede cambiar de cliente');
+        }
+      }
       values.push(clientId);
       sets.push(`client_id = $${values.length}`);
     }
@@ -1393,6 +1432,8 @@ async function dbUpdateOrder(tenantId, orderId, fields) {
         sets.push(`tax_amount = $${values.length}`);
       }
     } else if (sentTotal !== undefined) {
+      // Con notas de crédito el total no se toca (como el envío y el descuento): el total efectivo nunca queda negativo
+      if (hasCredit && centsOf(sentTotal) !== centsOf(found[0].total_price)) throw new BadRequest('Este pedido tiene devoluciones: no se puede cambiar el total');
       values.push(sentTotal);
       sets.push(`total_price = $${values.length}`);
     }
@@ -1481,22 +1522,27 @@ function mapClientRow(r) {
   };
 }
 
-async function dbGetClients(tenantId) {
-  if (!dbReady) return [];
-  const { rows } = await pool.query(`
+// Saldo por cobrar y saldo a favor de los clientes: UNA sola definición para la lista y para la ficha editada.
+// Presupuestos y pedidos anulados no cuentan; el total es el EFECTIVO (menos notas de crédito). $2 = id de un
+// cliente (o NULL para todos).
+const CLIENT_BALANCE_SQL = `
     SELECT c.*, COALESCE(b.balance, 0) AS balance, COALESCE(b.n, 0) AS orders_with_balance, COALESCE(cr.credit, 0) AS credit
     FROM clients c
     LEFT JOIN (
-      -- Presupuestos y pedidos anulados no cuentan; el total es el EFECTIVO (menos notas de crédito)
       SELECT client_id, SUM(total_price - credited_total - amount_paid) AS balance, COUNT(*) AS n
       FROM orders WHERE tenant_id = $1 AND client_id IS NOT NULL AND kind = 'order' AND delivery_status <> 'cancelled'
-        AND total_price - credited_total > amount_paid
+        AND total_price - credited_total > amount_paid AND ($2::uuid IS NULL OR client_id = $2::uuid)
       GROUP BY client_id
     ) b ON b.client_id = c.id
     LEFT JOIN (
-      SELECT client_id, SUM(amount) AS credit FROM client_credit_entries WHERE tenant_id = $1 GROUP BY client_id
+      SELECT client_id, SUM(amount) AS credit FROM client_credit_entries
+      WHERE tenant_id = $1 AND ($2::uuid IS NULL OR client_id = $2::uuid) GROUP BY client_id
     ) cr ON cr.client_id = c.id
-    WHERE c.tenant_id = $1 ORDER BY c.created_at DESC`, [tenantId]);
+    WHERE c.tenant_id = $1 AND ($2::uuid IS NULL OR c.id = $2::uuid)`;
+
+async function dbGetClients(tenantId) {
+  if (!dbReady) return [];
+  const { rows } = await pool.query(`${CLIENT_BALANCE_SQL} ORDER BY c.created_at DESC`, [tenantId, null]);
   return rows.map(mapClientRow);
 }
 
@@ -1521,10 +1567,8 @@ async function dbUpsertClient(tenantId, data) {
     // Los pedidos de la ficha muestran su nombre actual
     await pool.query('UPDATE orders SET client_name = $1 WHERE client_id = $2 AND tenant_id = $3 AND client_name IS DISTINCT FROM $1',
       [rows[0].name, rows[0].id, tenantId]);
-    const { rows: [bal] } = await pool.query(
-      'SELECT COALESCE(SUM(total_price - amount_paid), 0) AS balance, COUNT(*) AS orders_with_balance FROM orders WHERE tenant_id = $1 AND client_id = $2 AND total_price > amount_paid',
-      [tenantId, rows[0].id]);
-    return mapClientRow({ ...rows[0], ...bal });
+    const { rows: [withBal] } = await pool.query(CLIENT_BALANCE_SQL, [tenantId, rows[0].id]);
+    return mapClientRow(withBal || rows[0]);
   }
   const convoKey = typeof data.convoKey === 'string' && CONVO_KEY_RE.test(data.convoKey) ? data.convoKey : null;
   // Si ese chat ya tiene ficha, la nueva se guarda sin chat (nunca un error por el índice único)
@@ -1548,15 +1592,18 @@ async function dbUpsertClient(tenantId, data) {
 async function dbDeleteClient(tenantId, clientId) {
   if (!dbReady) return false;
   if (!UUID_RE.test(String(clientId))) return false;
-  // Un cliente con saldo a favor no se borra: ese dinero es suyo
-  const { rows: [cr] } = await pool.query(
-    'SELECT COALESCE(SUM(amount), 0) AS b FROM client_credit_entries WHERE client_id = $1 AND tenant_id = $2', [clientId, tenantId]);
-  if (centsOf(cr.b) !== 0) throw new BadRequest('Este cliente tiene saldo a favor: úsalo o devuélvelo antes de eliminarlo');
-  const { rowCount } = await pool.query(
-    'DELETE FROM clients WHERE id = $1 AND tenant_id = $2',
-    [clientId, tenantId]
-  );
-  return rowCount > 0;
+  // Un cliente con saldo a favor no se borra: ese dinero es suyo. Todo en una transacción: primero se bloquea la
+  // ficha (mismo orden que lockedClientCreditC), así un pago con saldo a favor en curso no se cuela entre la
+  // suma y el DELETE.
+  return inTx(async (db) => {
+    const { rows: lk } = await db.query('SELECT 1 FROM clients WHERE id = $1 AND tenant_id = $2 FOR UPDATE', [clientId, tenantId]);
+    if (!lk[0]) return false;
+    const { rows: [cr] } = await db.query(
+      'SELECT COALESCE(SUM(amount), 0) AS b FROM client_credit_entries WHERE client_id = $1 AND tenant_id = $2', [clientId, tenantId]);
+    if (centsOf(cr.b) !== 0) throw new BadRequest('Este cliente tiene saldo a favor: úsalo o devuélvelo antes de eliminarlo');
+    const { rowCount } = await db.query('DELETE FROM clients WHERE id = $1 AND tenant_id = $2', [clientId, tenantId]);
+    return rowCount > 0;
+  });
 }
 
 // ── DB helpers — Catálogo ─────────────────────────────────────
@@ -1781,7 +1828,7 @@ const DEMO_ROW_LIMITS = {
   'POST /api/payments/:id/void': [EV_LIMIT, CREDIT_LIMIT],
   'POST /api/orders/:id/convert': [EV_LIMIT],
   'POST /api/orders/:id/cancel': [EV_LIMIT, REFUND_LIMIT, CREDIT_LIMIT],
-  'POST /api/orders/:id/returns': [CN_LIMIT, REFUND_LIMIT, CREDIT_LIMIT, EV_LIMIT],
+  'POST /api/orders/:id/returns': [CN_LIMIT, ['credit_note_items', 2000], REFUND_LIMIT, CREDIT_LIMIT, EV_LIMIT],
   'POST /api/clients': [['clients', 300]], 'POST /api/catalog': [['catalog_products', 100]],
   'POST /api/send': [['messages', 600]], 'POST /api/send-media': [['messages', 600]],
   'POST /api/send-ticket': [['messages', 600]], 'POST /api/send-instagram': [['messages', 600]],
@@ -1803,7 +1850,7 @@ async function demoGuard(req) {
   }
   const limits = [...(DEMO_ROW_LIMITS[key] || [])];
   // Un pedido nuevo con pago inicial también crea una fila en payments
-  if (key === 'POST /api/orders' && req.body && req.body.initialPayment) limits.push(['payments', DEMO_MAX_PAYMENTS]);
+  if (key === 'POST /api/orders' && req.body && req.body.initialPayment) limits.push(['payments', DEMO_MAX_PAYMENTS], CREDIT_LIMIT);
   for (const [table, max] of limits) {
     const { rows } = await pool.query(`SELECT COUNT(*)::int AS n FROM ${table} WHERE tenant_id = $1`, [req.tenant.tenantId]);
     if (rows[0].n >= max) {
@@ -2707,8 +2754,8 @@ app.get('/api/orders/:id/returns', requireAuth, async (req, res) => {
     const { rows: ord } = await pool.query('SELECT 1 FROM orders WHERE id = $1 AND tenant_id = $2', [req.params.id, tenantId]);
     if (!ord[0]) return res.status(404).json({ error: 'Pedido no encontrado' });
     const [{ rows: notes }, { rows: refs }] = await Promise.all([
-      pool.query('SELECT * FROM credit_notes WHERE order_id = $1 AND tenant_id = $2 ORDER BY number', [req.params.id, tenantId]),
-      pool.query('SELECT * FROM refunds WHERE order_id = $1 AND tenant_id = $2 ORDER BY created_at', [req.params.id, tenantId]),
+      pool.query('SELECT * FROM credit_notes WHERE order_id = $1 AND tenant_id = $2 ORDER BY number LIMIT 500', [req.params.id, tenantId]),
+      pool.query('SELECT * FROM refunds WHERE order_id = $1 AND tenant_id = $2 ORDER BY created_at LIMIT 500', [req.params.id, tenantId]),
     ]);
     res.json({ creditNotes: await mapCreditNoteFull(pool, tenantId, notes), refunds: refs.map(mapRefundRow) });
   } catch (err) { sendApiError(res, err, 'Devoluciones del pedido'); }
@@ -3158,7 +3205,9 @@ app.get('/api/reports', requireAuth, async (req, res) => {
     const DLV = `(NOT ${ENC} AND (lower(coalesce(o.delivery_method_label, '')) LIKE '%motorizado%' OR lower(coalesce(o.delivery_method_label, '')) LIKE '%delivery%'))`;
     // Solo pedidos de verdad: los presupuestos no cuentan, y los anulados salen de ventas e informes (se cuentan aparte)
     const W = `o.tenant_id = $1 AND o.kind = 'order' AND o.delivery_status <> 'cancelled' AND ${inPeriod('o.created_at')} AND ${canalCond}`;
-    const WC = `o.tenant_id = $1 AND o.kind = 'order' AND o.delivery_status = 'cancelled' AND ${inPeriod('o.created_at')} AND ${canalCond}`;
+    // Los anulados se cuentan en la misma pasada del KPI (FILTER) y no en una consulta aparte
+    const WALL = `o.tenant_id = $1 AND o.kind = 'order' AND ${inPeriod('o.created_at')} AND ${canalCond}`;
+    const OK = "o.delivery_status <> 'cancelled'";
     const OPEN = "('to_deliver', 'preparing', 'on_the_way')"; // sin entregar todavía
     const { kind, buckets } = reportBuckets(period, now, from, to);
     const bucketFmt = { hour: 'YYYY-MM-DD"T"HH24', day: 'YYYY-MM-DD', month: 'YYYY-MM' }[kind];
@@ -3181,23 +3230,23 @@ app.get('/api/reports', requireAuth, async (req, res) => {
           AND ${canalCond}
         GROUP BY r.method
       ) x GROUP BY method ORDER BY total DESC, method`, [...P, CREDIT_METHOD]);
-    const cancelRows = pool.query(`SELECT COUNT(*)::int AS n FROM orders o WHERE ${WC}`, P);
-    const [kpi, pays, tops, encRows, series, newCli, cobrosRows, cancelCount] = await Promise.all([
+    const [kpi, pays, tops, encRows, series, newCli, cobrosRows] = await Promise.all([
       pool.query(`
-        SELECT COALESCE(SUM(o.total_price - o.credited_total), 0)::float AS ventas,
-               COUNT(*)::int AS pedidos,
-               COUNT(*) FILTER (WHERE o.delivery_status = 'delivered')::int AS entregados,
-               COUNT(*) FILTER (WHERE o.delivery_status IN ${OPEN})::int AS pendientes,
-               COUNT(*) FILTER (WHERE o.delivery_status = 'not_delivered')::int AS no_entregados,
-               COUNT(*) FILTER (WHERE ${DLV})::int AS delivery,
-               COUNT(*) FILTER (WHERE ${ENC})::int AS encomiendas,
-               COUNT(*) FILTER (WHERE ${ENC} AND o.delivery_status = 'delivered')::int AS enc_entregadas,
-               COUNT(*) FILTER (WHERE ${ENC} AND o.delivery_status IN ${OPEN})::int AS enc_transito,
-               COALESCE(SUM(o.shipping) FILTER (WHERE ${ENC}), 0)::float AS enc_ingresos,
-               COALESCE(AVG(o.shipping) FILTER (WHERE o.shipping > 0), 0)::float AS avg_shipping,
-               COUNT(*) FILTER (WHERE o.platform = 'wa')::int AS count_wa,
-               COUNT(*) FILTER (WHERE o.platform = 'ig')::int AS count_ig
-        FROM orders o WHERE ${W}`, P),
+        SELECT COALESCE(SUM(o.total_price - o.credited_total) FILTER (WHERE ${OK}), 0)::float AS ventas,
+               COUNT(*) FILTER (WHERE ${OK})::int AS pedidos,
+               COUNT(*) FILTER (WHERE NOT ${OK})::int AS cancelados,
+               COUNT(*) FILTER (WHERE ${OK} AND o.delivery_status = 'delivered')::int AS entregados,
+               COUNT(*) FILTER (WHERE ${OK} AND o.delivery_status IN ${OPEN})::int AS pendientes,
+               COUNT(*) FILTER (WHERE ${OK} AND o.delivery_status = 'not_delivered')::int AS no_entregados,
+               COUNT(*) FILTER (WHERE ${OK} AND ${DLV})::int AS delivery,
+               COUNT(*) FILTER (WHERE ${OK} AND ${ENC})::int AS encomiendas,
+               COUNT(*) FILTER (WHERE ${OK} AND ${ENC} AND o.delivery_status = 'delivered')::int AS enc_entregadas,
+               COUNT(*) FILTER (WHERE ${OK} AND ${ENC} AND o.delivery_status IN ${OPEN})::int AS enc_transito,
+               COALESCE(SUM(o.shipping) FILTER (WHERE ${OK} AND ${ENC}), 0)::float AS enc_ingresos,
+               COALESCE(AVG(o.shipping) FILTER (WHERE ${OK} AND o.shipping > 0), 0)::float AS avg_shipping,
+               COUNT(*) FILTER (WHERE ${OK} AND o.platform = 'wa')::int AS count_wa,
+               COUNT(*) FILTER (WHERE ${OK} AND o.platform = 'ig')::int AS count_ig
+        FROM orders o WHERE ${WALL}`, P),
       pool.query(`
         SELECT o.pay_method_label AS label, COUNT(*)::int AS n FROM orders o
         WHERE ${W} AND o.pay_method_label IS NOT NULL AND o.pay_method_label NOT IN ('', '—')
@@ -3224,7 +3273,6 @@ app.get('/api/reports', requireAuth, async (req, res) => {
         SELECT COUNT(*)::int AS n FROM clients c
         WHERE c.tenant_id = $1 AND ${inPeriod('c.created_at')} AND ($5 = 'todos' OR c.channel = $5)`, P),
       cobros,
-      cancelRows,
     ]);
 
     const k = kpi.rows[0];
@@ -3249,7 +3297,7 @@ app.get('/api/reports', requireAuth, async (req, res) => {
       entregados: k.entregados,
       pendientes: k.pendientes,
       noEntregados: k.no_entregados,
-      cancelados: cancelCount.rows[0].n, // pedidos anulados creados en el periodo (no cuentan en ventas ni pedidos)
+      cancelados: k.cancelados, // pedidos anulados creados en el periodo (no cuentan en ventas ni pedidos)
       delivery: k.delivery,
       encomiendas: k.encomiendas,
       encomiendasEntregadas: k.enc_entregadas,
@@ -4413,13 +4461,12 @@ app.post('/api/admin/demos/:tenantId/convert', requireAdmin, async (req, res) =>
 const INDEX_LOCK_KEY = 72616101;
 const BACKGROUND_INDEXES = [
   // order_items por pedido: JOIN de la lista de pedidos, ediciones, informes y el ON DELETE CASCADE de orders
-  { name: 'order_items_order_idx', sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS order_items_order_idx ON order_items (order_id)' },
+  { name: 'order_items_order_idx', table: 'order_items', sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS order_items_order_idx ON order_items (order_id)' },
+  // Fase 3: unicidad del número de presupuesto por negocio
+  { name: 'orders_tenant_quote_number_uniq', table: 'orders', sql: 'CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS orders_tenant_quote_number_uniq ON orders (tenant_id, quote_number) WHERE quote_number IS NOT NULL' },
   // Relleno de pagos en cada arranque (pagos.js): hace barata la búsqueda de pedidos 'ok' sin pago. Parcial:
   // solo contiene pedidos pendientes de convertir (casi siempre ninguno).
-  // Fase 3: unicidad del número de presupuesto por negocio y filtro "Entregar hoy / mañana"
-  { name: 'orders_tenant_quote_number_uniq', sql: 'CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS orders_tenant_quote_number_uniq ON orders (tenant_id, quote_number) WHERE quote_number IS NOT NULL' },
-  { name: 'orders_tenant_delivery_date_idx', sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS orders_tenant_delivery_date_idx ON orders (tenant_id, delivery_date) WHERE delivery_date IS NOT NULL' },
-  { name: 'orders_legacy_paid_id_idx', sql: "CREATE INDEX CONCURRENTLY IF NOT EXISTS orders_legacy_paid_id_idx ON orders (id) WHERE pay_status = 'ok' AND amount_paid = 0 AND total_price > 0" },
+  { name: 'orders_legacy_paid_id_idx', table: 'orders', sql: "CREATE INDEX CONCURRENTLY IF NOT EXISTS orders_legacy_paid_id_idx ON orders (id) WHERE pay_status = 'ok' AND amount_paid = 0 AND total_price > 0" },
 ];
 async function ensureIndexes() {
   if (!dbReady) return;
@@ -4430,14 +4477,23 @@ async function ensureIndexes() {
     if (!locked) return; // otra réplica se encarga
     for (const ix of BACKGROUND_INDEXES) {
       try {
+        // Solo el índice de ESTE nombre en el esquema public Y sobre la tabla esperada (un índice homónimo de otra
+        // tabla —p. ej. de otra app en la misma base— ni se toca ni se borra)
         const { rows } = await client.query(
-          `SELECT i.indisvalid FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid WHERE c.relname = $1`, [ix.name]);
+          `SELECT i.indisvalid, i.indrelid = to_regclass($2) AS mine
+           FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid JOIN pg_namespace n ON n.oid = c.relnamespace
+           WHERE c.relname = $1 AND n.nspname = 'public'`, [ix.name, 'public.' + ix.table]);
+        if (rows[0] && !rows[0].mine) {
+          console.error(`❌ Ya existe un índice ${ix.name} que NO es de la tabla ${ix.table}: no se crea (cambia el nombre del índice de CENTRAL)`);
+          continue;
+        }
         if (rows[0] && rows[0].indisvalid) continue;
         if (rows[0]) {
           const busy = await client.query(
-            `SELECT 1 FROM pg_stat_progress_create_index p JOIN pg_class c ON c.oid = p.index_relid WHERE c.relname = $1`, [ix.name]);
+            `SELECT 1 FROM pg_stat_progress_create_index p JOIN pg_class c ON c.oid = p.index_relid
+             JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relname = $1 AND n.nspname = 'public'`, [ix.name]);
           if (busy.rows.length) continue; // alguien lo está construyendo (p. ej. a mano)
-          await client.query(`DROP INDEX CONCURRENTLY IF EXISTS ${ix.name}`);
+          await client.query(`DROP INDEX CONCURRENTLY IF EXISTS public.${ix.name}`);
         }
         const t0 = Date.now();
         await client.query(ix.sql);
@@ -4456,6 +4512,7 @@ initDB().then(() => {
   server.listen(PORT, () => {
     console.log(`🚀 CENTRAL Backend v5.0 escuchando en puerto ${PORT}`);
     ensureIndexes().catch(err => console.error('⚠️  ensureIndexes:', err.message));
+    validateOrdersKindCheck(pool).catch(err => console.error('⚠️  validateOrdersKindCheck:', err.message));
     if (backfillAfterListen) {
       runPaymentsBackfill(pool).catch(() => {});
       setTimeout(() => runPaymentsBackfill(pool).catch(() => {}), 10 * 60000).unref();

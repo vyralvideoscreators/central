@@ -47,7 +47,8 @@ const ORDERS = [
   { c: 'c2', d: 4, h: 15, items: [['p3', 'S', 1, 1]],                       pay: 'ok',   del: 'delivered',     payL: 'Zelle',         delL: 'Encomienda',               ship: 6 },
   { c: 'c6', d: 5, h: 9,  items: [['p5', '40', 1, 1]],                      pay: 'pend', paid: 40, del: 'not_delivered', payL: 'Tarjeta',       delL: 'Motorizado independiente', ship: 4 },
   { c: 'c4', d: 6, h: 19, items: [['p4', '37', 1, 1], ['p1', 'XS', 0, 1]],  pay: 'ok',   del: 'delivered',     payL: 'Transferencia', delL: 'Motorizado independiente', ship: 4 },
-  { c: 'c3', d: 9, h: 14, items: [['p2', 'L', 0, 1]],                       pay: 'ok',   del: 'delivered',     payL: 'Efectivo',      delL: 'Retiro en tienda',         ship: 0 },  // Fase 3: estados intermedios, un pedido anulado, una devolución con saldo a favor y dos presupuestos
+  { c: 'c3', d: 9, h: 14, items: [['p2', 'L', 0, 1]],                       pay: 'ok',   del: 'delivered',     payL: 'Efectivo',      delL: 'Retiro en tienda',         ship: 0 },
+  // Fase 3: estados intermedios, un pedido anulado, una devolución con saldo a favor y dos presupuestos
   { c: 'c5', d: 0, h: 9,  items: [['p2', 'S', 0, 1]],                       pay: 'pend', del: 'preparing',     payL: 'Zelle',         delL: 'Motorizado independiente', ship: 4, dz: 'Jardines del Este', dd: 1 },
   { c: 'c3', d: 1, h: 15, items: [['p5', '39', 1, 1]],                      pay: 'ok',   del: 'on_the_way',    payL: 'Efectivo',      delL: 'Motorizado independiente', ship: 4, dz: 'Centro', dd: 0 },
   { c: 'c6', d: 4, h: 11, items: [['p1', 'M', 0, 1]],                       pay: 'pend', del: 'cancelled',     payL: 'Tarjeta',       delL: 'Retiro en tienda',         ship: 0, cancelReason: 'El cliente cambió de opinión antes del pago' },

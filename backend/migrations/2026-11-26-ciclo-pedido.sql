@@ -10,7 +10,10 @@
 -- cada ALTER/CREATE comprueba si ya existe (en un arranque normal no ejecuta ningún DDL). Hasta 4 intentos; si
 -- el esquema sigue incompleto, el servidor sale con error y Railway conserva la versión anterior. Todas las
 -- columnas nuevas de orders/tenants llevan DEFAULT constante (instantáneo en PG ≥ 11).
--- Los dos índices sobre orders van en BACKGROUND_INDEXES (CONCURRENTLY, tras listen), no en el arranque.
+-- El índice único de orders (orders_tenant_quote_number_uniq) va en BACKGROUND_INDEXES (CONCURRENTLY, tras listen), no en el arranque.
+-- Defensa: la base se comparte con Kisses. Si una de las 4 tablas nuevas ya existe SIN las columnas propias de CENTRAL
+-- (tenant_id y otra distintiva), o un índice con nuestro nombre es de otra tabla, el servidor NO arranca (process.exit(1)).
+-- Todo se comprueba con el esquema explícito (to_regclass('public.x')).
 --
 -- Qué hace
 --   1) Presupuestos: orders.kind ('order' | 'quote'), orders.quote_number (contador propio tenants.quote_seq,
@@ -102,21 +105,29 @@ CREATE TABLE IF NOT EXISTS client_credit_entries (
 
 -- Tablas nuevas (vacías): sus índices se crean junto al DDL
 CREATE INDEX IF NOT EXISTS credit_notes_order_idx     ON credit_notes (order_id);
+CREATE INDEX IF NOT EXISTS credit_notes_client_idx    ON credit_notes (client_id) WHERE client_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS credit_note_items_note_idx ON credit_note_items (credit_note_id);
 CREATE INDEX IF NOT EXISTS credit_note_items_item_idx ON credit_note_items (order_item_id) WHERE order_item_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS refunds_tenant_created_idx ON refunds (tenant_id, created_at);
 CREATE INDEX IF NOT EXISTS refunds_order_idx          ON refunds (order_id);
-CREATE INDEX IF NOT EXISTS client_credit_client_idx   ON client_credit_entries (client_id);
-CREATE INDEX IF NOT EXISTS client_credit_tenant_idx   ON client_credit_entries (tenant_id);
+CREATE INDEX IF NOT EXISTS refunds_credit_note_idx    ON refunds (credit_note_id) WHERE credit_note_id IS NOT NULL;
+-- saldo a favor por cliente (index-only scan); el prefijo tenant_id sirve también a los informes por negocio
+CREATE INDEX IF NOT EXISTS client_credit_tenant_client_idx ON client_credit_entries (tenant_id, client_id) INCLUDE (amount);
+CREATE INDEX IF NOT EXISTS client_credit_order_idx    ON client_credit_entries (order_id) WHERE order_id IS NOT NULL;
+
+-- CHECK de orders.kind: ADD ... NOT VALID NO recorre la tabla (solo un bloqueo breve), así que va dentro de la
+-- transacción de arriba, con el advisory lock y el lock_timeout.
+ALTER TABLE orders ADD CONSTRAINT orders_kind_check CHECK (kind IN ('order', 'quote')) NOT VALID;
 
 COMMIT;
 
--- CHECK de orders.kind: NOT VALID y después VALIDATE (no bloquea escrituras). Fuera de la transacción.
-ALTER TABLE orders ADD CONSTRAINT orders_kind_check CHECK (kind IN ('order', 'quote')) NOT VALID;
-ALTER TABLE orders VALIDATE CONSTRAINT orders_kind_check;
+-- El VALIDATE sí recorre orders (bloqueo SHARE UPDATE EXCLUSIVE: no impide leer ni escribir). Por eso NO se hace
+-- en el arranque: validateOrdersKindCheck() lo ejecuta tras listen, con lock_timeout 5 s, y si falla se reintenta
+-- en el próximo arranque. A mano:
+--   SET lock_timeout = '5s';
+--   ALTER TABLE orders VALIDATE CONSTRAINT orders_kind_check;
 
--- Índices sobre orders (tabla con datos): los crea ensureIndexes() con CONCURRENTLY tras listen. A mano:
+-- Índice sobre orders (tabla con datos): lo crea ensureIndexes() con CONCURRENTLY tras listen. A mano:
 --   CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS orders_tenant_quote_number_uniq
 --     ON orders (tenant_id, quote_number) WHERE quote_number IS NOT NULL;
---   CREATE INDEX CONCURRENTLY IF NOT EXISTS orders_tenant_delivery_date_idx
---     ON orders (tenant_id, delivery_date) WHERE delivery_date IS NOT NULL;
+-- (No hay índice por delivery_date: ninguna consulta del servidor filtra por esa columna todavía.)
