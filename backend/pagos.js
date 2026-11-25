@@ -188,15 +188,18 @@ async function ensurePaymentsSchema(pool) {
       await client.query(`ALTER TABLE order_events ADD COLUMN seq BIGINT GENERATED ALWAYS AS IDENTITY`);
     }
     // Índices de tablas NUEVAS (vacías): se crean aquí, no en BACKGROUND_INDEXES
-    for (const [name, sql] of [
-      ['payments_tenant_paid_at_idx', 'CREATE INDEX payments_tenant_paid_at_idx ON payments (tenant_id, paid_at)'],
-      ['payments_order_idx',          'CREATE INDEX payments_order_idx ON payments (order_id)'],
-      ['payments_client_idx',         'CREATE INDEX payments_client_idx ON payments (client_id) WHERE client_id IS NOT NULL'],
-      ['order_events_order_seq_idx',  'CREATE INDEX order_events_order_seq_idx ON order_events (order_id, created_at, seq)'],
-      ['order_events_tenant_idx',     'CREATE INDEX order_events_tenant_idx ON order_events (tenant_id)'],
-    ]) if (!(await hasRelation(client, name))) await client.query(sql);
-    // versión anterior del índice (order_id, created_at): la reemplaza order_events_order_seq_idx
-    if (await hasRelation(client, 'order_events_order_idx')) await client.query('DROP INDEX order_events_order_idx');
+    for (const [name, table, sql] of [
+      ['payments_tenant_paid_at_idx', 'payments',     'CREATE INDEX payments_tenant_paid_at_idx ON payments (tenant_id, paid_at)'],
+      ['payments_order_idx',          'payments',     'CREATE INDEX payments_order_idx ON payments (order_id)'],
+      ['payments_client_idx',         'payments',     'CREATE INDEX payments_client_idx ON payments (client_id) WHERE client_id IS NOT NULL'],
+      ['order_events_order_seq_idx',  'order_events', 'CREATE INDEX order_events_order_seq_idx ON order_events (order_id, created_at, seq)'],
+      ['order_events_tenant_idx',     'order_events', 'CREATE INDEX order_events_tenant_idx ON order_events (tenant_id)'],
+    ]) await ensureOwnIndex(client, name, table, sql);
+    // versión anterior del índice (order_id, created_at): la reemplaza order_events_order_seq_idx.
+    // Solo se borra si es de order_events (base compartida: nunca tocar un índice ajeno).
+    if ((await indexOwner(client, 'order_events_order_idx', 'order_events')) === true) {
+      await client.query('DROP INDEX public.order_events_order_idx');
+    }
     if (!(await hasRelation(client, 'tenant_settings'))) {
       await client.query(`
         CREATE TABLE tenant_settings (
