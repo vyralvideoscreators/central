@@ -19,6 +19,8 @@ const Stripe     = require('stripe');
 const crypto     = require('crypto');
 const { ensurePaymentsSchema, ensureOrderCycleSchema, validateOrdersKindCheck, CREDIT_METHOD, isCreditMethod, runPaymentsBackfill, recalcOrderPayment,
   normalizeMethodName, mergeMethodTotals, rawMethodsFor } = require('./pagos');
+const ops = require('./operacion');
+const { BadRequest } = ops; // error de datos del cliente de la API (se responde 400 con este mensaje)
 
 const app = express();
 app.use(cors());
@@ -457,6 +459,17 @@ async function initDB() {
       console.error('❌ Falta el esquema del ciclo del pedido. Se detiene el arranque para reintentar.');
       process.exit(1);
     }
+    // Fase 4A — gastos, cierre de caja, costo y existencias (ver operacion.js y migrations/2026-11-27-gastos-existencias.sql).
+    // Mismo criterio: sin este esquema las altas de pedidos fallarían (order_items.unit_cost / variant_key).
+    let opsReady = false;
+    for (let attempt = 1; attempt <= 4 && !opsReady; attempt++) {
+      opsReady = await ops.ensureStockExpensesSchema(pool);
+      if (!opsReady && attempt < 4) await new Promise(r => setTimeout(r, 1000 * 2 ** (attempt - 1)));
+    }
+    if (!opsReady) {
+      console.error('❌ Falta el esquema de gastos y existencias. Se detiene el arranque para reintentar.');
+      process.exit(1);
+    }
     // Relleno de pedidos pagados "a la antigua" (por lotes; un fallo solo se registra). En el PRIMER arranque
     // de la Fase 2 (sin la marca) se espera antes de escuchar, para que nadie vea un pedido pagado con saldo.
     // Después corre en segundo plano tras listen y otra vez a los 10 min (recoge lo que la versión vieja
@@ -747,9 +760,6 @@ async function dbCreateOrder(tenantId, data) {
     client.release();
   }
 }
-
-// Error de datos del cliente de la API (se responde 400 con este mensaje)
-class BadRequest extends Error {}
 
 const CONVO_KEY_RE = /^(ig_)?[0-9A-Za-z_-]{1,64}$/;
 

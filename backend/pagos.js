@@ -439,4 +439,4 @@ async function ensureOrderCycleSchema(pool) {
 }
 
 module.exports = { ensurePaymentsSchema, ensureOrderCycleSchema, validateOrdersKindCheck, CREDIT_METHOD, isCreditMethod, runPaymentsBackfill, backfillLegacyPayments, recalcOrderPayment,
-  normalizeMethodName, methodKey, mergeMethodTotals, rawMethodsFor };
+  normalizeMethodName, methodKey, mergeMethodTotals, rawMethodsFor, hasColumn, hasRelation, indexOwner, ensureOwnIndex };
