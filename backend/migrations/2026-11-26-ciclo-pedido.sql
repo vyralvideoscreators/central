@@ -117,7 +117,16 @@ CREATE INDEX IF NOT EXISTS client_credit_order_idx    ON client_credit_entries (
 
 -- CHECK de orders.kind: ADD ... NOT VALID NO recorre la tabla (solo un bloqueo breve), así que va dentro de la
 -- transacción de arriba, con el advisory lock y el lock_timeout.
-ALTER TABLE orders ADD CONSTRAINT orders_kind_check CHECK (kind IN ('order', 'quote')) NOT VALID;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'orders_kind_check' AND conrelid = to_regclass('public.orders')) THEN
+    ALTER TABLE public.orders ADD CONSTRAINT orders_kind_check CHECK (kind IN ('order', 'quote')) NOT VALID;
+  END IF;
+END $$;
+
+-- Versiones anteriores de índices (redundantes con client_credit_tenant_client_idx): el servidor las borra si existen y son de esta tabla.
+DROP INDEX IF EXISTS public.client_credit_client_idx;
+DROP INDEX IF EXISTS public.client_credit_tenant_idx;
 
 COMMIT;
 
