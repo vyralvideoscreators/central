@@ -2838,7 +2838,7 @@ app.get('/api/payments', requireAuth, async (req, res) => {
           SELECT p.method, COALESCE(SUM(p.amount_base), 0) AS total, COUNT(*) AS n
           FROM payments p WHERE ${W} AND p.voided_at IS NULL AND p.method <> $6 GROUP BY p.method
           UNION ALL
-          SELECT r.method, -COALESCE(SUM(r.amount_base), 0), COUNT(*)
+          SELECT r.method, -COALESCE(SUM(r.amount_base), 0), 0
           FROM refunds r WHERE ${RW} AND r.method <> $6 GROUP BY r.method
         ) x GROUP BY method ORDER BY total DESC, method`, [...P, CREDIT_METHOD]),
       pool.query(`SELECT (SELECT COUNT(*) FROM payments p WHERE ${W}) + (SELECT COUNT(*) FROM refunds r WHERE ${RW}) AS n`, P),
