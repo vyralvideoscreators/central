@@ -29,6 +29,7 @@ function normalizeMethodName(raw) {
     s = t;
   }
   if (!s) s = original;
+  if (stripAccents(s).toLowerCase() === 'saldo a favor') return 'Saldo a favor';
   return s.split(' ').map((w, i) => {
     const l = w.toLowerCase();
     return i > 0 && SMALL_WORDS.has(l) ? l : l.charAt(0).toUpperCase() + l.slice(1);
@@ -36,6 +37,9 @@ function normalizeMethodName(raw) {
 }
 const stripAccents = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '');
 const methodKey = (raw) => stripAccents(normalizeMethodName(raw)).toLowerCase();
+// Fase 3: pagar con el saldo a favor del cliente. No es dinero nuevo: no cuenta como cobrado en informes ni en Pagos.
+const CREDIT_METHOD = 'Saldo a favor';
+const isCreditMethod = (raw) => methodKey(raw) === 'saldo a favor';
 
 // Une filas { method, total, n } con el mismo método canónico. Ordena por total desc y nombre.
 function mergeMethodTotals(rows) {
@@ -218,25 +222,158 @@ async function ensurePaymentsSchema(pool) {
   }
 }
 
-// Recalcula amount_paid y pay_status de UN pedido a partir de sus pagos no anulados.
+// Recalcula amount_paid, credited_total y pay_status de UN pedido (Fase 3):
+//   total efectivo = total_price − Σ notas de crédito
+//   amount_paid    = Σ pagos no anulados − Σ reembolsos   (cobrado NETO, moneda base)
+//   saldo          = total efectivo − amount_paid
 // Debe llamarse con la fila del pedido ya bloqueada (SELECT … FOR UPDATE) dentro de la transacción.
-// Un pedido con total 0 y sin cobros conserva su estado (no tiene nada que cobrar).
+// Un pedido con total efectivo 0 y sin cobros conserva su estado (no tiene nada que cobrar).
 async function recalcOrderPayment(db, tenantId, orderId) {
   const { rows } = await db.query(`
     UPDATE orders o SET
-      amount_paid = s.paid,
+      credited_total = s.credited,
+      amount_paid = s.paid - s.refunded,
       pay_status = CASE
-        WHEN s.paid <= 0 THEN (CASE WHEN COALESCE(o.total_price, 0) <= 0 THEN o.pay_status ELSE 'pend' END)
-        WHEN s.paid >= COALESCE(o.total_price, 0) THEN 'ok'
+        WHEN s.paid - s.refunded <= 0 THEN (CASE WHEN COALESCE(o.total_price, 0) - s.credited <= 0 THEN o.pay_status ELSE 'pend' END)
+        WHEN s.paid - s.refunded >= COALESCE(o.total_price, 0) - s.credited THEN 'ok'
         ELSE 'partial' END,
       updated_at = NOW()
-    FROM (SELECT COALESCE(SUM(amount_base), 0) AS paid FROM payments
-          WHERE order_id = $1 AND tenant_id = $2 AND voided_at IS NULL) s
+    FROM (SELECT
+      (SELECT COALESCE(SUM(amount_base), 0) FROM payments WHERE order_id = $1 AND tenant_id = $2 AND voided_at IS NULL) AS paid,
+      (SELECT COALESCE(SUM(amount_base), 0) FROM refunds  WHERE order_id = $1 AND tenant_id = $2) AS refunded,
+      (SELECT COALESCE(SUM(amount_base), 0) FROM credit_notes WHERE order_id = $1 AND tenant_id = $2) AS credited) s
     WHERE o.id = $1 AND o.tenant_id = $2
     RETURNING o.*
   `, [orderId, tenantId]);
   return rows[0] || null;
 }
 
-module.exports = { ensurePaymentsSchema, runPaymentsBackfill, backfillLegacyPayments, recalcOrderPayment,
+// ── Fase 3: ciclo completo del pedido ─────────────────────────
+// Presupuestos (orders.kind), anulación, impuesto, fecha/zona de entrega, notas de crédito, reembolsos y saldo
+// a favor. SQL documentado en migrations/2026-11-26-ciclo-pedido.sql. Solo DDL, con advisory lock.
+const CYCLE_DDL_LOCK_KEY = 72616104;
+async function ensureOrderCycleSchema(pool) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock($1)', [CYCLE_DDL_LOCK_KEY]);
+    await client.query(`SET LOCAL lock_timeout = '5s'`);
+    // ADD COLUMN IF NOT EXISTS pide el bloqueo aunque exista: solo se ejecuta si falta (DEFAULT constante = instantáneo)
+    for (const [table, col, ddl] of [
+      ['tenants', 'quote_seq',        'INTEGER NOT NULL DEFAULT 0'],
+      ['tenants', 'credit_note_seq',  'INTEGER NOT NULL DEFAULT 0'],
+      ['orders',  'kind',             "TEXT NOT NULL DEFAULT 'order'"],
+      ['orders',  'quote_number',     'INTEGER'],
+      ['orders',  'cancelled_at',     'TIMESTAMPTZ'],
+      ['orders',  'cancel_reason',    'TEXT'],
+      ['orders',  'tax_rate',         'NUMERIC(5,2) NOT NULL DEFAULT 0'],
+      ['orders',  'tax_amount',       'NUMERIC(10,2) NOT NULL DEFAULT 0'],
+      ['orders',  'delivery_date',    'DATE'],
+      ['orders',  'delivery_zone',    'TEXT'],
+      ['orders',  'credited_total',   'NUMERIC(12,2) NOT NULL DEFAULT 0'],
+      ['tenant_settings', 'tax',      "JSONB NOT NULL DEFAULT '{}'"],
+      ['tenant_settings', 'zones',    "JSONB NOT NULL DEFAULT '[]'"],
+    ]) if (!(await hasColumn(client, table, col))) await client.query(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`);
+
+    if (!(await hasRelation(client, 'credit_notes'))) {
+      await client.query(`
+        CREATE TABLE credit_notes (
+          id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          tenant_id   UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+          order_id    UUID NOT NULL REFERENCES orders(id)  ON DELETE CASCADE,
+          client_id   UUID REFERENCES clients(id) ON DELETE SET NULL,
+          number      INTEGER NOT NULL,
+          amount_base NUMERIC(12,2) NOT NULL CHECK (amount_base > 0),
+          reason      TEXT NOT NULL,
+          created_by  TEXT NOT NULL DEFAULT 'owner',
+          created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (tenant_id, number)
+        )`);
+    }
+    if (!(await hasRelation(client, 'credit_note_items'))) {
+      await client.query(`
+        CREATE TABLE credit_note_items (
+          id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          tenant_id      UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+          credit_note_id UUID NOT NULL REFERENCES credit_notes(id) ON DELETE CASCADE,
+          order_item_id  UUID,
+          name           TEXT NOT NULL,
+          qty            INTEGER NOT NULL DEFAULT 1 CHECK (qty >= 0),
+          amount         NUMERIC(12,2) NOT NULL CHECK (amount >= 0)
+        )`);
+    }
+    if (!(await hasRelation(client, 'refunds'))) {
+      await client.query(`
+        CREATE TABLE refunds (
+          id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          tenant_id      UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+          order_id       UUID NOT NULL REFERENCES orders(id)  ON DELETE CASCADE,
+          credit_note_id UUID REFERENCES credit_notes(id) ON DELETE SET NULL,
+          amount         NUMERIC(12,2) NOT NULL CHECK (amount > 0),
+          currency       TEXT NOT NULL,
+          exchange_rate  NUMERIC(18,6) NOT NULL DEFAULT 1 CHECK (exchange_rate > 0),
+          amount_base    NUMERIC(12,2) NOT NULL CHECK (amount_base > 0),
+          method         TEXT NOT NULL,
+          reference      TEXT,
+          reason         TEXT,
+          created_by     TEXT NOT NULL DEFAULT 'owner',
+          created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`);
+    }
+    if (!(await hasRelation(client, 'client_credit_entries'))) {
+      await client.query(`
+        CREATE TABLE client_credit_entries (
+          id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          tenant_id  UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+          client_id  UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+          amount     NUMERIC(12,2) NOT NULL CHECK (amount <> 0),
+          kind       TEXT NOT NULL CHECK (kind IN ('refund_to_credit', 'credit_payment', 'credit_payment_void')),
+          order_id   UUID REFERENCES orders(id) ON DELETE SET NULL,
+          ref_id     UUID,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`);
+    }
+    // Tablas NUEVAS (vacías): sus índices se crean aquí
+    for (const [name, sql] of [
+      ['credit_notes_order_idx',     'CREATE INDEX credit_notes_order_idx ON credit_notes (order_id)'],
+      ['credit_note_items_note_idx', 'CREATE INDEX credit_note_items_note_idx ON credit_note_items (credit_note_id)'],
+      ['credit_note_items_item_idx', 'CREATE INDEX credit_note_items_item_idx ON credit_note_items (order_item_id) WHERE order_item_id IS NOT NULL'],
+      ['refunds_tenant_created_idx', 'CREATE INDEX refunds_tenant_created_idx ON refunds (tenant_id, created_at)'],
+      ['refunds_order_idx',          'CREATE INDEX refunds_order_idx ON refunds (order_id)'],
+      ['client_credit_client_idx',   'CREATE INDEX client_credit_client_idx ON client_credit_entries (client_id)'],
+      ['client_credit_tenant_idx',   'CREATE INDEX client_credit_tenant_idx ON client_credit_entries (tenant_id)'],
+    ]) if (!(await hasRelation(client, name))) await client.query(sql);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('⚠️  Migración del ciclo del pedido:', err.message);
+  } finally {
+    client.release();
+  }
+  // CHECK de orders.kind: NOT VALID y después VALIDATE (no bloquea escrituras). Protección extra: no impide arrancar.
+  try {
+    const q = () => pool.query(`SELECT convalidated FROM pg_constraint WHERE conname = 'orders_kind_check' AND conrelid = 'orders'::regclass`);
+    if (!(await q()).rows[0]) {
+      await pool.query(`ALTER TABLE orders ADD CONSTRAINT orders_kind_check CHECK (kind IN ('order','quote')) NOT VALID`);
+    }
+    const { rows: [c] } = await q();
+    if (c && !c.convalidated) await pool.query('ALTER TABLE orders VALIDATE CONSTRAINT orders_kind_check');
+  } catch (err) {
+    if (err.code !== '42710') console.error('⚠️  CHECK orders_kind_check (se reintentará en el próximo arranque):', err.message);
+  }
+  try {
+    const cols = [['tenants', 'quote_seq'], ['tenants', 'credit_note_seq'], ['orders', 'kind'], ['orders', 'quote_number'],
+      ['orders', 'cancelled_at'], ['orders', 'cancel_reason'], ['orders', 'tax_rate'], ['orders', 'tax_amount'],
+      ['orders', 'delivery_date'], ['orders', 'delivery_zone'], ['orders', 'credited_total'],
+      ['tenant_settings', 'tax'], ['tenant_settings', 'zones']];
+    for (const [t, c] of cols) if (!(await hasColumn(pool, t, c))) return false;
+    for (const r of ['credit_notes', 'credit_note_items', 'refunds', 'client_credit_entries']) if (!(await hasRelation(pool, r))) return false;
+    return true;
+  } catch (err) {
+    console.error('❌ Comprobación del esquema del ciclo del pedido:', err.message);
+    return false;
+  }
+}
+
+module.exports = { ensurePaymentsSchema, ensureOrderCycleSchema, CREDIT_METHOD, isCreditMethod, runPaymentsBackfill, backfillLegacyPayments, recalcOrderPayment,
   normalizeMethodName, methodKey, mergeMethodTotals, rawMethodsFor };
