@@ -1935,6 +1935,25 @@
   .pd-hint { font-size: 11.5px; color: var(--text3); margin-top: 4px; }
   .pd-balance { display: flex; align-items: center; justify-content: space-between; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 9px 12px; margin: 10px 0 12px; font-size: 12.5px; color: var(--text2); }
   .pd-balance b { font-family: 'Syne', sans-serif; font-size: 16px; color: var(--yellow); }
+  /* Fase 4A: gastos, cierre de caja, existencias */
+  #v-gastos { flex-direction: column; }
+  .gas-row { display: grid; grid-template-columns: 84px minmax(0,1fr) minmax(0,.8fr) minmax(0,1.3fr) 104px 64px; gap: 12px; align-items: center; padding: 10px 6px; border-top: 1px solid var(--border); font-size: 12.5px; border-radius: 8px; }
+  .gas-row.head { font-size: 10.5px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: .6px; border-top: none; padding-top: 0; }
+  .gas-row > div { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gas-row .amt { text-align: right; font-weight: 700; color: var(--text); overflow: visible; }
+  .gas-row .gas-act { text-align: right; overflow: visible; }
+  .gas-row.voided > div { opacity: .75; }
+  .gas-row.voided .amt { color: var(--text3); }
+  .gas-link { background: none; border: none; color: var(--text3); font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer; padding: 4px 6px; border-radius: 6px; }
+  .gas-link:hover { color: var(--red); }
+  .gas-link:focus-visible, .stk-cell:focus-visible, .pc-edit-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #cajaCard .inf-table th, #cajaCard .inf-table td { white-space: nowrap; }
+  .pc-meta { font-size: 11px; color: var(--text3); margin: -2px 0 8px; font-weight: 500; }
+  .stk-cell { min-width: 52px; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--border2); background: var(--surface2); color: var(--text); font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+  .stk-cell:hover { border-color: var(--accent); color: var(--accent2); }
+  .stk-neg, .stk-cell.stk-neg { color: var(--red); }
+  .of-i-main .pd-hint { margin-top: 0; }
+
   .cobro-box { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-top: 10px; }
   .cobro-box .form-row { margin-top: 8px; }
   .cobro-box .form-input { padding: 7px 9px; font-size: 12.5px; }
@@ -2178,6 +2197,9 @@
     </div>
     <div class="nav-item" id="nav-pagos" data-tour="Pagos — valida Pago Móvil y Zelle automáticamente. Sin revisión manual" onclick="goView('pagos')" title="Pagos">
       <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z"/></svg>
+    </div>
+    <div class="nav-item" id="nav-gastos" data-tour="Gastos — registra lo que gastas para vender; se descuenta de tu utilidad" onclick="goView('gastos')" title="Gastos">
+      <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z"/></svg>
     </div>
     <div class="sidebar-spacer"></div>
     <div class="nav-item" id="nav-ajustes" data-tour="Ajustes — configura tu perfil, canales conectados y plan de suscripción" onclick="goView('ajustes')" title="Ajustes">
@@ -2535,6 +2557,10 @@
           <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0l-3-3m3 3l3-3M3.75 7.5h16.5"/></svg>
           Productos
         </div>
+        <div class="inf-tab" id="itab-utilidad" onclick="switchInfTab('utilidad',this)">
+          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941"/></svg>
+          Utilidad
+        </div>
       </div>
 
       <!-- Content -->
@@ -2585,6 +2611,50 @@
       </div>
     </div>
     <!-- / PAGOS VIEW -->
+
+    <!-- ══════ GASTOS VIEW ══════ -->
+    <div class="view" id="v-gastos" style="flex-direction:column;">
+      <div class="pag-header">
+        <div>
+          <div class="pag-title">Gastos</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:2px;">Lo que gastas para vender: se descuenta de tu utilidad</div>
+        </div>
+        <div style="flex:1"></div>
+        <button type="button" class="btn-ghost" onclick="openExpenseCategories()">Categorías</button>
+        <button type="button" class="btn-primary" onclick="openExpenseDialog()">+ Registrar gasto</button>
+      </div>
+      <div class="pagr-filters">
+        <span style="font-size:11px;font-weight:700;color:var(--text3);">PERÍODO</span>
+        <div class="inf-filter-group" id="gasPeriodBtns" role="group" aria-label="Período">
+          <button type="button" class="inf-filter-btn" aria-pressed="false" onclick="setGasPeriod('hoy',this)">Hoy</button>
+          <button type="button" class="inf-filter-btn" aria-pressed="false" onclick="setGasPeriod('ayer',this)">Ayer</button>
+          <button type="button" class="inf-filter-btn" aria-pressed="false" onclick="setGasPeriod('7dias',this)">7 días</button>
+          <button type="button" class="inf-filter-btn active" aria-pressed="true" onclick="setGasPeriod('mes',this)">Este mes</button>
+          <button type="button" class="inf-filter-btn" aria-pressed="false" onclick="setGasPeriod('rango',this)">Rango</button>
+        </div>
+        <div id="gasRangeBox" style="display:none;align-items:center;gap:6px;">
+          <input type="date" id="gasDateFrom" aria-label="Desde" class="form-input" style="padding:6px 9px;font-size:12px;width:140px;">
+          <span style="color:var(--text3);">→</span>
+          <input type="date" id="gasDateTo" aria-label="Hasta" class="form-input" style="padding:6px 9px;font-size:12px;width:140px;">
+          <button type="button" class="btn-primary" style="padding:6px 12px;font-size:12px;" onclick="applyGasRange()">Aplicar</button>
+        </div>
+        <div class="inf-divider"></div>
+        <label for="gasCatSel" style="font-size:11px;font-weight:700;color:var(--text3);">CATEGORÍA</label>
+        <select class="form-input" id="gasCatSel" style="padding:6px 10px;font-size:12px;width:auto;min-width:140px;" onchange="setGasCat(this.value)">
+          <option value="">Todas</option>
+        </select>
+      </div>
+      <div class="stats-row">
+        <div class="stat-card"><div class="stat-label">Total gastado</div><div class="stat-val" id="gasTotal">$0.00</div><div class="stat-change" id="gasTotalN">—</div></div>
+        <div class="stat-card"><div class="stat-label">Nº de gastos</div><div class="stat-val" id="gasCount">0</div><div class="stat-change" id="gasCountN">—</div></div>
+        <div class="stat-card"><div class="stat-label">Mayor categoría</div><div class="stat-val" id="gasTop" style="font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">—</div><div class="stat-change" id="gasTopN">—</div></div>
+        <div class="stat-card"><div class="stat-label">Anulados</div><div class="stat-val" id="gasVoided">0</div><div class="stat-change" id="gasVoidedN">—</div></div>
+      </div>
+      <div class="pagr-body" id="gasBody">
+        <div class="pagr-card"><div class="pagr-empty">Cargando gastos…</div></div>
+      </div>
+    </div>
+    <!-- / GASTOS VIEW -->
 
     <!-- ══════ AJUSTES VIEW ══════ -->
     <div class="view" id="v-ajustes" style="flex-direction:row;overflow:hidden;">
@@ -2803,6 +2873,20 @@
       <div class="form-label" style="margin-bottom:6px;">Ícono del artículo</div>
       <div class="emoji-cats" id="cpEmojiCats"></div>
       <div class="emoji-picker" id="cpEmojiPicker"></div>
+    </div>
+
+    <!-- Costo y existencias (Fase 4A) -->
+    <div class="form-row">
+      <div class="form-field" style="flex:1">
+        <label class="form-label" for="cpCost">Costo por unidad (opcional)</label>
+        <input class="form-input" id="cpCost" placeholder="Lo que te cuesta a ti" type="number" min="0" step="0.01" inputmode="decimal">
+      </div>
+      <div class="form-field" style="flex:1;justify-content:flex-end;">
+        <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text2);cursor:pointer;margin-bottom:9px;">
+          <input type="checkbox" id="cpTrack" style="width:16px;height:16px;accent-color:var(--accent);">
+          Controlar existencias
+        </label>
+      </div>
     </div>
 
     <!-- Tipo de medida -->
@@ -3498,11 +3582,12 @@ function goView(v) {
   document.getElementById('v-' + v).classList.add('active');
   if (v === 'inbox')    document.getElementById('nav-inbox').classList.add('active');
   if (v === 'pedidos')  { document.getElementById('nav-pedidos').classList.add('active'); renderOrders(); }
-  if (v === 'catalogo') { document.getElementById('nav-catalogo').classList.add('active'); renderCatalog(); }
+  if (v === 'catalogo') { document.getElementById('nav-catalogo').classList.add('active'); renderCatalog(); loadStockLevels().then(ok => { if (ok && document.getElementById('v-catalogo').classList.contains('active')) renderCatalog(); }); }
   if (v === 'ajustes')  { document.getElementById('nav-ajustes').classList.add('active'); switchSettings('perfil', document.querySelector('.ssn-item')); }
   if (v === 'clientes') { document.getElementById('nav-clientes').classList.add('active'); renderClients(); }
   if (v === 'informes') { document.getElementById('nav-informes').classList.add('active'); renderInforme('ventas'); }
   if (v === 'pagos')    { document.getElementById('nav-pagos').classList.add('active'); loadPagos(); }
+  if (v === 'gastos')   { document.getElementById('nav-gastos').classList.add('active'); loadGastos(); }
 }
 
 // ─── CONVERSATIONS ────────────────────────────────────────────
@@ -4752,6 +4837,7 @@ async function openOrderForm(opts) {
 }
 async function ofOpenInner(opts, opener) {
   if (!tenantSettings) { try { await loadTenantSettings(); } catch (e) {} }
+  loadStockLevels().then(ok => { if (ok) { try { ofRefreshStockHints(); ofPickStockHint(); } catch (e) {} } });
   const edit = opts.mode === 'edit';
   let o = null;
   if (edit) {
@@ -4803,7 +4889,7 @@ async function ofOpenInner(opts, opener) {
   if (edit) {
     OF.items = (o.items || []).map(it => ({
       emoji: it.emoji || '📦', name: it.name || '', detail: it.detail || '', qty: Number(it.qty) || 1,
-      unitPrice: it.unitPrice !== undefined ? Number(it.unitPrice) : moneyToNum(it.price), productId: it.productId || null }));
+      unitPrice: it.unitPrice !== undefined ? Number(it.unitPrice) : moneyToNum(it.price), productId: it.productId || null, variantKey: it.variantKey || '' }));
     if (!OF.items.length) {
       // Pedido antiguo sin artículos: se edita como una sola línea con lo que valía
       const ex = orderExtras[o.id] || {};
@@ -5072,13 +5158,14 @@ function ofPickProduct(sel) {
     '<div style="flex:1;font-weight:700;font-size:13px;">' + escHtml(p.name) + ' <span style="color:var(--green);">' + escHtml(p.price) + '</span></div>' +
     '<button type="button" class="btn-ghost" style="font-size:11px;" onclick="ofClosePicker()">Cancelar</button></div>' +
     '<div class="form-row">' +
-    (needsSize ? '<div class="form-field"><label class="form-label" for="ofPickSize">Talla</label><select class="form-input" id="ofPickSize"><option value="">Elegir…</option>' +
+    (needsSize ? '<div class="form-field"><label class="form-label" for="ofPickSize">Talla</label><select class="form-input" id="ofPickSize" onchange="ofPickStockHint()"><option value="">Elegir…</option>' +
       p.sizes.map(s => '<option value="' + escHtml(s) + '">' + escHtml(s) + '</option>').join('') + '</select></div>' : '') +
-    (needsColor ? '<div class="form-field"><label class="form-label" for="ofPickColor">Color</label><select class="form-input" id="ofPickColor"><option value="">Elegir…</option>' +
+    (needsColor ? '<div class="form-field"><label class="form-label" for="ofPickColor">Color</label><select class="form-input" id="ofPickColor" onchange="ofPickStockHint()"><option value="">Elegir…</option>' +
       p.colors.map(c => '<option value="' + escHtml(c.name) + '">' + escHtml(c.name) + '</option>').join('') + '</select></div>' : '') +
     '<div class="form-field" style="max-width:110px;"><label class="form-label" for="ofPickQty">Cantidad</label><input class="form-input" id="ofPickQty" type="number" min="1" step="1" value="1"></div>' +
-    '</div><div style="text-align:right;"><button type="button" class="btn-primary" onclick="ofConfirmPick()">Agregar al pedido</button></div>';
+    '</div><div class="pd-hint" id="ofPickStock" aria-live="polite" style="margin:0 0 8px;"></div><div style="text-align:right;"><button type="button" class="btn-primary" onclick="ofConfirmPick()">Agregar al pedido</button></div>';
   box.classList.add('open');
+  ofPickStockHint();
   setTimeout(() => { const f = ofEl(needsSize ? 'ofPickSize' : 'ofPickColor'); if (f) f.focus(); }, 30);
 }
 function ofClosePicker() { OF.pick = null; const b = ofEl('ofPicker'); b.classList.remove('open'); b.innerHTML = ''; }
@@ -5092,7 +5179,7 @@ function ofConfirmPick() {
   if (ofEl('ofPickColor') && !colorName) { flagField('ofPickColor'); showToast('Elige el color de "' + p.name + '"', 'error'); return; }
   if (!(qty >= 1)) { flagField('ofPickQty'); showToast('La cantidad debe ser 1 o más', 'error'); return; }
   const detail = [colorName || null, size ? 'Talla ' + size : null].filter(Boolean).join(' · ');
-  ofPushItem({ emoji: p.emoji || '📦', name: p.name, detail, qty, unitPrice: moneyToNum(p.price), productId: isServerId(p.id) ? p.id : null });
+  ofPushItem({ emoji: p.emoji || '📦', name: p.name, detail, qty, unitPrice: moneyToNum(p.price), productId: isServerId(p.id) ? p.id : null, size, color: colorName });
   ofClosePicker();
 }
 function ofPushItem(it) {
@@ -5119,6 +5206,7 @@ function ofRenderItems() {
     '<div class="of-i-main">' +
       '<input class="form-input" data-of="name" value="' + escHtml(it.name) + '" placeholder="Artículo" maxlength="200" oninput="OF.items[' + i + '].name=this.value" aria-label="Artículo">' +
       '<input class="form-input" value="' + escHtml(it.detail) + '" placeholder="Talla, color… (opcional)" maxlength="300" oninput="OF.items[' + i + '].detail=this.value" aria-label="Detalle">' +
+      '<div class="pd-hint" id="ofStk' + i + '" aria-live="polite"></div>' +
     '</div>' +
     '<div class="of-i-qty"><div class="form-label of-i-lbl">Cant.</div><input class="form-input" type="number" min="1" step="1" value="' + it.qty + '" oninput="OF.items[' + i + '].qty=parseInt(this.value,10)||0;ofRecalc()" aria-label="Cantidad"></div>' +
     '<div class="of-i-price"><div class="form-label of-i-lbl">Precio u.</div><input class="form-input" type="number" min="0" step="0.01" value="' + _round2(it.unitPrice) + '" oninput="OF.items[' + i + '].unitPrice=parseFloat(this.value)||0;ofRecalc()" aria-label="Precio unitario"></div>' +
@@ -5143,6 +5231,7 @@ function ofAmounts() {
 }
 function ofRecalc() {
   OF.items.forEach((it, i) => { const el = ofEl('ofLine' + i); if (el) el.textContent = '$' + _round2((Number(it.qty) || 0) * (Number(it.unitPrice) || 0)).toFixed(2); });
+  ofRefreshStockHints();
   const a = ofAmounts();
   let h = '<div class="row"><span>Subtotal</span><span>' + fmtMoney(a.sub) + '</span></div>';
   if (a.disc > 0) h += '<div class="row"><span>Descuento</span><span style="color:var(--red);">−' + fmtMoney(a.disc) + '</span></div>';
@@ -5172,7 +5261,9 @@ async function ofSubmit() {
   if (a.over) return ofFail('El descuento no puede ser mayor que el total', 'ofDiscount');
   const items = OF.items.map(it => ({
     emoji: (it.emoji || '').trim() || '📦', name: it.name.trim(), detail: (it.detail || '').trim(), qty: it.qty,
-    unitPrice: _round2(it.unitPrice), linePrice: _round2(it.qty * it.unitPrice), productId: it.productId || null }));
+    unitPrice: _round2(it.unitPrice), linePrice: _round2(it.qty * it.unitPrice), productId: it.productId || null,
+    // La talla y el color los manda el SPA y el servidor deriva la clave de la variante; al reenviar un pedido ya guardado basta su variantKey
+    ...((it.size || it.color) ? { size: it.size || '', color: it.color || '' } : { variantKey: it.variantKey || '' }) }));
   const payLabel = ofVal('ofPay') || null, delLabel = ofVal('ofDelivery') || null;
   const address = ofVal('ofAddress').trim() || null, notes = ofVal('ofNotes').trim() || null;
   const date = ofVal('ofDate') || null, zone = ofVal('ofZone') || null;
@@ -5486,10 +5577,513 @@ async function loadPagos() {
   }
   html += '</div>';
   body.innerHTML = html;
+  body.insertAdjacentHTML('afterbegin', '<div class="pagr-card" id="cajaCard"><div class="pagr-sub">Cargando caja…</div></div>');
+  loadCaja();
 }
 function openPagoOrder(num) {
   if (orders.some(o => o.id === num)) openOrderDetail(num);
   else showToast('Ese pedido no está en la lista cargada. Recarga la página.', 'error');
+}
+
+// ══ Fase 4A: Gastos, cierre de caja, existencias y utilidad ══════════════════════════════
+const GAS_PERIOD_PARAM = { hoy: 'today', ayer: 'yesterday', '7dias': '7d', mes: 'month' };
+let gasPeriod = 'mes', gasCat = '', gasRange = { from: '', to: '' }, _gasSeq = 0, _gasDlgOpen = false;
+function expenseCategoryNames() {
+  return (tenantSettings && Array.isArray(tenantSettings.expenseCategories) && tenantSettings.expenseCategories.length)
+    ? tenantSettings.expenseCategories : ['Compras de mercancía', 'Envíos', 'Alquiler', 'Servicios', 'Publicidad', 'Sueldos', 'Otros'];
+}
+function setGasPeriod(p, el) {
+  gasPeriod = p;
+  document.querySelectorAll('#gasPeriodBtns .inf-filter-btn').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
+  if (el) { el.classList.add('active'); el.setAttribute('aria-pressed', 'true'); }
+  const box = document.getElementById('gasRangeBox');
+  box.style.display = p === 'rango' ? 'flex' : 'none';
+  if (p === 'rango') {
+    const to = todayLocalIso(), f = new Date(); f.setDate(f.getDate() - 29);
+    const from = f.getFullYear() + '-' + String(f.getMonth() + 1).padStart(2, '0') + '-' + String(f.getDate()).padStart(2, '0');
+    const fi = document.getElementById('gasDateFrom'), ti = document.getElementById('gasDateTo');
+    if (!fi.value) fi.value = from;
+    if (!ti.value) ti.value = to;
+    ti.max = fi.max = to;
+    gasRange = { from: fi.value, to: ti.value };
+  }
+  loadGastos();
+}
+function applyGasRange() {
+  const from = document.getElementById('gasDateFrom').value, to = document.getElementById('gasDateTo').value;
+  if (!from || !to) { showToast('Elige las dos fechas del rango', 'error'); return; }
+  if (from > to) { showToast('La fecha inicial debe ser anterior a la final', 'error'); return; }
+  gasRange = { from, to };
+  loadGastos();
+}
+function setGasCat(v) { gasCat = v; loadGastos(); }
+function rebuildGasCatSelect(extra) {
+  const sel = document.getElementById('gasCatSel');
+  if (!sel) return;
+  const names = new Set(expenseCategoryNames());
+  (extra || []).forEach(n => names.add(n));
+  if (gasCat) names.add(gasCat);
+  sel.innerHTML = '<option value="">Todas</option>' + [...names].map(n => '<option value="' + escHtml(n) + '">' + escHtml(n) + '</option>').join('');
+  sel.value = gasCat;
+}
+async function loadGastos() {
+  const body = document.getElementById('gasBody');
+  if (!body) return;
+  const seq = ++_gasSeq;
+  if (!tenantSettings) loadTenantSettings().then(() => { if (seq === _gasSeq) rebuildGasCatSelect(); });
+  rebuildGasCatSelect();
+  const q = new URLSearchParams();
+  if (gasPeriod === 'rango') {
+    if (gasRange.from) q.set('from', gasRange.from);
+    if (gasRange.to) q.set('to', gasRange.to);
+  } else if (GAS_PERIOD_PARAM[gasPeriod]) q.set('period', GAS_PERIOD_PARAM[gasPeriod]);
+  if (gasCat) q.set('category', gasCat);
+  try { const tz = Intl.DateTimeFormat().resolvedOptions().timeZone; if (tz) q.set('tz', tz); } catch (e) {}
+  const set = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
+  let d;
+  try {
+    d = await apiJson('GET', '/api/expenses?' + q.toString());
+  } catch (err) {
+    if (seq !== _gasSeq) return;
+    set('gasTotal', '—'); set('gasTotalN', ''); set('gasCount', '—'); set('gasCountN', ''); set('gasTop', '—'); set('gasTopN', ''); set('gasVoided', '—'); set('gasVoidedN', '');
+    body.innerHTML = '<div class="pagr-card" style="text-align:center;"><div style="color:var(--red);font-weight:600;margin-bottom:6px;font-size:13px;">No se pudieron cargar los gastos</div>' +
+      '<div style="color:var(--text3);font-size:12.5px;margin-bottom:12px;">' + escHtml(err.message) + '</div><button class="btn-ghost" style="margin:0 auto;" onclick="loadGastos()">Reintentar</button></div>';
+    return;
+  }
+  if (seq !== _gasSeq) return;
+  rebuildGasCatSelect(d.categories);
+  const list = d.expenses || [];
+  const label = { hoy: 'Hoy', ayer: 'Ayer', '7dias': 'Últimos 7 días', mes: 'Este mes', rango: (d.from || '') + ' → ' + (d.to || '') }[gasPeriod];
+  const voidedN = list.filter(e => e.voided).length;
+  const top = (d.byCategory || [])[0];
+  set('gasTotal', fmtMoney(d.total)); set('gasTotalN', label + (gasCat ? ' · ' + gasCat : ''));
+  set('gasCount', String(Math.max(0, (d.totalCount || 0) - voidedN))); set('gasCountN', 'gastos vigentes');
+  set('gasTop', top ? top.category : '—'); set('gasTopN', top ? fmtMoney(top.total) : 'sin gastos');
+  set('gasVoided', String(voidedN)); set('gasVoidedN', voidedN ? 'quedan en el historial' : 'ninguno');
+  let html = '';
+  if (d.truncated) html += '<div class="pagr-notice">Se muestran los primeros ' + escHtml(d.limit) + ' de ' + escHtml(d.totalCount) + ' gastos. Acota el período o filtra por categoría para ver el resto. Los totales incluyen todos.</div>';
+  if ((d.byCategory || []).length) {
+    const max = Math.max.apply(null, d.byCategory.map(c => c.total)) || 1;
+    html += '<div class="pagr-card"><div class="pagr-card-title">Total por categoría <small>' + escHtml(label) + '</small></div>' +
+      d.byCategory.map(c => '<div class="pagr-method"><div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml(c.category) + '</div>' +
+        '<div class="pagr-bar"><div style="width:' + Math.max(2, Math.round(c.total / max * 100)) + '%"></div></div>' +
+        '<div style="font-weight:700;text-align:right;">' + fmtMoney(c.total) + ' <span class="pagr-sub">· ' + c.count + (c.count === 1 ? ' gasto' : ' gastos') + '</span></div></div>').join('') + '</div>';
+  }
+  const base = d.baseCurrency || baseCurrency();
+  html += '<div class="pagr-card"><div class="pagr-card-title">Gastos <small>' + escHtml(list.length) + (d.truncated ? ' de ' + escHtml(d.totalCount) : '') + '</small></div>';
+  if (!list.length) {
+    html += '<div class="pagr-empty">No hay gastos registrados en este período.</div>';
+  } else {
+    html += '<div class="gas-row head"><div>Fecha</div><div>Categoría</div><div>Método</div><div>Nota</div><div style="text-align:right;">Monto</div><div></div></div>';
+    html += list.map(e => {
+      const foreign = e.currency && e.currency !== base;
+      const st = t => e.voided ? '<span class="strike">' + t + '</span>' : t;
+      return '<div class="gas-row' + (e.voided ? ' voided' : '') + '"' + (e.voided && e.voidReason ? ' title="' + escHtml('Anulado: ' + e.voidReason) + '"' : '') + '>' +
+        '<div>' + escHtml(fmtDay(e.spentOn)) + '</div>' +
+        '<div style="font-weight:600;">' + st(escHtml(e.category)) + '</div>' +
+        '<div>' + escHtml(e.method) + '</div>' +
+        '<div title="' + escHtml(e.note || '') + '">' + escHtml(e.note || '—') + '</div>' +
+        '<div class="amt">' + st(fmtMoney(e.amountBase)) + (foreign ? '<div class="pagr-sub">' + (Number(e.amount) || 0).toFixed(2) + ' ' + escHtml(e.currency) + '</div>' : '') +
+          (e.voided ? '<div class="pagr-void-tag">Anulado</div>' : '') + '</div>' +
+        '<div class="gas-act">' + (e.voided ? '' : '<button type="button" class="gas-link" onclick="voidExpense(' + escJsAttr(e.id) + ')">Anular</button>') + '</div>' +
+      '</div>';
+    }).join('');
+  }
+  html += '</div>';
+  body.innerHTML = html;
+}
+// 'YYYY-MM-DD' → '27 nov'
+function fmtDay(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+  if (!m) return '—';
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return d.toLocaleDateString('es-VE', { day: '2-digit', month: 'short' });
+}
+
+async function openExpenseDialog() {
+  if (_gasDlgOpen) return;
+  _gasDlgOpen = true;
+  if (!tenantSettings) await loadTenantSettings();
+  if (!tenantSettings) {
+    _gasDlgOpen = false;
+    showToast('⚠ No se pudieron cargar los ajustes de cobro: revisa tu conexión e inténtalo de nuevo', 'error');
+    return;
+  }
+  const base = baseCurrency();
+  const currencies = (tenantSettings.currencies && tenantSettings.currencies.length) ? tenantSettings.currencies : [base];
+  const curList = [base].concat(currencies.filter(c => c !== base));
+  const today = todayLocalIso();
+  const cats = expenseCategoryNames(), methods = payMethodNames().filter(n => n !== 'Saldo a favor');
+  let busy = false, done = false;
+  const finish = v => { if (done) return; done = true; _gasDlgOpen = false; d.close(); };
+  const d = _openDialog(
+    '<div class="modal-title">Registrar gasto</div>' +
+    '<div class="modal-sub">Un gasto no se edita: si te equivocas, anúlalo con un motivo y regístralo de nuevo.</div>' +
+    '<div class="form-row">' +
+      '<div class="form-field"><label class="form-label" for="gxAmount">Monto</label><input class="form-input" id="gxAmount" data-f="amount" type="number" min="0" step="0.01" inputmode="decimal"></div>' +
+      '<div class="form-field"><label class="form-label" for="gxCat">Categoría</label><select class="form-input" id="gxCat" data-f="category">' + cats.map(n => '<option value="' + escHtml(n) + '">' + escHtml(n) + '</option>').join('') + '</select></div>' +
+    '</div>' +
+    '<div class="form-row">' +
+      '<div class="form-field"><label class="form-label" for="gxMethod">Pagado con</label><select class="form-input" id="gxMethod" data-f="method">' + methods.map(n => '<option value="' + escHtml(n) + '">' + escHtml(n) + '</option>').join('') + '</select></div>' +
+      '<div class="form-field"><label class="form-label" for="gxDate">Fecha</label><input class="form-input" id="gxDate" data-f="date" type="date" max="' + today + '" value="' + today + '"></div>' +
+    '</div>' +
+    '<div class="form-row"' + (curList.length > 1 ? '' : ' style="display:none"') + '>' +
+      '<div class="form-field"><label class="form-label" for="gxCur">Moneda</label><select class="form-input" id="gxCur" data-f="currency">' + curList.map(c => '<option value="' + escHtml(c) + '">' + escHtml(c) + '</option>').join('') + '</select></div>' +
+      '<div class="form-field" data-rate-field style="display:none;"><label class="form-label" for="gxRate" data-rate-label>Tasa</label><input class="form-input" id="gxRate" data-f="rate" type="number" min="0" step="any" inputmode="decimal" placeholder="Ej: 36.50"></div>' +
+    '</div>' +
+    '<div class="pd-hint" data-hint></div>' +
+    '<div class="form-field"><label class="form-label" for="gxNote">Nota</label><input class="form-input" id="gxNote" data-f="note" maxlength="300" autocomplete="off" placeholder="Opcional: ¿en qué se gastó?"></div>' +
+    '<div class="dlg-error" data-err></div>' +
+    '<div class="modal-footer"><button class="btn-ghost" data-act="no">Cancelar</button><button class="btn-primary" data-act="yes">Registrar gasto</button></div>',
+    () => { if (!busy) finish(false); }, '[data-f="amount"]');
+  const q = k => d.ov.querySelector('[data-f="' + k + '"]');
+  const err = d.ov.querySelector('[data-err]'), yes = d.ov.querySelector('[data-act="yes"]'), no = d.ov.querySelector('[data-act="no"]');
+  const hint = d.ov.querySelector('[data-hint]'), rateField = d.ov.querySelector('[data-rate-field]');
+  const updateHint = () => {
+    const cur = q('currency').value, foreign = cur !== base, amount = parseFloat(q('amount').value);
+    rateField.style.display = foreign ? '' : 'none';
+    d.ov.querySelector('[data-rate-label]').textContent = 'Tasa (' + cur + ' por 1 ' + base + ')';
+    if (!foreign || !(amount > 0)) { hint.textContent = ''; return; }
+    const rate = parseFloat(q('rate').value);
+    hint.textContent = rate > 0 ? 'Equivale a ' + fmtMoney(Math.round(amount / rate * 100) / 100) + ' ' + base : 'Indica la tasa para ver el equivalente en ' + base;
+  };
+  q('currency').addEventListener('change', updateHint);
+  ['amount', 'rate'].forEach(k => q(k).addEventListener('input', updateHint));
+  const submit = async () => {
+    if (busy) return;
+    err.textContent = '';
+    const amount = parseFloat(q('amount').value);
+    if (!(amount > 0)) { err.textContent = 'Escribe un monto mayor que 0'; return; }
+    if (!q('method').value) { err.textContent = 'Elige con qué se pagó'; return; }
+    const cur = q('currency').value || base;
+    const bodyReq = { amount, category: q('category').value, method: q('method').value, currency: cur };
+    if (cur !== base) {
+      const rate = parseFloat(q('rate').value);
+      if (!(rate > 0)) { err.textContent = 'Indica la tasa de cambio (mayor que 0)'; return; }
+      bodyReq.exchangeRate = rate;
+    }
+    const date = q('date').value, note = q('note').value.trim();
+    if (date && date !== today) bodyReq.spentOn = date;
+    if (note) bodyReq.note = note;
+    busy = true; yes.disabled = true; no.disabled = true;
+    try {
+      await apiJson('POST', '/api/expenses', bodyReq);
+      finish(true);
+      showToast('Gasto registrado');
+      loadGastos();
+    } catch (e) {
+      err.textContent = (e && e.message) || 'No se pudo registrar el gasto';
+      busy = false; yes.disabled = false; no.disabled = false;
+    }
+  };
+  no.onclick = () => { if (!busy) finish(false); };
+  yes.onclick = submit;
+  d.ov.querySelectorAll('input').forEach(i => i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }));
+}
+
+async function voidExpense(id) {
+  const ok = await openFormDialog({
+    title: 'Anular gasto',
+    sub: 'El gasto deja de sumar, pero queda en el historial como anulado.',
+    confirmLabel: 'Anular gasto', danger: true,
+    fields: [{ id: 'reason', label: 'Motivo', placeholder: 'Ej: lo registré dos veces' }],
+    onSubmit: async v => {
+      const reason = (v.reason || '').trim();
+      if (!reason) throw new Error('Escribe el motivo de la anulación');
+      await apiJson('POST', '/api/expenses/' + encodeURIComponent(id) + '/void', { reason });
+    },
+  });
+  if (ok) { showToast('Gasto anulado'); loadGastos(); }
+}
+
+async function openExpenseCategories() {
+  if (!tenantSettings) await loadTenantSettings();
+  if (!tenantSettings) { showToast('⚠ No se pudieron cargar los ajustes: inténtalo de nuevo', 'error'); return; }
+  const ok = await openFormDialog({
+    title: 'Categorías de gastos',
+    sub: 'Sepáralas con comas (hasta 30). Los gastos ya registrados conservan su categoría.',
+    confirmLabel: 'Guardar categorías',
+    fields: [{ id: 'cats', label: 'Categorías', value: expenseCategoryNames().join(', ') }],
+    onSubmit: async v => {
+      const cats = String(v.cats || '').split(',').map(s => s.trim()).filter(Boolean);
+      if (!cats.length) throw new Error('Deja al menos una categoría');
+      const r = await putSettings({ expenseCategories: cats });
+      if (tenantSettings) tenantSettings.expenseCategories = r.expenseCategories || cats;
+    },
+  });
+  if (ok) { showToast('Categorías guardadas'); rebuildGasCatSelect(); }
+}
+
+// ── Cierre de caja (dentro de Pagos) ──
+let cajaDay = null, _cajaSeq = 0, _cajaState = null;
+async function loadCaja() {
+  const card = document.getElementById('cajaCard');
+  if (!card) return;
+  const seq = ++_cajaSeq;
+  let st;
+  try {
+    st = await apiJson('GET', '/api/cash/' + (cajaDay || todayLocalIso()));
+    if (!cajaDay && st.today !== todayLocalIso()) st = await apiJson('GET', '/api/cash/' + st.today); // el día del negocio manda
+  } catch (err) {
+    if (seq !== _cajaSeq) return;
+    card.innerHTML = '<div class="pagr-card-title">Cierre de caja</div><div style="color:var(--red);font-size:12.5px;margin-bottom:8px;">No se pudo cargar la caja (' + escHtml(err.message) + ')</div><button class="btn-ghost" onclick="loadCaja()">Reintentar</button>';
+    return;
+  }
+  if (seq !== _cajaSeq) return;
+  cajaDay = st.day; _cajaState = st;
+  renderCaja(card, st);
+}
+function renderCaja(card, st) {
+  const closed = st.status === 'closed', c = st.closing;
+  const sgn = n => (Number(n) > 0.004 ? '+' : '') + fmtSigned(n);
+  const diffTd = n => '<td style="text-align:right;' + (Math.abs(n) < 0.005 ? '' : n < 0 ? 'color:var(--red);font-weight:700;' : 'color:var(--yellow);font-weight:700;') + '">' + sgn(n) + '</td>';
+  let html = '<div class="pagr-card-title"><span>Cierre de caja</span><span style="display:flex;align-items:center;gap:8px;">' +
+    '<label for="cajaDayInput" class="pagr-sub">Día</label><input type="date" id="cajaDayInput" class="form-input" style="padding:5px 8px;font-size:12px;width:136px;" value="' + escHtml(st.day) + '" max="' + escHtml(st.today) + '" onchange="setCajaDay(this.value)">' +
+    '<span class="pag-badge' + (closed ? '' : ' pag-badge-warn') + '">' + (closed ? 'Cerrada' : 'Abierta') + '</span></span></div>';
+  if (closed) {
+    html += '<div class="pagr-sub" style="margin-bottom:6px;">Cerrada el ' + escHtml(fmtWhen(c.closedAt)) + (c.note ? ' · ' + escHtml(c.note) : '') +
+      ' — mientras esté cerrada no se pueden registrar ni anular pagos, reembolsos ni gastos de este día.</div>';
+    html += '<div style="overflow-x:auto;"><table class="inf-table"><thead><tr><th>Método</th><th style="text-align:right;">Esperado</th><th style="text-align:right;">Contado</th><th style="text-align:right;">Diferencia</th></tr></thead><tbody>' +
+      c.lines.map(l => '<tr><td class="bold">' + escHtml(l.method) + '</td><td style="text-align:right;">' + fmtSigned(l.expected) + '</td><td style="text-align:right;">' + fmtSigned(l.counted) + '</td>' + diffTd(l.difference) + '</tr>').join('') +
+      '<tr><td class="bold">Total</td><td style="text-align:right;font-weight:700;">' + fmtSigned(c.totalExpected) + '</td><td style="text-align:right;font-weight:700;">' + fmtSigned(c.totalCounted) + '</td>' + diffTd(c.totalDifference) + '</tr></tbody></table></div>';
+    html += '<div style="margin-top:10px;"><button type="button" class="btn-ghost" onclick="reopenCaja()">Reabrir caja…</button></div>';
+  } else if (!st.expected.length) {
+    html += '<div class="pagr-empty" style="padding:14px 6px;">Sin movimientos de caja ' + (st.day === st.today ? 'hoy' : 'este día') + '.</div>';
+    if (!st.isFuture) html += '<div style="margin-top:6px;"><button type="button" class="btn-ghost" onclick="openCloseCaja()">Cerrar caja…</button></div>';
+  } else {
+    html += '<div style="overflow-x:auto;"><table class="inf-table"><thead><tr><th>Método</th><th style="text-align:right;">Cobrado</th><th style="text-align:right;">Reemb.</th><th style="text-align:right;">Gastos</th><th style="text-align:right;">Esperado</th></tr></thead><tbody>' +
+      st.expected.map(m => '<tr><td class="bold">' + escHtml(m.method) + '</td><td style="text-align:right;">' + fmtMoney(m.cobrado) + '</td><td style="text-align:right;">' + (m.reembolsado ? '−' + fmtMoney(m.reembolsado) : '—') + '</td><td style="text-align:right;">' + (m.gastos ? '−' + fmtMoney(m.gastos) : '—') + '</td><td style="text-align:right;font-weight:700;">' + fmtSigned(m.esperado) + '</td></tr>').join('') +
+      '<tr><td class="bold">Total</td><td colspan="3"></td><td style="text-align:right;font-weight:700;">' + fmtSigned(st.expectedTotal) + '</td></tr></tbody></table></div>';
+    html += '<div style="margin-top:10px;">' + (st.isFuture ? '<span class="pagr-sub">No se puede cerrar un día futuro.</span>' : '<button type="button" class="btn-primary" onclick="openCloseCaja()">Cerrar caja…</button>') + '</div>';
+  }
+  const reopened = (st.history || []).filter(h => h.status === 'reopened');
+  if (reopened.length) {
+    html += '<div class="pagr-sub" style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px;">Reaperturas: ' +
+      reopened.map(h => escHtml(fmtWhen(h.reopenedAt)) + ' — ' + escHtml(h.reopenReason || '')).join(' · ') + '</div>';
+  }
+  card.innerHTML = html;
+}
+function setCajaDay(v) { if (!v) return; cajaDay = v; loadCaja(); }
+function openCloseCaja() {
+  const st = _cajaState;
+  if (!st || st.status === 'closed' || st.isFuture) return;
+  const rows = st.expected.filter(m => Math.abs(m.esperado) > 0.004);
+  let busy = false, done = false;
+  const finish = v => { if (done) return; done = true; d.close(); };
+  const d = _openDialog(
+    '<div class="modal-title">Cerrar la caja del ' + escHtml(fmtDay(st.day)) + '</div>' +
+    '<div class="modal-sub">Cuenta lo que hay por cada método y escríbelo. La diferencia contra lo esperado queda registrada. Tras cerrar no se podrán registrar ni anular pagos, reembolsos ni gastos de este día hasta reabrirla.</div>' +
+    (rows.length ? rows.map((m, i) => '<div class="form-row" style="align-items:flex-end;"><div class="form-field" style="flex:1.2;"><div class="form-label">' + escHtml(m.method) + '</div><div class="pagr-sub">Esperado ' + fmtSigned(m.esperado) + '</div></div>' +
+      '<div class="form-field"><label class="form-label" for="ccCnt' + i + '">Contado</label><input class="form-input" id="ccCnt' + i + '" data-m="' + escHtml(m.method) + '" type="number" min="0" step="0.01" inputmode="decimal" value="' + Math.max(0, m.esperado).toFixed(2) + '"></div></div>').join('')
+      : '<div class="pagr-empty" style="padding:10px;">Sin movimientos de caja este día.</div>') +
+    '<div class="form-field"><label class="form-label" for="ccNote">Nota</label><input class="form-input" id="ccNote" maxlength="300" autocomplete="off" placeholder="Opcional: ¿a qué se debe la diferencia?"></div>' +
+    '<div class="dlg-error" data-err></div>' +
+    '<div class="modal-footer"><button class="btn-ghost" data-act="no">Cancelar</button><button class="btn-primary" data-act="yes">Cerrar caja</button></div>',
+    () => { if (!busy) finish(false); }, 'input');
+  const err = d.ov.querySelector('[data-err]'), yes = d.ov.querySelector('[data-act="yes"]'), no = d.ov.querySelector('[data-act="no"]');
+  const submit = async () => {
+    if (busy) return;
+    err.textContent = '';
+    const counted = {};
+    for (const inp of d.ov.querySelectorAll('input[data-m]')) {
+      const v = parseFloat(inp.value);
+      if (!(v >= 0)) { flagField(inp); err.textContent = 'Escribe lo contado en «' + inp.dataset.m + '» (0 o más)'; return; }
+      counted[inp.dataset.m] = v;
+    }
+    busy = true; yes.disabled = true; no.disabled = true;
+    try {
+      await apiJson('POST', '/api/cash/' + encodeURIComponent(st.day) + '/close', { counted, note: d.ov.querySelector('#ccNote').value.trim() });
+      finish(true);
+      showToast('Caja cerrada');
+      loadCaja();
+    } catch (e) {
+      err.textContent = (e && e.message) || 'No se pudo cerrar la caja';
+      busy = false; yes.disabled = false; no.disabled = false;
+    }
+  };
+  no.onclick = () => { if (!busy) finish(false); };
+  yes.onclick = submit;
+  d.ov.querySelectorAll('input').forEach(i => i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }));
+}
+async function reopenCaja() {
+  const st = _cajaState;
+  if (!st || st.status !== 'closed') return;
+  const ok = await openFormDialog({
+    title: 'Reabrir la caja del ' + fmtDay(st.day),
+    sub: 'Podrás volver a registrar y anular movimientos de ese día. La reapertura queda registrada con su motivo.',
+    confirmLabel: 'Reabrir caja', danger: true,
+    fields: [{ id: 'reason', label: 'Motivo', placeholder: 'Ej: faltaba registrar un cobro' }],
+    onSubmit: async v => {
+      const reason = (v.reason || '').trim();
+      if (!reason) throw new Error('Escribe el motivo de la reapertura');
+      await apiJson('POST', '/api/cash/' + encodeURIComponent(st.day) + '/reopen', { reason });
+    },
+  });
+  if (ok) { showToast('Caja reabierta'); loadCaja(); }
+}
+
+// ── Existencias y costo (Catálogo) ──
+// Clave de variante: la MISMA que arma el servidor (talla|color en minúsculas, sin acentos)
+function stockNormPart(s) { return String(s == null ? '' : s).replace(/\|/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').slice(0, 60); }
+function stockVariantKey(size, color) { const a = stockNormPart(size), b = stockNormPart(color); return a || b ? a + '|' + b : ''; }
+let stockLevels = {}; // 'idProducto|claveVariante' → cantidad
+async function loadStockLevels() {
+  try {
+    const d = await apiJson('GET', '/api/stock');
+    const m = {};
+    (d.levels || []).forEach(l => { m[l.productId + '|' + l.variantKey] = l.qty; });
+    stockLevels = m;
+    return true;
+  } catch (err) {
+    console.warn('No se pudieron cargar las existencias:', err.message);
+    notifyLoadError('las existencias');
+    return false;
+  }
+}
+const stockQtyFor = (pid, key) => stockLevels[pid + '|' + (key || '')] || 0;
+function stockTotalFor(pid) { let t = 0; const pre = pid + '|'; for (const k in stockLevels) if (k.startsWith(pre)) t += stockLevels[k]; return t; }
+function findCatalogProduct(pid) { for (const c of catalog) { const p = c.products.find(x => x.id === pid); if (p) return p; } return null; }
+const stockCls = n => n <= 0 ? 'stk-neg' : '';
+const STOCK_REASON_ES = { sale: 'Venta', cancel: 'Pedido anulado', return: 'Devolución', edit: 'Pedido editado', adjust_in: 'Entrada', adjust_out: 'Salida', count: 'Recuento' };
+
+async function openStockDialog(prodId) {
+  if (_stockDlgOpen) return;
+  _stockDlgOpen = true;
+  const p = findCatalogProduct(prodId);
+  let d;
+  try { d = await apiJson('GET', '/api/stock?productId=' + encodeURIComponent(prodId)); }
+  catch (err) { _stockDlgOpen = false; showToast('⚠ No se pudieron cargar las existencias (' + err.message + ')', 'error'); return; }
+  (d.levels || []).forEach(l => { stockLevels[l.productId + '|' + l.variantKey] = l.qty; });
+  const lv = new Map((d.levels || []).map(l => [l.variantKey, l.qty]));
+  const vlabel = v => [v.size, v.color].filter(Boolean).join(' · ') || 'Total';
+  const known = new Set(d.variants.map(v => v.key));
+  const extra = (d.levels || []).filter(l => !known.has(l.variantKey));
+  const sizes = [...new Set(d.variants.map(v => v.size))], colors = [...new Set(d.variants.map(v => v.color))];
+  const cell = (v) => {
+    const q = lv.get(v.key) || 0;
+    return '<button type="button" class="stk-cell ' + stockCls(q) + '" data-key="' + escHtml(v.key) + '" data-label="' + escHtml(vlabel(v)) + '" aria-label="' + escHtml('Ajustar ' + vlabel(v) + ': ' + q) + '">' + q + '</button>';
+  };
+  let grid;
+  if (d.variants.length === 1 && !d.variants[0].key) grid = '<div style="display:flex;align-items:center;gap:10px;">Existencias: ' + cell(d.variants[0]) + '</div>';
+  else if (colors.length === 1 && !colors[0]) grid = '<table class="inf-table"><thead><tr><th>Talla</th><th>Existencias</th></tr></thead><tbody>' + d.variants.map(v => '<tr><td class="bold">' + escHtml(v.size) + '</td><td>' + cell(v) + '</td></tr>').join('') + '</tbody></table>';
+  else if (sizes.length === 1 && !sizes[0]) grid = '<table class="inf-table"><thead><tr><th>Color</th><th>Existencias</th></tr></thead><tbody>' + d.variants.map(v => '<tr><td class="bold">' + escHtml(v.color) + '</td><td>' + cell(v) + '</td></tr>').join('') + '</tbody></table>';
+  else grid = '<table class="inf-table"><thead><tr><th>Talla</th>' + colors.map(c => '<th>' + escHtml(c) + '</th>').join('') + '</tr></thead><tbody>' +
+    sizes.map(s => '<tr><td class="bold">' + escHtml(s) + '</td>' + colors.map(c => { const v = d.variants.find(x => x.size === s && x.color === c); return '<td>' + (v ? cell(v) : '') + '</td>'; }).join('') + '</tr>').join('') + '</tbody></table>';
+  if (extra.length) grid += '<div class="pagr-sub" style="margin-top:8px;">Otras variantes con movimientos:</div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">' +
+    extra.map(l => '<span>' + escHtml(l.variantKey || 'Total') + ' ' + cell({ key: l.variantKey, size: l.variantKey, color: '' }) + '</span>').join('') + '</div>';
+  const total = [...lv.values()].reduce((a, b) => a + b, 0);
+  const dlg = _openDialog(
+    '<div class="modal-title">Existencias · ' + escHtml(p ? p.name : 'Producto') + '</div>' +
+    '<div class="modal-sub">Total: <b class="' + stockCls(total) + '">' + total + '</b> · Toca una cantidad para ajustarla. Se puede vender sin existencias: el nivel queda en negativo (en rojo).</div>' +
+    '<div style="overflow-x:auto;">' + grid + '</div>' +
+    '<div id="stkHist" style="margin-top:12px;"></div>' +
+    '<div class="modal-footer"><button class="btn-ghost" data-act="hist">Ver historial</button><button class="btn-primary" data-act="no">Cerrar</button></div>',
+    () => { _stockDlgOpen = false; dlg.close(); }, '.stk-cell');
+  dlg.ov.querySelector('.modal').style.width = '640px';
+  dlg.ov.querySelector('[data-act="no"]').onclick = () => { _stockDlgOpen = false; dlg.close(); renderCatalog(); };
+  dlg.ov.querySelectorAll('.stk-cell').forEach(b => b.onclick = async () => {
+    _stockDlgOpen = false; dlg.close();
+    await adjustStockCell(prodId, b.dataset.key, b.dataset.label, lv.get(b.dataset.key) || 0);
+    openStockDialog(prodId);
+  });
+  dlg.ov.querySelector('[data-act="hist"]').onclick = async () => {
+    const box = dlg.ov.querySelector('#stkHist');
+    box.innerHTML = '<div class="pagr-sub">Cargando historial…</div>';
+    try {
+      const h = await apiJson('GET', '/api/stock/movements?productId=' + encodeURIComponent(prodId) + '&limit=60');
+      const names = new Map(d.variants.map(v => [v.key, vlabel(v)]));
+      box.innerHTML = h.movements.length
+        ? '<div style="max-height:220px;overflow-y:auto;"><table class="inf-table"><thead><tr><th>Fecha</th><th>Variante</th><th>Cambio</th><th>Quedó</th><th>Motivo</th></tr></thead><tbody>' +
+          h.movements.map(m => '<tr><td>' + escHtml(fmtWhen(m.createdAt)) + '</td><td>' + escHtml(names.get(m.variantKey) || m.variantKey || 'Total') + '</td><td class="bold ' + (m.delta < 0 ? 'stk-neg' : '') + '">' + (m.delta > 0 ? '+' : '') + m.delta + '</td><td class="' + stockCls(m.qtyAfter) + '">' + m.qtyAfter + '</td><td>' +
+            escHtml(STOCK_REASON_ES[m.reason] || m.reason) + (m.orderNumber ? ' ' + escHtml(m.orderNumber) : '') + (m.note ? ' · ' + escHtml(m.note) : '') + '</td></tr>').join('') +
+          '</tbody></table></div>' + (h.truncated ? '<div class="pagr-sub" style="margin-top:4px;">Se muestran los últimos ' + h.limit + ' movimientos.</div>' : '')
+        : '<div class="pagr-sub">Todavía no hay movimientos.</div>';
+    } catch (err) { box.innerHTML = '<div style="color:var(--red);font-size:12.5px;">No se pudo cargar el historial (' + escHtml(err.message) + ')</div>'; }
+  };
+}
+let _stockDlgOpen = false;
+async function adjustStockCell(prodId, key, label, current) {
+  const ok = await openFormDialog({
+    title: 'Ajustar existencias',
+    sub: label + ' · ahora hay ' + current + '. Cada ajuste queda en el historial con su motivo.',
+    confirmLabel: 'Guardar ajuste',
+    fields: [
+      { id: 'op', label: 'Qué hacer', type: 'select', value: 'in', options: [
+        { value: 'in', label: 'Sumar (entrada de mercancía)' }, { value: 'out', label: 'Restar (salida, merma)' }, { value: 'count', label: 'Contar (poner el total real)' }] },
+      { id: 'qty', label: 'Cantidad', type: 'number', placeholder: 'Número entero' },
+      { id: 'note', label: 'Motivo', placeholder: 'Ej: llegó mercancía, recuento del mes' },
+    ],
+    onSubmit: async v => {
+      const n = Number(v.qty);
+      if (v.qty === '' || !Number.isInteger(n) || n < 0) throw new Error('Escribe una cantidad entera (0 o más)');
+      if (v.op !== 'count' && n === 0) throw new Error('La cantidad debe ser mayor que 0');
+      if (!(v.note || '').trim()) throw new Error('Escribe el motivo del ajuste');
+      const body = { productId: prodId, variantKey: key, note: v.note.trim() };
+      if (v.op === 'count') body.count = n; else body.delta = v.op === 'out' ? -n : n;
+      const r = await apiJson('POST', '/api/stock/adjust', body);
+      stockLevels[prodId + '|' + key] = r.level;
+    },
+  });
+  if (ok) showToast('Existencias ajustadas');
+  return ok;
+}
+
+// Costo y existencias en la tarjeta del producto
+function stockMetaHtml(p) {
+  const parts = [];
+  if (p.cost !== null && p.cost !== undefined) parts.push('Costo ' + escHtml(fmtMoney(p.cost)));
+  if (p.trackStock) { const t = stockTotalFor(p.id); parts.push('<span class="' + stockCls(t) + '">Existencias ' + t + '</span>'); }
+  return parts.length ? '<div class="pc-meta">' + parts.join(' · ') + '</div>' : '';
+}
+// Aviso «quedan N» al elegir producto y variante en el formulario de pedido
+function ofPickStockHint() {
+  const pk = OF.pick, el = ofEl('ofPickStock');
+  if (!pk || !el) return;
+  const p = pk.p;
+  el.textContent = ''; el.style.color = '';
+  if (!p.trackStock || !isServerId(p.id) || OF.kind === 'quote') return;
+  const hasS = !!ofEl('ofPickSize'), hasC = !!ofEl('ofPickColor');
+  const size = hasS ? ofVal('ofPickSize') : '', color = hasC ? ofVal('ofPickColor') : '';
+  if ((hasS && !size) || (hasC && !color)) { el.textContent = 'Existencias en total: ' + stockTotalFor(p.id); return; }
+  const q = stockQtyFor(p.id, stockVariantKey(size, color));
+  el.textContent = q > 0 ? 'Quedan ' + q : 'Quedan ' + q + ': se puede vender igual, pero no hay existencias';
+  el.style.color = q <= 0 ? 'var(--red)' : '';
+}
+// Cuánto quedará en existencias tras esta línea (solo al crear un pedido; un presupuesto no descuenta)
+function ofLineStock(it) {
+  if (OF.mode === 'edit' || OF.kind === 'quote' || !it.productId) return null;
+  const p = findCatalogProduct(it.productId);
+  if (!p || !p.trackStock) return null;
+  const key = (it.size || it.color) ? stockVariantKey(it.size, it.color) : (it.variantKey || '');
+  const left = stockQtyFor(it.productId, key) - (Number(it.qty) || 0);
+  return { left, text: left > 0 ? 'Quedarán ' + left : 'Quedarán ' + left + ': sin existencias, se puede vender igual' };
+}
+function ofRefreshStockHints() {
+  OF.items.forEach((it, i) => {
+    const el = ofEl('ofStk' + i);
+    if (!el) return;
+    const s = ofLineStock(it);
+    el.textContent = s ? s.text : '';
+    el.style.color = s && s.left <= 0 ? 'var(--red)' : '';
+  });
+}
+async function downloadUtilidadCsv() {
+  let d;
+  try { d = await fetchUtilidadData(); }
+  catch (err) { showToast('⚠ No se pudo descargar el informe (' + err.message + ')'); return; }
+  const p = d.p, q = v => '"' + String(v).replace(/"/g, '""') + '"';
+  let csv = 'Métrica,Valor\nVendido neto,' + p.vendido + '\nCobrado neto,' + p.cobrado + '\nDevuelto,' + p.devuelto + '\nVentas de artículos,' + p.ventasItems +
+    '\nCosto de lo vendido,' + p.costo + '\nUtilidad bruta,' + p.utilidadBruta + '\nGastos,' + (p.gastos === null ? '' : p.gastos) +
+    '\nUtilidad neta,' + (p.utilidadNeta === null ? '' : p.utilidadNeta) + '\nVentas sin costo,' + p.ventasSinCosto;
+  if (d.r && d.r.debtors) {
+    csv += '\n\nPor cobrar,Debe,Pedidos,Pedido más antiguo,Días\n' + d.r.debtors.map(x => [q(x.name), x.total, x.orders, x.oldestOrder, x.oldestDays].join(',')).join('\n');
+  }
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'CENTRAL_Utilidad_' + infPeriod + '.csv';
+  a.click(); URL.revokeObjectURL(url);
+  showToast('Informe descargado como CSV ✓');
 }
 
 // ─── ORDER DETAIL MODAL ───────────────────────────────────────
@@ -6155,9 +6749,13 @@ function openFormDialog(opts) {
     let busy = false, done = false;
     const finish = v => { if (done) return; done = true; d.close(); resolve(v); };
     const fseq = ++_dlgSeq;
-    const fields = (opts.fields || []).map(f =>
-      '<div class="form-field"><label class="form-label" for="ofd-' + fseq + '-' + escHtml(f.id) + '">' + escHtml(f.label) + '</label>' +
-      '<input class="form-input" id="ofd-' + fseq + '-' + escHtml(f.id) + '" data-f="' + escHtml(f.id) + '" type="' + escHtml(f.type || 'text') + '" autocomplete="' + escHtml(f.autocomplete || 'off') + '" placeholder="' + escHtml(f.placeholder || '') + '"></div>').join('');
+    const fields = (opts.fields || []).map(f => {
+      const fid = 'ofd-' + fseq + '-' + escHtml(f.id);
+      const ctl = f.type === 'select'
+        ? '<select class="form-input" id="' + fid + '" data-f="' + escHtml(f.id) + '">' + (f.options || []).map(o => '<option value="' + escHtml(o.value) + '"' + (o.value === f.value ? ' selected' : '') + '>' + escHtml(o.label) + '</option>').join('') + '</select>'
+        : '<input class="form-input" id="' + fid + '" data-f="' + escHtml(f.id) + '" type="' + escHtml(f.type || 'text') + '" autocomplete="' + escHtml(f.autocomplete || 'off') + '" placeholder="' + escHtml(f.placeholder || '') + '" value="' + escHtml(f.value == null ? '' : f.value) + '">';
+      return '<div class="form-field"><label class="form-label" for="' + fid + '">' + escHtml(f.label) + '</label>' + ctl + '</div>';
+    }).join('');
     const d = _openDialog(
       '<div class="modal-title">' + escHtml(opts.title || '') + '</div>' +
       '<div class="modal-sub">' + escHtml(opts.sub || '') + '</div>' + fields +
@@ -6433,7 +7031,9 @@ function renderCatalog() {
           <div class="pc-price">${p.price}</div>
           <div class="pc-colors">${colorDots}</div>
           <div class="pc-sizes">${sizePills}</div>
+          ${stockMetaHtml(p)}
           <div class="pc-footer">
+            ${p.trackStock ? `<div class="pc-edit-btn" role="button" tabindex="0" onclick="openStockDialog('${p.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openStockDialog('${p.id}')}">Existencias</div>` : ''}
             <div class="pc-edit-btn" onclick="openEditProduct('${cat.key}','${p.id}')">
               <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125"/></svg>
               Editar
@@ -6476,6 +7076,8 @@ function openCatProductModal(catKey, editId) {
     editingSizes = [...(prod.sizes||[])];
     editingColors = (prod.colors||[]).map(c => ({...c}));
     editingEmoji = prod.emoji;
+    document.getElementById('cpCost').value = prod.cost === null || prod.cost === undefined ? '' : prod.cost;
+    document.getElementById('cpTrack').checked = !!prod.trackStock;
     if (prod.measure) { currentMeasure = prod.measure; selectMeasure(prod.measure); }
     if (prod.weights) { editingWeights = [...prod.weights]; renderWeightTags(); }
     if (prod.litros)  { editingLitros  = [...prod.litros];  renderLitrosTags(); }
@@ -6486,6 +7088,8 @@ function openCatProductModal(catKey, editId) {
     document.getElementById('catProdModalSub').textContent = `Agregar a: ${cat.emoji} ${cat.name}`;
     document.getElementById('cpName').value = '';
     document.getElementById('cpPrice').value = '';
+    document.getElementById('cpCost').value = '';
+    document.getElementById('cpTrack').checked = false;
   }
 
   selectMeasure(currentMeasure);
@@ -6539,6 +7143,9 @@ async function saveCatProduct() {
   const name   = document.getElementById('cpName').value.trim();
   const price  = document.getElementById('cpPrice').value.trim();
   if (!name) { document.getElementById('cpName').focus(); return; }
+  const costRaw = document.getElementById('cpCost').value.trim();
+  const costNum = costRaw === '' ? null : Number(costRaw);
+  if (costNum !== null && !(costNum >= 0)) { flagField('cpCost'); showToast('El costo debe ser 0 o más', 'error'); return; }
 
   // build sizes array based on measure type
   let sizes = [];
@@ -6559,6 +7166,7 @@ async function saveCatProduct() {
     categoryKey: cat.key, categoryName: cat.name, categoryEmoji: cat.emoji,
     name, price: parseFloat((price || '0').replace(/[^0-9.]/g, '')) || 0,
     emoji: editingEmoji, sizes: productData.sizes, colors: productData.colors,
+    cost: costNum, trackStock: document.getElementById('cpTrack').checked,
   };
 
   // Primero el servidor; si falla, el formulario queda abierto para reintentar
@@ -6575,6 +7183,8 @@ async function saveCatProduct() {
   } finally {
     _savingCatProduct = false;
   }
+  productData.cost = saved.cost === null || saved.cost === undefined ? null : Number(saved.cost);
+  productData.trackStock = !!saved.trackStock;
   if (editId) {
     const prod = cat.products.find(p => p.id === editId);
     if (prod) Object.assign(prod, productData);
@@ -8231,6 +8841,59 @@ function switchInfTab(tab, el) {
   renderInforme(tab);
 }
 
+// Utilidad: dos consultas (utilidad del período y por cobrar con antigüedad). Si falla "por cobrar", la utilidad se muestra igual.
+async function fetchUtilidadData() {
+  const [p, r] = await Promise.all([
+    apiJson('GET', '/api/reports/profit?' + infQueryString()),
+    apiJson('GET', '/api/reports/receivables').catch(err => ({ error: err.message })),
+  ]);
+  return { p, r };
+}
+function renderUtilidad(body, data, periodLabel) {
+  const { p, r } = data;
+  const m = n => fmtSigned(n);
+  const gastos = p.gastosAplican ? fmtMoney(p.gastos) : '—';
+  const neta = p.utilidadNeta === null ? '—' : m(p.utilidadNeta);
+  const netaCls = p.utilidadNeta === null ? '' : p.utilidadNeta < 0 ? 'style="color:var(--red);"' : 'style="color:var(--green);"';
+  const brutaCls = p.utilidadBruta < 0 ? 'style="color:var(--red);"' : 'style="color:var(--green);"';
+  let html = '';
+  if (p.ventasSinCosto > 0.004) {
+    html += '<div class="pagr-notice" role="note">⚠ ' + fmtMoney(p.ventasSinCosto) + ' de las ventas no tienen costo: la utilidad está incompleta (esas ventas cuentan como si no costaran nada). ' +
+      'Ponle costo a tus productos en el Catálogo.</div>';
+  }
+  html += '<div class="inf-kpi-row k5">' +
+    '<div class="inf-kpi"><div class="inf-kpi-label">💰 Vendido neto</div><div class="inf-kpi-val">' + m(p.vendido) + '</div><div class="inf-kpi-sub inf-kpi-neutral">' + p.pedidos + (p.pedidos === 1 ? ' pedido' : ' pedidos') + ' · ' + escHtml(periodLabel) + '</div></div>' +
+    '<div class="inf-kpi"><div class="inf-kpi-label">Cobrado neto</div><div class="inf-kpi-val">' + m(p.cobrado) + '</div><div class="inf-kpi-sub inf-kpi-neutral">pagos − reembolsos</div></div>' +
+    '<div class="inf-kpi"><div class="inf-kpi-label">↩️ Devuelto</div><div class="inf-kpi-val">' + fmtMoney(p.devuelto) + '</div><div class="inf-kpi-sub inf-kpi-neutral">' + p.devueltoCount + (p.devueltoCount === 1 ? ' nota de crédito' : ' notas de crédito') + '</div></div>' +
+    '<div class="inf-kpi"><div class="inf-kpi-label">📦 Costo de lo vendido</div><div class="inf-kpi-val">' + fmtMoney(p.costo) + '</div><div class="inf-kpi-sub inf-kpi-neutral">sin lo devuelto</div></div>' +
+    '<div class="inf-kpi"><div class="inf-kpi-label">📈 Utilidad bruta</div><div class="inf-kpi-val" ' + brutaCls + '>' + m(p.utilidadBruta) + '</div><div class="inf-kpi-sub inf-kpi-neutral">' + (p.margenBruto === null ? 'sin costos cargados' : p.margenBruto + ' % de margen') + '</div></div>' +
+  '</div>';
+  html += '<div class="inf-kpi-row">' +
+    '<div class="inf-kpi"><div class="inf-kpi-label">🧾 Gastos</div><div class="inf-kpi-val">' + gastos + '</div><div class="inf-kpi-sub inf-kpi-neutral">' + (p.gastosAplican ? (p.gastosCount || 0) + ' en el período' : 'los gastos no tienen canal') + '</div></div>' +
+    '<div class="inf-kpi"><div class="inf-kpi-label">✅ Utilidad neta</div><div class="inf-kpi-val" ' + netaCls + '>' + neta + '</div><div class="inf-kpi-sub inf-kpi-neutral">bruta − gastos</div></div>' +
+    '<div class="inf-kpi"><div class="inf-kpi-label">Ventas de artículos</div><div class="inf-kpi-val">' + fmtMoney(p.ventasItems) + '</div><div class="inf-kpi-sub inf-kpi-neutral">sin envío ni impuesto</div></div>' +
+    '<div class="inf-kpi"><div class="inf-kpi-label">Ventas sin costo</div><div class="inf-kpi-val" ' + (p.ventasSinCosto > 0.004 ? 'style="color:var(--yellow);"' : '') + '>' + fmtMoney(p.ventasSinCosto) + '</div><div class="inf-kpi-sub inf-kpi-neutral">' + (p.ventasSinCosto > 0.004 ? 'utilidad incompleta' : 'todo con costo') + '</div></div>' +
+  '</div>';
+  html += '<div class="inf-chart-card"><div class="inf-chart-title">Cómo se calcula</div><div class="inf-chart-sub" style="line-height:1.6;">' +
+    'Utilidad bruta = ventas de artículos (sin envío ni impuesto, con el descuento del pedido repartido entre sus artículos y sin lo devuelto) − costo de lo vendido. ' +
+    'El costo es el que tenía el producto cuando se vendió: cambiarlo después no altera lo ya vendido. Utilidad neta = utilidad bruta − gastos del período.</div></div>';
+  // Por cobrar con antigüedad (de hoy hacia atrás, no depende del período)
+  if (r && r.error) {
+    html += '<div class="inf-chart-card"><div class="inf-chart-title">Por cobrar con antigüedad</div><div style="color:var(--red);font-size:12.5px;margin:6px 0 10px;">No se pudo cargar (' + escHtml(r.error) + ')</div><button class="btn-ghost" onclick="renderInforme(infTab)">Reintentar</button></div>';
+  } else if (r) {
+    html += '<div class="inf-chart-card"><div class="inf-chart-title">Por cobrar con antigüedad <span style="font-size:11px;color:var(--text3);font-weight:400;">hoy · ' + fmtMoney(r.total) + ' en ' + r.count + (r.count === 1 ? ' pedido' : ' pedidos') + '</span></div>' +
+      '<div class="inf-kpi-row" style="margin-top:10px;">' + r.buckets.map(b =>
+        '<div class="inf-kpi"><div class="inf-kpi-label">' + escHtml(b.label) + '</div><div class="inf-kpi-val"' + (b.key === '60+' && b.total > 0.004 ? ' style="color:var(--red);"' : b.key === '31-60' && b.total > 0.004 ? ' style="color:var(--yellow);"' : '') + '>' + fmtMoney(b.total) + '</div><div class="inf-kpi-sub inf-kpi-neutral">' + b.count + (b.count === 1 ? ' pedido' : ' pedidos') + '</div></div>').join('') + '</div>';
+    if (!r.debtors.length) html += '<div class="pagr-empty">Nadie te debe nada ahora mismo.</div>';
+    else html += '<div style="overflow-x:auto;"><table class="inf-table" style="margin-top:12px;"><thead><tr><th>Cliente</th><th style="text-align:right;">Debe</th><th style="text-align:right;">Pedidos</th><th>Pedido más antiguo</th><th style="text-align:right;">Antigüedad</th></tr></thead><tbody>' +
+      r.debtors.map(x => '<tr><td class="bold">' + escHtml(x.name) + '</td><td style="text-align:right;font-weight:700;">' + fmtMoney(x.total) + '</td><td style="text-align:right;">' + x.orders + '</td><td>' + escHtml(x.oldestOrder) + '</td>' +
+        '<td style="text-align:right;' + (x.bucket === '60+' ? 'color:var(--red);font-weight:700;' : x.bucket === '31-60' ? 'color:var(--yellow);font-weight:700;' : '') + '">' + x.oldestDays + (x.oldestDays === 1 ? ' día' : ' días') + '</td></tr>').join('') + '</tbody></table></div>' +
+      (r.truncated ? '<div class="pagr-sub" style="margin-top:6px;">Se muestran los ' + r.limit + ' clientes que más deben; los tramos de arriba cuentan todos.</div>' : '');
+    html += '</div>';
+  }
+  body.innerHTML = html;
+}
+
 let _infReqSeq = 0;
 async function renderInforme(tab) {
   const body = document.getElementById('infBody');
@@ -8239,7 +8902,7 @@ async function renderInforme(tab) {
   else body.innerHTML = '<div class="inf-chart-card" style="text-align:center;padding:40px 20px;color:var(--text3);font-size:13px;">Calculando informe…</div>';
   let d;
   try {
-    d = await fetchInfData();
+    d = tab === 'utilidad' ? await fetchUtilidadData() : await fetchInfData();
   } catch (err) {
     if (seq !== _infReqSeq) return;
     body.style.opacity = '';
@@ -8263,6 +8926,7 @@ async function renderInforme(tab) {
 
   const periodLabel = { hoy:'hoy', '7dias':'últimos 7 días', mes:'este mes', año:'este año', personalizado: document.getElementById('infCustomLabel')?.textContent || 'rango personalizado' }[infPeriod] || 'el período seleccionado';
 
+  if (tab === 'utilidad') { renderUtilidad(body, d, periodLabel); return; }
   if (tab === 'ventas') {
     body.innerHTML = `
       <!-- KPIs -->
@@ -8441,7 +9105,7 @@ async function renderInforme(tab) {
         <div class="inf-chart-title">Ranking de productos</div>
         <div class="inf-chart-sub">Por unidades e ingresos ${periodLabel}</div>
         <table class="inf-table" style="margin-top:8px;">
-          <thead><tr><th>#</th><th>Producto</th><th>Unidades</th><th>Ingresos</th><th>% del total</th></tr></thead>
+          <thead><tr><th>#</th><th>Producto</th><th>Unidades</th><th>Ingresos</th><th>Margen</th><th>% del total</th></tr></thead>
           <tbody>
             ${d.topProducts.map((p,i)=>{
               const totalUnits = d.topProducts.reduce((s,x)=>s+x[1],0);
@@ -8451,6 +9115,7 @@ async function renderInforme(tab) {
                 <td class="bold">${escHtml(p[0])}</td>
                 <td>${p[1]} uds</td>
                 <td class="green">${p[2]}</td>
+                <td>${p[3] === null || p[3] === undefined ? '—' : escHtml(p[3]) + ' %'}</td>
                 <td><div style="display:flex;align-items:center;gap:7px;"><div style="flex:1;height:5px;background:var(--surface3);border-radius:2px;"><div style="width:${pct}%;height:100%;background:var(--accent);border-radius:2px;"></div></div><span style="font-size:10.5px;color:var(--text3);">${pct}%</span></div></td>
               </tr>`;
             }).join('')}
@@ -8503,7 +9168,7 @@ function renderDonut(canal) {
 }
 
 function printInforme() {
-  const tabLabels = { ventas:'Ventas', pedidos:'Pedidos', delivery:'Delivery', encomiendas:'Encomiendas', clientes:'Contactos', productos:'Productos' };
+  const tabLabels = { ventas:'Ventas', pedidos:'Pedidos', delivery:'Delivery', encomiendas:'Encomiendas', clientes:'Contactos', productos:'Productos', utilidad:'Utilidad' };
   const periodLabel = { hoy:'Hoy', '7dias':'Últimos 7 días', mes:'Este mes', año:'Este año', personalizado: document.getElementById('infCustomLabel')?.textContent || 'Personalizado' }[infPeriod];
   const content = document.getElementById('infBody').innerHTML;
   const css = `body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;padding:20px;} table{width:100%;border-collapse:collapse;} th,td{border:1px solid #e5e5e5;padding:6px 8px;text-align:left;font-size:11px;} th{background:#f5f5f5;font-weight:700;} .inf-kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;} .inf-kpi{border:1px solid #e5e5e5;border-radius:8px;padding:12px;} .inf-kpi-val{font-size:20px;font-weight:800;} .inf-kpi-label{font-size:10px;color:#888;margin-bottom:4px;} .inf-chart-card{border:1px solid #e5e5e5;border-radius:8px;padding:14px;margin-bottom:14px;} @media print{button{display:none}}`;
@@ -8525,14 +9190,15 @@ function printInforme() {
 }
 
 async function downloadExcel() {
+  if (infTab === 'utilidad') return downloadUtilidadCsv();
   let d;
   try { d = await fetchInfData(); }
   catch (err) { showToast('⚠ No se pudo descargar el informe (' + err.message + ')'); return; }
-  const tabLabels = { ventas:'Ventas', pedidos:'Pedidos', delivery:'Delivery', encomiendas:'Encomiendas', clientes:'Contactos', productos:'Productos' };
+  const tabLabels = { ventas:'Ventas', pedidos:'Pedidos', delivery:'Delivery', encomiendas:'Encomiendas', clientes:'Contactos', productos:'Productos', utilidad:'Utilidad' };
   const periodLabel = { hoy:'Hoy', '7dias':'Últimos 7 días', mes:'Este mes', año:'Este año', personalizado: document.getElementById('infCustomLabel')?.textContent || 'Personalizado' }[infPeriod];
   let csv = '';
   if (infTab === 'ventas') {
-    csv = 'Métrica,Valor\nVentas totales,$' + d.ventas + '\nPedidos,' + d.pedidos + '\nTicket promedio,$' + (d.pedidos ? (d.ventas/d.pedidos).toFixed(0) : 0) + '\nTasa entrega,' + (d.pedidos ? Math.round(d.entregados/d.pedidos*100) : 0) + '%\n\nProducto,Unidades,Ingresos\n' + d.topProducts.map(p=>p.join(',')).join('\n');
+    csv = 'Métrica,Valor\nVentas totales,$' + d.ventas + '\nPedidos,' + d.pedidos + '\nTicket promedio,$' + (d.pedidos ? (d.ventas/d.pedidos).toFixed(0) : 0) + '\nTasa entrega,' + (d.pedidos ? Math.round(d.entregados/d.pedidos*100) : 0) + '%\n\nProducto,Unidades,Ingresos,Margen %\n' + d.topProducts.map(p=>p.join(',')).join('\n');
   } else if (infTab === 'clientes') {
     csv = 'Nombre,Teléfono,Instagram,Ciudad,Canal,Pedidos\n' + clientsDB.map(c=>[c.name,c.phone,c.ig,c.city,c.channel==='wa'?'WhatsApp':'Instagram',c.orders.length].join(',')).join('\n');
   } else if (infTab === 'pedidos') {
@@ -8560,8 +9226,8 @@ let activePlan = (function () {
 
 const planNavMap = {
   basic:    ['nav-inbox','nav-pedidos','nav-catalogo','nav-clientes'],
-  pro:      ['nav-inbox','nav-pedidos','nav-catalogo','nav-clientes','nav-informes'],
-  business: ['nav-inbox','nav-pedidos','nav-catalogo','nav-clientes','nav-informes','nav-pagos'],
+  pro:      ['nav-inbox','nav-pedidos','nav-catalogo','nav-clientes','nav-informes','nav-gastos'],
+  business: ['nav-inbox','nav-pedidos','nav-catalogo','nav-clientes','nav-informes','nav-gastos','nav-pagos'],
 };
 
 // El backend siempre manda 'basic' | 'pro' | 'business'. Algunos ids de DOM legacy
@@ -8572,7 +9238,7 @@ function normalizePlan(plan) {
 
 function applyPlanNavigation(plan) {
   const p = normalizePlan(plan);
-  const allNav = ['nav-inbox','nav-pedidos','nav-catalogo','nav-clientes','nav-informes','nav-pagos'];
+  const allNav = ['nav-inbox','nav-pedidos','nav-catalogo','nav-clientes','nav-informes','nav-gastos','nav-pagos'];
   const allowed = planNavMap[p] || planNavMap.basic;
   allNav.forEach(id => {
     const el = document.getElementById(id);
@@ -8606,7 +9272,7 @@ function setPlan(plan) {
   const viewId = currentView ? currentView.id : '';
   const viewNavMap = {
     'v-inbox':'nav-inbox','v-pedidos':'nav-pedidos','v-catalogo':'nav-catalogo',
-    'v-clientes':'nav-clientes','v-informes':'nav-informes','v-pagos':'nav-pagos',
+    'v-clientes':'nav-clientes','v-informes':'nav-informes','v-gastos':'nav-gastos','v-pagos':'nav-pagos',
     'v-ajustes':'nav-ajustes',
   };
   const currentNav = viewNavMap[viewId];
@@ -9044,6 +9710,7 @@ loadRealConversations().then(() => {
   }
 });
 loadRealCatalog();
+loadStockLevels().then(ok => { if (ok) { try { renderCatalog(); } catch (e) {} } });
 loadAutoReplyConfig();
 loadTenantSettings();
 // Venía de registrarse con un plan de pago: abre Ajustes → Plan una sola vez, con el aviso de pago
@@ -9259,7 +9926,7 @@ function storeServerOrder(ro, mode) {
   const items = (ro.items || []).map(it => ({
     id: it.id, emoji: it.emoji, name: it.name, detail: it.detail, qty: it.qty,
     linePrice: Number(it.linePrice) || 0, price: '$' + (Number(it.unitPrice) || 0).toFixed(2),
-    unitPrice: Number(it.unitPrice) || 0, productId: it.productId || null,
+    unitPrice: Number(it.unitPrice) || 0, productId: it.productId || null, variantKey: it.variantKey || '',
   }));
   const order = {
     id: legacyId, client: ro.clientName, clientId: ro.clientId || null, product: ro.productSummary,
@@ -9444,6 +10111,7 @@ async function loadRealCatalog() {
       byCategory[key].products.push({
         id: rp.id, name: rp.name, price: '$' + (Number(rp.price) || 0).toFixed(2),
         emoji: rp.emoji || '🛍️', sizes: rp.sizes || [], colors: rp.colors || [],
+        cost: rp.cost === null || rp.cost === undefined ? null : Number(rp.cost), trackStock: !!rp.trackStock,
       });
     });
 
@@ -10268,6 +10936,27 @@ function renderQrSettingsHtml() {
     .client-row > .cr-spent { grid-column: 2; grid-row: 2; }
     .client-row > .cr-tags { grid-column: 3; grid-row: 2; justify-content: flex-end; }
     .client-row > .cr-city, .client-row > .cr-channel, .client-row > .cr-orders, .client-row > .cr-chevron { display: none; }
+    /* Fase 4A: gastos, cierre de caja, informes */
+    .pag-header { flex-wrap: wrap; padding: 14px; gap: 10px; }
+    .pagr-card { padding: 14px; }
+    .pagr-card-title { flex-wrap: wrap; }
+    #cajaCard .inf-table th, #cajaCard .inf-table td { padding: 6px 5px; font-size: 11.5px; }
+    .pagr-filters { padding: 10px 14px; }
+    .pagr-body { padding: 12px 14px 20px; }
+    .pagr-method { grid-template-columns: 96px 1fr auto; gap: 8px; }
+    .pagr-row, .gas-row { grid-template-columns: minmax(0,1fr) auto; row-gap: 3px; }
+    .pagr-row.head, .gas-row.head { display: none; }
+    .pagr-row > div, .gas-row > div { white-space: normal; }
+    .gas-row .amt, .pagr-row .amt { text-align: right; }
+    .inf-header { flex-wrap: wrap; padding: 14px; gap: 10px; }
+    .inf-filters { flex-wrap: wrap; padding: 10px 14px; }
+    .inf-tabs { overflow-x: auto; padding: 0 14px; }
+    .inf-tab { flex-shrink: 0; white-space: nowrap; }
+    .inf-body { padding: 12px 14px 20px; }
+    .inf-kpi-row, .inf-kpi-row.k5 { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .inf-kpi { padding: 12px; }
+    .inf-kpi-val { font-size: 19px; }
+
   }
 </style>
 <script>
