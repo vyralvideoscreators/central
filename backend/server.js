@@ -318,13 +318,18 @@ async function initDB() {
         await client.query('BEGIN');
         await client.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS order_seq INTEGER NOT NULL DEFAULT 0`);
         await client.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS tenant_order_number INTEGER`);
+        // Los presupuestos (Fase 3, orders.kind='quote') NO llevan número de pedido hasta convertirse.
+        // En el primer despliegue la columna kind aún no existe (la crea ensureOrderCycleSchema después).
+        const { rows: kindCol } = await client.query(`SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'orders' AND column_name = 'kind'`);
+        const notQuote = kindCol.length ? `AND o.kind IS DISTINCT FROM 'quote'` : '';
         await client.query(`
           WITH base AS (
             SELECT tenant_id, COALESCE(MAX(tenant_order_number), 0) AS mx FROM orders GROUP BY tenant_id
           ), n AS (
             SELECT o.id, b.mx + ROW_NUMBER() OVER (PARTITION BY o.tenant_id ORDER BY o.created_at, o.order_number) AS rn
             FROM orders o JOIN base b ON b.tenant_id = o.tenant_id
-            WHERE o.tenant_order_number IS NULL
+            WHERE o.tenant_order_number IS NULL ${notQuote}
           )
           UPDATE orders o SET tenant_order_number = n.rn FROM n WHERE o.id = n.id
         `);
