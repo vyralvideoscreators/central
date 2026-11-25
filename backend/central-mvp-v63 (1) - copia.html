@@ -4764,7 +4764,7 @@ async function ofOpenInner(opts, opener) {
   Object.assign(OF, { mode: edit ? 'edit' : 'create', kind: edit ? o.kind : (opts.kind === 'quote' ? 'quote' : 'order'),
     orderId: edit ? o.id : null, realId: edit ? orderRealIds[o.id] : null, convoKey: convo ? opts.convoKey : null,
     items: [], clientId: null, linkConvo: false, busy: false, pick: null, edited: false,
-    origClientId: edit ? (o.clientId || null) : null, opener: opener || null, closing: false, dropIdx: -1 });
+    origClientId: edit ? (o.clientId || null) : null, origClientName: edit ? String(o.client || '') : '', opener: opener || null, closing: false, dropIdx: -1 });
   // Con notas de crédito los artículos, el envío y el descuento ya no se tocan (las devoluciones dependen de ellos)
   OF.locked = !!(edit && o.credited > 0.004);
   const tax = ofTaxSetting();
@@ -4961,7 +4961,9 @@ function ofClientInput(q, onlyOpen) {
   const val = String(q || '');
   if (!onlyOpen && OF.clientId) {
     const cl = clientsDB.find(c => c.id === OF.clientId);
-    if (!cl || cl.name !== val) { OF.clientId = null; OF.linkConvo = false; ofFillAddressList(); }
+    // Si la ficha no está cargada (p. ej. al editar), se compara con el nombre con el que se abrió el formulario
+    const ref = cl ? cl.name : (OF.origClientName || '');
+    if (ref !== val) { OF.clientId = null; OF.linkConvo = false; ofFillAddressList(); }
   }
   const low = val.trim().toLowerCase();
   const list = clientsDB.filter(c => isServerId(c.id) && (!low || c.name.toLowerCase().includes(low) || (c.phone || '').includes(low) || (c.ig || '').toLowerCase().includes(low))).slice(0, 30);
@@ -8044,6 +8046,7 @@ async function saveClientProfile() {
   }
   if (existing) {
     Object.assign(existing, data);
+    if (saved.credit !== undefined) existing.credit = Number(saved.credit) || 0;
     existing._unsaved = false;
     // El servidor ya cambió el nombre en sus pedidos: lo mismo en pantalla
     orders.forEach(o => { if (o.clientId === existing.id) o.client = saved.name; });
@@ -8078,7 +8081,7 @@ async function deleteClient() {
       try {
         await apiJson('DELETE', '/api/clients/' + c.id);
       } catch (err) {
-        showToast('⚠ No se eliminó la ficha de ' + c.name + ' (' + err.message + ')');
+        showToast('No se eliminó la ficha de ' + c.name + ' (' + err.message + ')', 'error');
         return;
       }
     }
@@ -8265,7 +8268,7 @@ async function renderInforme(tab) {
       <!-- KPIs -->
       <div class="inf-kpi-row k5">
         <div class="inf-kpi"><div class="inf-kpi-label">💰 Ventas totales</div><div class="inf-kpi-val">$${d.ventas.toLocaleString()}</div><div class="inf-kpi-sub inf-kpi-neutral">${periodLabel}</div></div>
-        <div class="inf-kpi"><div class="inf-kpi-label">Cobrado neto (pagos − reembolsos)</div><div class="inf-kpi-val">$${(Number(d.cobrado) || 0).toLocaleString()}</div><div class="inf-kpi-sub inf-kpi-neutral">Pagos recibidos ${periodLabel}</div></div>
+        <div class="inf-kpi"><div class="inf-kpi-label">Cobrado neto (pagos − reembolsos)</div><div class="inf-kpi-val">$${(Number(d.cobrado) || 0).toLocaleString()}</div><div class="inf-kpi-sub inf-kpi-neutral">Neto ${periodLabel}</div></div>
         <div class="inf-kpi"><div class="inf-kpi-label">📦 Pedidos</div><div class="inf-kpi-val">${d.pedidos}</div><div class="inf-kpi-sub inf-kpi-neutral">${periodLabel}</div></div>
         <div class="inf-kpi"><div class="inf-kpi-label">💵 Ticket promedio</div><div class="inf-kpi-val">$${d.pedidos > 0 ? (d.ventas/d.pedidos).toFixed(0) : '0'}</div><div class="inf-kpi-sub inf-kpi-neutral">Por pedido</div></div>
         <div class="inf-kpi"><div class="inf-kpi-label">✅ Tasa de entrega</div><div class="inf-kpi-val">${d.pedidos > 0 ? Math.round(d.entregados/d.pedidos*100) : 0}%</div><div class="inf-kpi-sub inf-kpi-neutral">${periodLabel}</div></div>
