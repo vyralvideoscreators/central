@@ -1008,8 +1008,9 @@ async function addPaymentTx(db, tenantId, orderId, body, createdBy = 'owner') {
   if (!ord[0]) return null;
   if (ord[0].kind === 'quote') throw new BadRequest('Un presupuesto no admite cobros: conviértelo en pedido primero');
   if (ord[0].delivery_status === 'cancelled') throw new BadRequest('El pedido está anulado: no admite cobros');
-  // KEY SHARE: un cambio de moneda base (FOR UPDATE) espera a que termine este pago, y viceversa
-  const { rows: [t] } = await db.query('SELECT base_currency, timezone FROM tenants WHERE id = $1 FOR KEY SHARE', [tenantId]);
+  // Orden de bloqueo: pedido → tenant (SHARE: un cambio de moneda base o un cierre de caja, FOR UPDATE, espera a que termine
+  // este pago, y viceversa) → cliente. Ver operacion.js.
+  const t = await ops.lockTenantForCash(db, tenantId, 'SHARE');
   const base = t.base_currency || 'USD';
 
   // Total EFECTIVO: el total del pedido menos sus notas de crédito. amount_paid ya es el cobrado neto.
@@ -1081,6 +1082,9 @@ async function addPaymentTx(db, tenantId, orderId, body, createdBy = 'owner') {
     const credit = await lockedClientCreditC(db, tenantId, ord[0].client_id);
     if (amountBaseC > credit) throw new BadRequest(`El cliente solo tiene ${(credit / 100).toFixed(2)} ${base} de saldo a favor`);
   }
+  // Caja cerrada: no se registran pagos en un día cerrado (comprobado aquí dentro, con el tenant bloqueado).
+  // El saldo a favor no mueve la caja.
+  if (!withCredit) await ops.assertCashOpen(db, tenantId, { instants: [paidAt] });
   const { rows } = await db.query(`
     INSERT INTO payments (tenant_id, order_id, client_id, amount, currency, exchange_rate, amount_base,
                           method, reference, paid_at, note, created_by)
@@ -1099,10 +1103,12 @@ async function addPaymentTx(db, tenantId, orderId, body, createdBy = 'owner') {
 // Anula un pago (DENTRO de una transacción). Devuelve null si no existe en este negocio.
 async function voidPaymentTx(db, tenantId, paymentId, reason, createdBy = 'owner') {
   const why = payStr(reason, 200, 'Motivo', true);
-  const { rows: pr } = await db.query('SELECT order_id FROM payments WHERE id = $1 AND tenant_id = $2', [paymentId, tenantId]);
+  const { rows: pr } = await db.query('SELECT order_id, paid_at, method FROM payments WHERE id = $1 AND tenant_id = $2', [paymentId, tenantId]);
   if (!pr[0]) return null;
   // Mismo orden de bloqueo que addPaymentTx: primero el pedido (y después el cliente, si el pago fue con saldo a favor)
   const { rows: [ord] } = await db.query('SELECT client_id FROM orders WHERE id = $1 AND tenant_id = $2 FOR UPDATE', [pr[0].order_id, tenantId]);
+  // Caja cerrada: no se anulan pagos de un día cerrado (el día del pago, no el de hoy)
+  if (!isCreditMethod(pr[0].method)) await ops.assertCashOpen(db, tenantId, { instants: [pr[0].paid_at] });
   const { rows } = await db.query(
     'UPDATE payments SET voided_at = now(), void_reason = $3 WHERE id = $1 AND tenant_id = $2 AND voided_at IS NULL RETURNING *',
     [paymentId, tenantId, why]);
@@ -1178,6 +1184,8 @@ async function settleRefundTx(db, tenantId, ord, amountC, o) {
     if (!creditClientId) throw new BadRequest('El pedido no tiene cliente: no se puede dejar saldo a favor');
     await lockedClientCreditC(db, tenantId, creditClientId);
   }
+  // Caja cerrada: un reembolso en efectivo/transferencia mueve la caja de HOY (el saldo a favor, no)
+  if (cashC > 0) await ops.assertCashOpen(db, tenantId, { instants: [null] });
   const { rows: [t] } = await db.query('SELECT base_currency FROM tenants WHERE id = $1', [tenantId]);
   const base = (t && t.base_currency) || 'USD';
   const out = [];
@@ -2941,6 +2949,108 @@ app.get('/api/orders/:id/events', requireAuth, async (req, res) => {
   } catch (err) { sendApiError(res, err, 'Historial del pedido'); }
 });
 
+// ── Fase 4A: gastos y cierre de caja ──────────────────────────
+// Rango de días en la zona del negocio: period=today|yesterday|7d|month o from/to (YYYY-MM-DD, máx. un año)
+async function resolveDayRange(query, tz, defaultPeriod = 'month') {
+  const { rows: [n] } = await pool.query("SELECT to_char(NOW() AT TIME ZONE $1, 'YYYY-MM-DD') AS today", [tz]);
+  const PERIODS = ['today', 'yesterday', '7d', 'month'];
+  const period = query.period === undefined || query.period === '' ? (query.from || query.to ? null : defaultPeriod) : String(query.period);
+  if (period && !PERIODS.includes(period)) throw new BadRequest('Periodo inválido (today, yesterday, 7d o month)');
+  let pFrom = n.today, pTo = n.today;
+  if (period === 'yesterday') pFrom = pTo = ops.shiftDay(n.today, -1);
+  else if (period === '7d') pFrom = ops.shiftDay(n.today, -6);
+  else if (period === 'month') pFrom = n.today.slice(0, 8) + '01';
+  const to = query.to ? String(query.to) : (query.from ? n.today : pTo);
+  const start = query.from ? String(query.from) : (query.to ? to : pFrom);
+  if (!isRealDate(start) || !isRealDate(to)) throw new BadRequest('Fechas inválidas (formato YYYY-MM-DD)');
+  if (start > to) throw new BadRequest('La fecha inicial debe ser anterior a la final');
+  if ((Date.parse(to) - Date.parse(start)) / 86400000 > 366) throw new BadRequest('El rango máximo es de un año');
+  return { start, to, today: n.today };
+}
+
+const EXPENSES_LIST_LIMIT = 500;
+app.get('/api/expenses', requireAuth, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  const tenantId = req.tenant.tenantId;
+  try {
+    const tz = await resolveTenantTz(tenantId, req.query.tz);
+    const { start, to } = await resolveDayRange(req.query, tz);
+    let category = null;
+    if (req.query.category !== undefined && req.query.category !== '') {
+      category = String(req.query.category);
+      if (category.length > 60) throw new BadRequest('Categoría inválida');
+    }
+    const W = 'e.tenant_id = $1 AND e.spent_on >= $2::date AND e.spent_on <= $3::date AND ($4::text IS NULL OR lower(e.category) = lower($4))';
+    const P = [tenantId, start, to, category];
+    const [list, byCat, cnt, base, cats] = await Promise.all([
+      pool.query(`SELECT e.* FROM expenses e WHERE ${W} ORDER BY e.spent_on DESC, e.created_at DESC LIMIT ${EXPENSES_LIST_LIMIT + 1}`, P),
+      pool.query(`SELECT e.category, SUM(e.amount_base)::float AS total, COUNT(*)::int AS n FROM expenses e
+        WHERE ${W} AND e.voided_at IS NULL GROUP BY e.category ORDER BY total DESC, e.category`, P),
+      pool.query(`SELECT COUNT(*)::int AS n FROM expenses e WHERE ${W}`, P),
+      pool.query('SELECT base_currency FROM tenants WHERE id = $1', [tenantId]),
+      ops.getExpenseCategories(pool, tenantId),
+    ]);
+    res.json({
+      timezone: tz, from: start, to, baseCurrency: base.rows[0] ? base.rows[0].base_currency : 'USD',
+      expenses: list.rows.slice(0, EXPENSES_LIST_LIMIT).map(ops.mapExpenseRow),
+      truncated: list.rows.length > EXPENSES_LIST_LIMIT, limit: EXPENSES_LIST_LIMIT, totalCount: cnt.rows[0].n,
+      total: money2(byCat.rows.reduce((a, r) => a + r.total, 0)),
+      byCategory: byCat.rows.map(r => ({ category: r.category, total: money2(r.total), count: r.n })),
+      categories: cats,
+    });
+  } catch (err) { sendApiError(res, err, 'Gastos'); }
+});
+
+app.post('/api/expenses', requireAuth, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  try {
+    const expense = await inTx(c => ops.addExpenseTx(c, req.tenant.tenantId, req.body));
+    res.json({ expense });
+  } catch (err) { sendApiError(res, err, 'Registrar gasto'); }
+});
+
+app.post('/api/expenses/:id/void', requireAuth, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  if (!UUID_RE.test(req.params.id)) return res.status(404).json({ error: 'Gasto no encontrado' });
+  try {
+    const expense = await inTx(c => ops.voidExpenseTx(c, req.tenant.tenantId, req.params.id, req.body && req.body.reason));
+    if (!expense) return res.status(404).json({ error: 'Gasto no encontrado' });
+    res.json({ expense });
+  } catch (err) { sendApiError(res, err, 'Anular gasto'); }
+});
+
+// Cierre de caja: lista de cierres de un rango (el más reciente primero), con las reaperturas
+app.get('/api/cash', requireAuth, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  const tenantId = req.tenant.tenantId;
+  try {
+    const tz = await resolveTenantTz(tenantId, req.query.tz);
+    const { start, to } = await resolveDayRange(req.query, tz);
+    const { rows } = await pool.query(
+      'SELECT * FROM cash_closings WHERE tenant_id = $1 AND day >= $2::date AND day <= $3::date ORDER BY day DESC, closed_at DESC LIMIT 401', [tenantId, start, to]);
+    res.json({ timezone: tz, from: start, to, closings: rows.slice(0, 400).map(ops.mapClosing), truncated: rows.length > 400 });
+  } catch (err) { sendApiError(res, err, 'Cierres de caja'); }
+});
+app.get('/api/cash/:day', requireAuth, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  try { res.json(await ops.getCashDay(pool, req.tenant.tenantId, req.params.day)); }
+  catch (err) { sendApiError(res, err, 'Caja del día'); }
+});
+app.post('/api/cash/:day/close', requireAuth, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  const tenantId = req.tenant.tenantId;
+  try {
+    res.json(await inTx(async (c) => { await ops.closeCashDay(c, tenantId, req.params.day, req.body); return ops.getCashDay(c, tenantId, req.params.day); }));
+  } catch (err) { sendApiError(res, err, 'Cerrar caja'); }
+});
+app.post('/api/cash/:day/reopen', requireAuth, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  const tenantId = req.tenant.tenantId;
+  try {
+    res.json(await inTx(async (c) => { await ops.reopenCashDay(c, tenantId, req.params.day, req.body); return ops.getCashDay(c, tenantId, req.params.day); }));
+  } catch (err) { sendApiError(res, err, 'Reabrir caja'); }
+});
+
 // ── Ajustes del negocio: métodos de pago, entrega y moneda base ──
 
 function cleanPaymentMethods(v) {
@@ -3045,13 +3155,14 @@ app.get('/api/tenant/settings', requireAuth, async (req, res) => {
   const tenantId = req.tenant.tenantId;
   try {
     const { rows } = await pool.query(`
-      SELECT t.base_currency, s.payment_methods, s.delivery_methods, s.tax, s.zones,
+      SELECT t.base_currency, s.payment_methods, s.delivery_methods, s.tax, s.zones, s.expense_categories,
              EXISTS (SELECT 1 FROM payments p WHERE p.tenant_id = t.id) AS has_payments
       FROM tenants t LEFT JOIN tenant_settings s ON s.tenant_id = t.id WHERE t.id = $1`, [tenantId]);
     const r = rows[0] || {};
     res.json({
       baseCurrency: r.base_currency || 'USD', paymentMethods: r.payment_methods || [], deliveryMethods: r.delivery_methods || {},
       tax: mapTax(r.tax), zones: Array.isArray(r.zones) ? r.zones : [], timezone: await resolveTenantTz(tenantId, req.query.tz),
+      expenseCategories: Array.isArray(r.expense_categories) && r.expense_categories.length ? r.expense_categories : ops.DEFAULT_EXPENSE_CATEGORIES,
       canChangeBaseCurrency: !r.has_payments, currencies: BASE_CURRENCIES,
     });
   } catch (err) { sendApiError(res, err, 'Ajustes'); }
@@ -3071,7 +3182,8 @@ app.put('/api/tenant/settings', requireAuth, async (req, res) => {
     }
     const tax = b.tax !== undefined ? cleanTax(b.tax) : null;
     const zones = b.zones !== undefined ? cleanZones(b.zones) : null;
-    if (pm === null && dm === null && cur === null && tax === null && zones === null) throw new BadRequest('No hay cambios para guardar');
+    const expCats = b.expenseCategories !== undefined ? ops.cleanExpenseCategories(b.expenseCategories) : null;
+    if (pm === null && dm === null && cur === null && tax === null && zones === null && expCats === null) throw new BadRequest('No hay cambios para guardar');
     const out = await inTx(async (c) => {
       const { rows: [t] } = await c.query('SELECT base_currency FROM tenants WHERE id = $1 FOR UPDATE', [tenantId]);
       if (cur && cur !== t.base_currency) {
@@ -3080,20 +3192,23 @@ app.put('/api/tenant/settings', requireAuth, async (req, res) => {
         await c.query('UPDATE tenants SET base_currency = $1 WHERE id = $2', [cur, tenantId]);
       }
       const { rows: [s] } = await c.query(`
-        INSERT INTO tenant_settings (tenant_id, payment_methods, delivery_methods, tax, zones)
-        VALUES ($1, COALESCE($2::jsonb, '[]'::jsonb), COALESCE($3::jsonb, '{}'::jsonb), COALESCE($4::jsonb, '{}'::jsonb), COALESCE($5::jsonb, '[]'::jsonb))
+        INSERT INTO tenant_settings (tenant_id, payment_methods, delivery_methods, tax, zones, expense_categories)
+        VALUES ($1, COALESCE($2::jsonb, '[]'::jsonb), COALESCE($3::jsonb, '{}'::jsonb), COALESCE($4::jsonb, '{}'::jsonb), COALESCE($5::jsonb, '[]'::jsonb), $6::jsonb)
         ON CONFLICT (tenant_id) DO UPDATE SET
           payment_methods  = COALESCE($2::jsonb, tenant_settings.payment_methods),
           delivery_methods = COALESCE($3::jsonb, tenant_settings.delivery_methods),
           tax              = COALESCE($4::jsonb, tenant_settings.tax),
           zones            = COALESCE($5::jsonb, tenant_settings.zones),
+          expense_categories = COALESCE($6::jsonb, tenant_settings.expense_categories),
           updated_at = now()
-        RETURNING payment_methods, delivery_methods, tax, zones`,
+        RETURNING payment_methods, delivery_methods, tax, zones, expense_categories`,
         [tenantId, pm === null ? null : JSON.stringify(pm), dm === null ? null : JSON.stringify(dm),
-         tax === null ? null : JSON.stringify(tax), zones === null ? null : JSON.stringify(zones)]);
+         tax === null ? null : JSON.stringify(tax), zones === null ? null : JSON.stringify(zones),
+         expCats === null ? null : JSON.stringify(expCats)]);
       const { rows: [has] } = await c.query('SELECT EXISTS (SELECT 1 FROM payments WHERE tenant_id = $1) AS x', [tenantId]);
       return { baseCurrency: cur || t.base_currency, paymentMethods: s.payment_methods, deliveryMethods: s.delivery_methods,
-        tax: mapTax(s.tax), zones: s.zones || [], canChangeBaseCurrency: !has.x, currencies: BASE_CURRENCIES };
+        tax: mapTax(s.tax), zones: s.zones || [], canChangeBaseCurrency: !has.x, currencies: BASE_CURRENCIES,
+        expenseCategories: Array.isArray(s.expense_categories) && s.expense_categories.length ? s.expense_categories : ops.DEFAULT_EXPENSE_CATEGORIES };
     });
     res.json(out);
   } catch (err) { sendApiError(res, err, 'Guardar ajustes'); }
