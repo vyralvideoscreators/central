@@ -4,6 +4,7 @@
 // Teléfonos con el bloque 555-2xxx, reservado para ficción.
 
 const { recalcOrderPayment } = require('./pagos');
+const ops = require('./operacion');
 
 const C = {
   coral:   { name: 'Coral',          hex: '#f0806a' },
@@ -18,12 +19,26 @@ const C = {
   azabache:{ name: 'Negro azabache', hex: '#151515' },
 };
 
+// cost = costo por unidad (p3 sin costo, para que se vea el aviso de «ventas sin costo»); stock = unidades iniciales por
+// variante en los productos con control de existencias (stockZero = variantes que empiezan en 0 y quedan en negativo al vender)
 const PRODUCTS = [
-  { key: 'p1', cat: ['prendas', 'Prendas', '👚'], name: 'Blusa Bordada Amapola',  emoji: '👚', price: 34, sizes: ['XS', 'S', 'M', 'L'],            colors: [C.coral, C.marfil] },
-  { key: 'p2', cat: ['prendas', 'Prendas', '👚'], name: 'Pantalón Palazzo Brisa', emoji: '👖', price: 42, sizes: ['S', 'M', 'L', 'XL'],            colors: [C.arena, C.oliva] },
+  { key: 'p1', cat: ['prendas', 'Prendas', '👚'], name: 'Blusa Bordada Amapola',  emoji: '👚', price: 34, sizes: ['XS', 'S', 'M', 'L'],            colors: [C.coral, C.marfil], cost: 14, stock: 5 },
+  { key: 'p2', cat: ['prendas', 'Prendas', '👚'], name: 'Pantalón Palazzo Brisa', emoji: '👖', price: 42, sizes: ['S', 'M', 'L', 'XL'],            colors: [C.arena, C.oliva], cost: 18 },
   { key: 'p3', cat: ['prendas', 'Prendas', '👚'], name: 'Chaqueta Denim Cropped', emoji: '🧥', price: 56, sizes: ['S', 'M', 'L'],                  colors: [C.indigo, C.humo] },
-  { key: 'p4', cat: ['zapatos', 'Zapatos', '👟'], name: 'Tenis Urbano Nube',      emoji: '👟', price: 64, sizes: ['36', '37', '38', '39', '40', '41'], colors: [C.hueso, C.menta] },
-  { key: 'p5', cat: ['zapatos', 'Zapatos', '👟'], name: 'Botín Chelsea Siena',    emoji: '👢', price: 79, sizes: ['36', '37', '38', '39', '40'],    colors: [C.camel, C.azabache] },
+  { key: 'p4', cat: ['zapatos', 'Zapatos', '👟'], name: 'Tenis Urbano Nube',      emoji: '👟', price: 64, sizes: ['36', '37', '38', '39', '40', '41'], colors: [C.hueso, C.menta], cost: 27, stock: 3, stockZero: [['41', 0]] },
+  { key: 'p5', cat: ['zapatos', 'Zapatos', '👟'], name: 'Botín Chelsea Siena',    emoji: '👢', price: 79, sizes: ['36', '37', '38', '39', '40'],    colors: [C.camel, C.azabache], cost: 33, stock: 2 },
+];
+
+// Gastos de ejemplo: d = días atrás; void = anulado (registrado dos veces)
+const EXPENSES = [
+  { d: 0, amount: 12,  cat: 'Envíos',               method: 'Efectivo',      note: 'Combustible del motorizado' },
+  { d: 1, amount: 60,  cat: 'Publicidad',           method: 'Transferencia',        note: 'Impulso de publicaciones en redes' },
+  { d: 2, amount: 35,  cat: 'Servicios',            method: 'Pago móvil',    note: 'Internet del local' },
+  { d: 2, amount: 25,  cat: 'Otros',                method: 'Efectivo',      note: 'Bolsas y papel de regalo', void: 'Registrado dos veces' },
+  { d: 3, amount: 220, cat: 'Compras de mercancía', method: 'Transferencia', note: 'Reposición de tenis y botines' },
+  { d: 4, amount: 15,  cat: 'Envíos',               method: 'Efectivo',      note: 'Encomienda de una clienta' },
+  { d: 5, amount: 90,  cat: 'Alquiler',             method: 'Zelle',         note: 'Parte del mes del local compartido' },
+  { d: 6, amount: 8.5, cat: 'Otros',                method: 'Efectivo',      note: 'Etiquetas y cinta' },
 ];
 
 const CLIENTS = [
@@ -119,6 +134,11 @@ function money(n) { return Math.round(n * 100) / 100; }
 async function wipeDemoData(client, tenantId) {
   const { rows } = await client.query('SELECT is_demo FROM tenants WHERE id = $1', [tenantId]);
   if (!rows[0]?.is_demo) throw new Error('Solo se pueden vaciar cuentas demo');
+  // Fase 4A: gastos, cierres de caja y existencias (los niveles y movimientos caen con el producto, pero se borran explícitos)
+  await client.query('DELETE FROM stock_movements WHERE tenant_id = $1', [tenantId]);
+  await client.query('DELETE FROM stock_levels WHERE tenant_id = $1', [tenantId]);
+  await client.query('DELETE FROM expenses WHERE tenant_id = $1', [tenantId]);
+  await client.query('DELETE FROM cash_closings WHERE tenant_id = $1', [tenantId]);
   // Fase 3: primero lo que cuelga de pedidos y clientes (reembolsos, notas de crédito, saldo a favor)
   await client.query('DELETE FROM client_credit_entries WHERE tenant_id = $1', [tenantId]);
   await client.query('DELETE FROM refunds WHERE tenant_id = $1', [tenantId]);
@@ -148,9 +168,10 @@ async function seedDemoTenant(client, tenantId, { city = 'Ciudad Demo' } = {}) {
   const productIds = {};
   for (const p of PRODUCTS) {
     const { rows } = await client.query(
-      `INSERT INTO catalog_products (tenant_id, category_key, category_name, category_emoji, name, price, emoji, sizes, colors)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-      [tenantId, p.cat[0], p.cat[1], p.cat[2], p.name, p.price, p.emoji, JSON.stringify(p.sizes), JSON.stringify(p.colors)]
+      `INSERT INTO catalog_products (tenant_id, category_key, category_name, category_emoji, name, price, emoji, sizes, colors, cost, track_stock)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+      [tenantId, p.cat[0], p.cat[1], p.cat[2], p.name, p.price, p.emoji, JSON.stringify(p.sizes), JSON.stringify(p.colors),
+       p.cost === undefined ? null : p.cost, p.stock !== undefined]
     );
     productIds[p.key] = rows[0].id;
   }
@@ -167,12 +188,14 @@ async function seedDemoTenant(client, tenantId, { city = 'Ciudad Demo' } = {}) {
   }
 
   const byKey = Object.fromEntries(PRODUCTS.map(p => [p.key, p]));
+  const stockMoves = [];
   const clientByKey = Object.fromEntries(CLIENTS.map(c => [c.key, c]));
   for (const o of ORDERS) {
     const c = clientByKey[o.c];
     const lines = o.items.map(([pk, size, colorIdx, qty]) => {
       const p = byKey[pk];
-      return { pk, p, qty, detail: `${p.colors[colorIdx].name} · Talla ${size}`, unit: p.price, line: money(p.price * qty) };
+      return { pk, p, qty, detail: `${p.colors[colorIdx].name} · Talla ${size}`, unit: p.price, line: money(p.price * qty),
+        vkey: ops.buildVariantKey(size, p.colors[colorIdx].name) };
     });
     const subtotal = lines.reduce((s, l) => s + l.line, 0);
     const summary = lines.map(l => `${l.qty > 1 ? l.qty + 'x ' : ''}${l.p.name}`).join(' + ');
@@ -191,11 +214,17 @@ async function seedDemoTenant(client, tenantId, { city = 'Ciudad Demo' } = {}) {
     const itemIds = [];
     for (const l of lines) {
       const { rows: ir } = await client.query(
-        `INSERT INTO order_items (order_id, tenant_id, product_id, emoji, name, detail, qty, unit_price, line_price)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-        [rows[0].id, tenantId, productIds[l.pk], l.p.emoji, l.p.name, l.detail, l.qty, l.unit, l.line]
+        `INSERT INTO order_items (order_id, tenant_id, product_id, emoji, name, detail, qty, unit_price, line_price, variant_key, unit_cost)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+        [rows[0].id, tenantId, productIds[l.pk], l.p.emoji, l.p.name, l.detail, l.qty, l.unit, l.line, l.vkey,
+         o.quote || l.p.cost === undefined ? null : l.p.cost]
       );
       itemIds.push(ir[0].id);
+      // Existencias: un pedido (no un presupuesto) descontó lo vendido; si se anuló, volvió
+      if (!o.quote && l.p.stock !== undefined) {
+        stockMoves.push({ pk: l.pk, vkey: l.vkey, delta: -l.qty, reason: 'sale', orderId: rows[0].id, at: created });
+        if (cancelled) stockMoves.push({ pk: l.pk, vkey: l.vkey, delta: l.qty, reason: 'cancel', orderId: rows[0].id, at: new Date(created.getTime() + 3600000) });
+      }
     }
 
     // Cobros coherentes: pagado completo ('ok'), abonado (paid) o sin cobrar; uno en bolívares y uno anulado
@@ -243,6 +272,7 @@ async function seedDemoTenant(client, tenantId, { city = 'Ciudad Demo' } = {}) {
       await client.query(`INSERT INTO client_credit_entries (tenant_id, client_id, amount, kind, order_id, ref_id, created_at)
         VALUES ($1,$2,$3,'refund_to_credit',$4,$5,$6)`, [tenantId, clientIds[o.c], l0Amount, orderId, rf.id, when]);
       await client.query('UPDATE tenants SET credit_note_seq = 1 WHERE id = $1', [tenantId]);
+      if (l0.p.stock !== undefined) stockMoves.push({ pk: l0.pk, vkey: l0.vkey, delta: l0.qty, reason: 'return', orderId, at: when, note: 'NC-0001' });
       for (const [type, data] of [
         ['returned', { creditNoteId: cn.id, number: 'NC-0001', amountBase: l0Amount, reason: o.ret.reason, resolution: 'credit', items: [{ name: l0.p.name, qty: l0.qty }] }],
         ['refunded', { refundId: rf.id, amountBase: l0Amount, method: 'Saldo a favor', creditNoteId: cn.id, reason: o.ret.reason }],
@@ -282,6 +312,67 @@ async function seedDemoTenant(client, tenantId, { city = 'Ciudad Demo' } = {}) {
     [tenantId, JSON.stringify(ZONES), JSON.stringify({ enabled: false, rate: 0, label: 'IVA' })]
   );
 
+  // Existencias: inventario inicial por variante (hace 20 días) + las ventas, anulaciones y la devolución sembradas arriba.
+  // Una variante empieza en 0 y queda en negativo (se permite vender sin existencias).
+  {
+    const moves = [];
+    for (const p of PRODUCTS.filter(x => x.stock !== undefined)) {
+      for (const v of ops.productVariants(p)) {
+        const zero = (p.stockZero || []).some(([size, ci]) => v.size === size && v.color === p.colors[ci].name);
+        const qty = zero ? 0 : p.stock;
+        moves.push({ pk: p.key, vkey: v.key, delta: 0, level0: true });
+        if (qty > 0) moves.push({ pk: p.key, vkey: v.key, delta: qty, reason: 'count', note: 'Inventario inicial', at: new Date(now - 20 * 86400000) });
+      }
+    }
+    const levels = new Map();
+    for (const m of moves.filter(x => x.level0)) levels.set(m.pk + '|' + m.vkey, 0);
+    const real = moves.filter(x => !x.level0).concat(stockMoves).sort((a, b) => a.at - b.at);
+    for (const m of real) {
+      const k = m.pk + '|' + m.vkey;
+      const after = (levels.get(k) || 0) + m.delta;
+      levels.set(k, after);
+      await client.query(
+        `INSERT INTO stock_movements (tenant_id, product_id, variant_key, delta, qty_after, reason, order_id, note, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [tenantId, productIds[m.pk], m.vkey, m.delta, after, m.reason, m.orderId || null, m.note || null, m.at]);
+    }
+    for (const [k, qty] of levels) {
+      const [pk, vkey] = k.split('|');
+      await client.query(`INSERT INTO stock_levels (tenant_id, product_id, variant_key, qty) VALUES ($1,$2,$3,$4)`,
+        [tenantId, productIds[pk], k.slice(pk.length + 1), qty]);
+    }
+  }
+
+  // Gastos de ejemplo y el cierre de caja de ayer (con una pequeña diferencia)
+  const { rows: [tz0] } = await client.query('SELECT timezone FROM tenants WHERE id = $1', [tenantId]);
+  const tz = ops.tzOf(tz0);
+  const dayAgo = async (d) => (await client.query(`SELECT to_char((now() - ($1 || ' days')::interval) AT TIME ZONE $2, 'YYYY-MM-DD') AS d`, [String(d), tz])).rows[0].d;
+  for (const e of EXPENSES) {
+    const made = new Date(now - e.d * 86400000 - 3600000);
+    await client.query(
+      `INSERT INTO expenses (tenant_id, spent_on, amount, currency, exchange_rate, amount_base, category, method, note, created_at, voided_at, void_reason)
+       VALUES ($1,$2::date,$3,'USD',1,$3,$4,$5,$6,$7,$8,$9)`,
+      [tenantId, await dayAgo(e.d), e.amount, e.cat, e.method, e.note, made, e.void ? new Date(made.getTime() + 600000) : null, e.void || null]);
+  }
+  {
+    const day = await dayAgo(1);
+    const expected = await ops.computeCashExpected(client, tenantId, day, tz);
+    if (expected.length) {
+      const exp = {}, cnt = {}, dif = {};
+      let shorted = false;
+      for (const m of expected) {
+        exp[m.method] = m.esperado;
+        let c = Math.max(0, m.esperado);
+        if (!shorted && c >= 1.5) { c = money(c - 1.5); shorted = true; } // faltaron 1.50 en la caja
+        cnt[m.method] = c;
+        dif[m.method] = money(c - m.esperado);
+      }
+      await client.query(
+        `INSERT INTO cash_closings (tenant_id, day, expected, counted, difference, note, closed_at) VALUES ($1,$2::date,$3,$4,$5,$6,$7)`,
+        [tenantId, day, JSON.stringify(exp), JSON.stringify(cnt), JSON.stringify(dif), shorted ? 'Faltó cambio en la caja' : null, new Date(now - 18 * 3600000)]);
+    }
+  }
+
   for (const cv of CONVOS) {
     const c = cv.lead || { ...clientByKey[cv.c], id: cv.c };
     const isIg = c.channel === 'ig';
@@ -303,4 +394,4 @@ async function seedDemoTenant(client, tenantId, { city = 'Ciudad Demo' } = {}) {
   }
 }
 
-module.exports = { seedDemoTenant, wipeDemoData, DEMO_DATA: { PRODUCTS, CLIENTS, ORDERS, CONVOS, COLORS: C } };
+module.exports = { seedDemoTenant, wipeDemoData, DEMO_DATA: { PRODUCTS, CLIENTS, ORDERS, CONVOS, EXPENSES, COLORS: C } };

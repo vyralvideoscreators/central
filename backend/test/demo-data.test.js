@@ -20,7 +20,7 @@ const digits = corpus.replace(/\D/g, '');
 
 const checks = [];
 const add = (kind, value) => { if (value && String(value).trim()) checks.push([kind, String(value).trim()]); };
-const { PRODUCTS, CLIENTS, CONVOS } = DEMO_DATA;
+const { PRODUCTS, CLIENTS, CONVOS, EXPENSES } = DEMO_DATA;
 for (const c of CLIENTS) {
   add('cliente', c.name);
   c.name.split(' ').slice(1).forEach(sur => add('apellido', sur));
@@ -28,6 +28,7 @@ for (const c of CLIENTS) {
   add('nota', c.notes);
 }
 for (const p of PRODUCTS) add('producto', p.name);
+for (const e of EXPENSES) add('gasto', e.note);
 for (const cv of CONVOS) {
   if (cv.lead) { add('prospecto', cv.lead.name); cv.lead.name.split(' ').slice(1).forEach(s => add('apellido', s)); }
   for (const [, text] of cv.msgs) add('mensaje', text);
