@@ -657,7 +657,7 @@ async function dbGetOrders(tenantId) {
           json_build_object(
             'id', oi.id, 'productId', oi.product_id, 'emoji', oi.emoji,
             'name', oi.name, 'detail', oi.detail, 'qty', oi.qty,
-            'unitPrice', oi.unit_price, 'linePrice', oi.line_price
+            'unitPrice', oi.unit_price, 'linePrice', oi.line_price, 'variantKey', COALESCE(oi.variant_key, '')
           )
         ) FILTER (WHERE oi.id IS NOT NULL),
         '[]'::json
@@ -669,6 +669,35 @@ async function dbGetOrders(tenantId) {
     ORDER BY o.created_at DESC
   `, [tenantId]);
   return rows.map(mapOrderRow);
+}
+
+// Inserta los artículos de un pedido. El producto del catálogo solo se enlaza si es de ESTE negocio (si no, queda sin
+// enlace). Guarda la clave de variante y, en pedidos (no presupuestos), la FOTO del costo del producto en ese momento:
+// cambiar el costo después no altera la utilidad de lo ya vendido. oldCosts (edición): conserva la foto de las líneas
+// que ya existían. Devuelve las líneas para las existencias: [{ productId, variantKey, qty }].
+async function insertOrderItems(db, tenantId, orderId, items, { snapshotCost, oldCosts = null }) {
+  const ids = [...new Set(items.map(i => i.productId).filter(Boolean))];
+  const prods = new Map();
+  if (ids.length) {
+    const { rows } = await db.query('SELECT id, cost FROM catalog_products WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [tenantId, ids]);
+    for (const r of rows) prods.set(r.id, r);
+  }
+  const lines = [];
+  for (const it of items) {
+    const p = it.productId ? prods.get(it.productId) : null;
+    const vk = it.variantKey || '';
+    let cost = null;
+    if (snapshotCost && p) {
+      const k = p.id + '|' + vk;
+      cost = oldCosts && oldCosts.has(k) ? oldCosts.get(k) : (p.cost === null || p.cost === undefined ? null : Number(p.cost));
+    }
+    await db.query(`
+      INSERT INTO order_items (order_id, tenant_id, product_id, emoji, name, detail, qty, unit_price, line_price, variant_key, unit_cost)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`, [
+      orderId, tenantId, p ? p.id : null, it.emoji, it.name, it.detail, it.qty, it.unitPrice, it.linePrice, vk || null, cost]);
+    lines.push({ productId: p ? p.id : null, variantKey: vk, qty: it.qty });
+  }
+  return lines;
 }
 
 async function dbCreateOrder(tenantId, data) {
@@ -723,15 +752,9 @@ async function dbCreateOrder(tenantId, data) {
     ]);
     const order = rows[0];
 
-    for (const item of items) {
-      await client.query(`
-        INSERT INTO order_items (order_id, tenant_id, product_id, emoji, name, detail, qty, unit_price, line_price)
-        VALUES ($1, $2, (SELECT id FROM catalog_products WHERE id::text = $3 AND tenant_id = $2), $4, $5, $6, $7, $8, $9)
-      `, [
-        order.id, tenantId, item.productId, item.emoji, item.name,
-        item.detail, item.qty, item.unitPrice, item.linePrice,
-      ]);
-    }
+    const stockLines = await insertOrderItems(client, tenantId, order.id, items, { snapshotCost: !isQuote });
+    // Existencias (Fase 4A): un pedido descuenta lo que vende; un presupuesto no (descuenta al convertirse)
+    if (!isQuote) await ops.syncOrderStock(client, tenantId, order.id, stockLines, 'sale');
 
     await addOrderEvent(client, tenantId, order.id, 'created', {
       total, items: items.length, clientName: data.clientName || null, platform: data.platform || null, kind });
@@ -743,12 +766,12 @@ async function dbCreateOrder(tenantId, data) {
     }
     await client.query('COMMIT');
     const { rows: itemRows } = await pool.query(
-      'SELECT id, product_id, emoji, name, detail, qty, unit_price, line_price FROM order_items WHERE order_id = $1 AND tenant_id = $2 ORDER BY ctid',
+      'SELECT id, product_id, variant_key, emoji, name, detail, qty, unit_price, line_price FROM order_items WHERE order_id = $1 AND tenant_id = $2 ORDER BY ctid',
       [order.id, tenantId]
     );
     order.items = itemRows.map(i => ({
       id: i.id, productId: i.product_id, emoji: i.emoji, name: i.name,
-      detail: i.detail, qty: i.qty, unitPrice: i.unit_price, linePrice: i.line_price,
+      detail: i.detail, qty: i.qty, unitPrice: i.unit_price, linePrice: i.line_price, variantKey: i.variant_key || '',
     }));
     const result = mapOrderRow(order);
     if (createdClient) result.createdClient = createdClient;
@@ -896,10 +919,13 @@ function cleanOrderItems(items) {
     // El subtotal siempre lo calcula el servidor (un linePrice enviado por el cliente se ignora)
     const linePrice = money(unitPrice * qty);
     if (linePrice > MAX_MONEY) throw new BadRequest('El total es demasiado grande');
+    // Variante (talla × color): el SPA manda size/color; el servidor deriva la clave estable. Al reenviar un pedido
+    // existente basta con variantKey (que el propio servidor devolvió).
+    const variantKey = (it.size !== undefined || it.color !== undefined) ? ops.buildVariantKey(it.size, it.color) : ops.normVariantKey(it.variantKey);
     return {
       productId: UUID_RE.test(String(it.productId || '')) ? String(it.productId) : null,
       emoji: str(it.emoji, 16), name, detail: str(it.detail, 300), qty, unitPrice,
-      linePrice,
+      linePrice, variantKey,
     };
   });
 }
@@ -962,7 +988,7 @@ async function fetchOrderFull(db, tenantId, orderId) {
     SELECT o.*,
       COALESCE(json_agg(json_build_object(
         'id', oi.id, 'productId', oi.product_id, 'emoji', oi.emoji, 'name', oi.name, 'detail', oi.detail,
-        'qty', oi.qty, 'unitPrice', oi.unit_price, 'linePrice', oi.line_price)
+        'qty', oi.qty, 'unitPrice', oi.unit_price, 'linePrice', oi.line_price, 'variantKey', COALESCE(oi.variant_key, ''))
       ) FILTER (WHERE oi.id IS NOT NULL), '[]'::json) AS items
     FROM orders o
     LEFT JOIN order_items oi ON oi.order_id = o.id AND oi.tenant_id = o.tenant_id
@@ -1323,6 +1349,9 @@ async function createReturnTx(db, tenantId, orderId, body, createdBy = 'owner') 
     await db.query(`INSERT INTO credit_note_items (tenant_id, credit_note_id, order_item_id, name, qty, amount)
       VALUES ($1, $2, $3, $4, $5, $6)`, [tenantId, note.id, l.orderItemId, l.name, l.qty, l.amountC / 100]);
   }
+  // Devolución por artículos: las unidades vuelven al almacén (una devolución por importe no mueve existencias)
+  if (hasItems) await ops.restoreReturnedStock(db, tenantId, orderId,
+    lines.filter(l => l.orderItemId).map(l => ({ orderItemId: l.orderItemId, qty: l.qty })), fmtCreditNote(note.number), createdBy);
   const ord = await recalcOrderPayment(db, tenantId, orderId);
   await addOrderEvent(db, tenantId, orderId, 'returned', {
     creditNoteId: note.id, number: fmtCreditNote(note.number), amountBase: amountC / 100, reason, resolution,
@@ -1348,6 +1377,8 @@ async function cancelOrderTx(db, tenantId, orderId, body, createdBy = 'owner') {
   const resolution = noRes ? (paidC > 0 ? cleanResolution(body.resolution) : null) : cleanResolution(body.resolution);
   if (resolution === 'credit' && !ord.client_id) throw new BadRequest('El pedido no tiene cliente: no se puede dejar saldo a favor');
   const refunds = await settleRefundTx(db, tenantId, ord, paidC, { resolution, method: body.refundMethod, reason, creditNoteId: null, createdBy });
+  // Existencias: vuelve lo que el pedido aún tenía descontado (lo ya devuelto por artículos no se cuenta dos veces)
+  if (ord.kind === 'order') await ops.syncOrderStock(db, tenantId, orderId, [], 'cancel', createdBy);
   await db.query(`UPDATE orders SET delivery_status = 'cancelled', cancelled_at = now(), cancel_reason = $3, updated_at = NOW()
     WHERE id = $1 AND tenant_id = $2`, [orderId, tenantId, reason]);
   await addOrderEvent(db, tenantId, orderId, 'cancelled', {
@@ -1368,6 +1399,11 @@ async function convertQuoteTx(db, tenantId, orderId, createdBy = 'owner') {
     WHERE id = $1 RETURNING order_seq AS seq`, [tenantId]);
   await db.query(`UPDATE orders SET kind = 'order', tenant_order_number = $3, created_at = NOW(), updated_at = NOW()
     WHERE id = $1 AND tenant_id = $2`, [orderId, tenantId, sq.seq]);
+  // Vender es convertir: aquí se toma la foto del costo y se descuentan las existencias
+  await db.query(`UPDATE order_items oi SET unit_cost = cp.cost FROM catalog_products cp
+    WHERE oi.order_id = $1 AND oi.tenant_id = $2 AND cp.id = oi.product_id AND cp.tenant_id = $2`, [orderId, tenantId]);
+  const { rows: qLines } = await db.query('SELECT product_id, variant_key, qty FROM order_items WHERE order_id = $1 AND tenant_id = $2', [orderId, tenantId]);
+  await ops.syncOrderStock(db, tenantId, orderId, qLines.map(l => ({ productId: l.product_id, variantKey: l.variant_key || '', qty: l.qty })), 'sale');
   await addOrderEvent(db, tenantId, orderId, 'converted', {
     quote: 'P-' + pad4(ord.quote_number || 0), order: '#' + pad4(sq.seq), quoteCreatedAt: ord.created_at }, createdBy);
   return true;
@@ -1477,14 +1513,17 @@ async function dbUpdateOrder(tenantId, orderId, fields) {
     }
     if (String(rows[0].total_price) !== String(found[0].total_price)) rows = [await recalcOrderPayment(client, tenantId, orderId)];
     if (items) {
-      await client.query('DELETE FROM order_items WHERE order_id = $1 AND tenant_id = $2', [orderId, tenantId]);
-      for (const it of items) {
-        // Un producto del catálogo solo se enlaza si es de este negocio
-        await client.query(`
-          INSERT INTO order_items (order_id, tenant_id, product_id, emoji, name, detail, qty, unit_price, line_price)
-          VALUES ($1, $2, (SELECT id FROM catalog_products WHERE id::text = $3 AND tenant_id = $2), $4, $5, $6, $7, $8, $9)
-        `, [orderId, tenantId, it.productId, it.emoji, it.name, it.detail, it.qty, it.unitPrice, it.linePrice]);
+      // La foto del costo de las líneas que ya existían (mismo producto y variante) se conserva
+      const { rows: oldLines } = await client.query('SELECT product_id, variant_key, unit_cost FROM order_items WHERE order_id = $1 AND tenant_id = $2 ORDER BY ctid', [orderId, tenantId]);
+      const oldCosts = new Map();
+      for (const l of oldLines) {
+        const k = l.product_id + '|' + (l.variant_key || '');
+        if (l.product_id && !oldCosts.has(k)) oldCosts.set(k, l.unit_cost === null ? null : Number(l.unit_cost));
       }
+      await client.query('DELETE FROM order_items WHERE order_id = $1 AND tenant_id = $2', [orderId, tenantId]);
+      const stockLines = await insertOrderItems(client, tenantId, orderId, items, { snapshotCost: found[0].kind !== 'quote', oldCosts });
+      // Existencias: se aplica solo la diferencia (un presupuesto no mueve existencias)
+      if (found[0].kind !== 'quote') await ops.syncOrderStock(client, tenantId, orderId, stockLines, 'edit');
     }
     // Historial: la entrega va como status_changed; el resto de cambios como edited
     const clip = (v) => v === null || v === undefined ? null : String(v).slice(0, 200);
@@ -1500,13 +1539,13 @@ async function dbUpdateOrder(tenantId, orderId, fields) {
     }
     if (Object.keys(changes).length) await addOrderEvent(client, tenantId, orderId, 'edited', { fields: Object.keys(changes), changes });
     const { rows: itemRows } = await client.query(
-      'SELECT id, product_id, emoji, name, detail, qty, unit_price, line_price FROM order_items WHERE order_id = $1 AND tenant_id = $2 ORDER BY ctid',
+      'SELECT id, product_id, variant_key, emoji, name, detail, qty, unit_price, line_price FROM order_items WHERE order_id = $1 AND tenant_id = $2 ORDER BY ctid',
       [orderId, tenantId]
     );
     await client.query('COMMIT');
     rows[0].items = itemRows.map(it => ({
       id: it.id, productId: it.product_id, emoji: it.emoji, name: it.name,
-      detail: it.detail, qty: it.qty, unitPrice: it.unit_price, linePrice: it.line_price,
+      detail: it.detail, qty: it.qty, unitPrice: it.unit_price, linePrice: it.line_price, variantKey: it.variant_key || '',
     }));
     return mapOrderRow(rows[0]);
   } catch (err) {
@@ -1639,6 +1678,8 @@ function mapProductRow(r) {
     categoryEmoji: r.category_emoji,
     name:          r.name,
     price:         r.price,
+    cost:          r.cost === null || r.cost === undefined ? null : Number(r.cost),
+    trackStock:    !!r.track_stock,
     emoji:         r.emoji,
     sizes:         r.sizes || [],
     colors:        r.colors || [],
@@ -1657,32 +1698,54 @@ async function dbGetCatalog(tenantId) {
   return rows.map(mapProductRow);
 }
 
+// Costo (≥ 0 o null para borrarlo) y control de existencias: solo cambian si el cuerpo los trae (el PATCH reemplaza el resto)
+function cleanProductCostFields(data) {
+  let costSent = false, cost = null, track = null;
+  if (data.cost !== undefined) {
+    costSent = true;
+    if (data.cost !== null && data.cost !== '') {
+      const n = payNum(data.cost);
+      if (!Number.isFinite(n) || n < 0 || n > MAX_MONEY) throw new BadRequest('Costo inválido (0 o más)');
+      cost = Math.round(n * 100) / 100;
+    }
+  }
+  const t = data.trackStock !== undefined ? data.trackStock : data.track_stock;
+  if (t !== undefined) {
+    if (typeof t !== 'boolean') throw new BadRequest('"trackStock" debe ser verdadero o falso');
+    track = t;
+  }
+  return { costSent, cost, track };
+}
+
 async function dbUpsertProduct(tenantId, data) {
   if (!dbReady) return null;
+  const cf = cleanProductCostFields(data);
   if (data.id) {
     const { rows } = await pool.query(`
       UPDATE catalog_products SET
         category_key = $1, category_name = $2, category_emoji = $3, name = $4,
-        price = $5, emoji = $6, sizes = $7, colors = $8, description = $9, updated_at = NOW()
+        price = $5, emoji = $6, sizes = $7, colors = $8, description = $9, updated_at = NOW(),
+        cost = CASE WHEN $12::boolean THEN $13::numeric ELSE cost END,
+        track_stock = COALESCE($14::boolean, track_stock)
       WHERE id = $10 AND tenant_id = $11
       RETURNING *
     `, [
       data.categoryKey || null, data.categoryName || null, data.categoryEmoji || null,
       data.name, data.price || 0, data.emoji || null,
       JSON.stringify(data.sizes || []), JSON.stringify(data.colors || []),
-      data.description || null, data.id, tenantId,
+      data.description || null, data.id, tenantId, cf.costSent, cf.cost, cf.track,
     ]);
     return rows[0] ? mapProductRow(rows[0]) : null;
   }
   const { rows } = await pool.query(`
     INSERT INTO catalog_products (tenant_id, category_key, category_name, category_emoji,
-      name, price, emoji, sizes, colors, description)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+      name, price, emoji, sizes, colors, description, cost, track_stock)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,COALESCE($12::boolean, false))
     RETURNING *
   `, [
     tenantId, data.categoryKey || null, data.categoryName || null, data.categoryEmoji || null,
     data.name, data.price || 0, data.emoji || null,
-    JSON.stringify(data.sizes || []), JSON.stringify(data.colors || []), data.description || null,
+    JSON.stringify(data.sizes || []), JSON.stringify(data.colors || []), data.description || null, cf.cost, cf.track,
   ]);
   return mapProductRow(rows[0]);
 }
@@ -3514,21 +3577,73 @@ app.post('/api/catalog', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Falta el nombre del producto' });
   }
   try {
-    const product = await dbUpsertProduct(req.tenant.tenantId, req.body);
+    const product = await dbUpsertProduct(req.tenant.tenantId, { ...req.body, id: undefined });
     res.json(product);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { sendApiError(res, err, 'Crear producto'); }
 });
 
 app.patch('/api/catalog/:id', requireAuth, async (req, res) => {
+  if (!UUID_RE.test(req.params.id)) return res.status(404).json({ error: 'Producto no encontrado' });
   try {
     const product = await dbUpsertProduct(req.tenant.tenantId, { ...req.body, id: req.params.id });
     if (!product) return res.status(404).json({ error: 'Producto no encontrado' });
     res.json(product);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { sendApiError(res, err, 'Editar producto'); }
+});
+
+// ── Existencias (Fase 4A) ─────────────────────────────────────
+// Niveles por producto y variante (pueden ser negativos). Sin productId: todos los del negocio (límite 5000).
+const STOCK_LEVELS_LIMIT = 5000;
+app.get('/api/stock', requireAuth, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  const tenantId = req.tenant.tenantId;
+  try {
+    if (req.query.productId === undefined || req.query.productId === '') {
+      const { rows } = await pool.query(`
+        SELECT l.product_id, l.variant_key, l.qty FROM stock_levels l
+        JOIN catalog_products p ON p.id = l.product_id AND p.tenant_id = l.tenant_id
+        WHERE l.tenant_id = $1 ORDER BY l.product_id, l.variant_key LIMIT ${STOCK_LEVELS_LIMIT + 1}`, [tenantId]);
+      return res.json({
+        levels: rows.slice(0, STOCK_LEVELS_LIMIT).map(r => ({ productId: r.product_id, variantKey: r.variant_key, qty: r.qty })),
+        truncated: rows.length > STOCK_LEVELS_LIMIT,
+      });
+    }
+    if (!UUID_RE.test(String(req.query.productId))) return res.status(404).json({ error: 'Producto no encontrado' });
+    const { rows: [p] } = await pool.query('SELECT * FROM catalog_products WHERE id = $1 AND tenant_id = $2', [req.query.productId, tenantId]);
+    if (!p) return res.status(404).json({ error: 'Producto no encontrado' });
+    const { rows } = await pool.query('SELECT variant_key, qty FROM stock_levels WHERE product_id = $1 AND tenant_id = $2 ORDER BY variant_key LIMIT 500', [p.id, tenantId]);
+    res.json({
+      productId: p.id, trackStock: !!p.track_stock, cost: p.cost === null ? null : Number(p.cost),
+      variants: ops.productVariants(p), levels: rows.map(r => ({ productId: p.id, variantKey: r.variant_key, qty: r.qty })),
+    });
+  } catch (err) { sendApiError(res, err, 'Existencias'); }
+});
+
+app.post('/api/stock/adjust', requireAuth, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  try { res.json(await inTx(c => ops.adjustStockTx(c, req.tenant.tenantId, req.body))); }
+  catch (err) { sendApiError(res, err, 'Ajustar existencias'); }
+});
+
+// Historial de movimientos (el más reciente primero). productId y variantKey opcionales; limit ≤ 500 (por defecto 100)
+app.get('/api/stock/movements', requireAuth, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  const tenantId = req.tenant.tenantId;
+  try {
+    let productId = null;
+    if (req.query.productId !== undefined && req.query.productId !== '') {
+      productId = String(req.query.productId);
+      if (!UUID_RE.test(productId)) return res.status(404).json({ error: 'Producto no encontrado' });
+    }
+    const vk = req.query.variantKey === undefined ? null : ops.normVariantKey(req.query.variantKey);
+    const limit = Math.min(500, Math.max(1, parseInt(req.query.limit, 10) || 100));
+    const { rows } = await pool.query(`
+      SELECT m.*, COALESCE(o.tenant_order_number, o.order_number) AS order_num, o.kind AS order_kind
+      FROM stock_movements m LEFT JOIN orders o ON o.id = m.order_id AND o.tenant_id = m.tenant_id
+      WHERE m.tenant_id = $1 AND ($2::uuid IS NULL OR m.product_id = $2) AND ($3::text IS NULL OR m.variant_key = $3)
+      ORDER BY m.created_at DESC, m.id LIMIT ${limit + 1}`, [tenantId, productId, vk]);
+    res.json({ movements: rows.slice(0, limit).map(ops.mapMovementRow), truncated: rows.length > limit, limit });
+  } catch (err) { sendApiError(res, err, 'Movimientos de existencias'); }
 });
 
 app.delete('/api/catalog/:id', requireAuth, async (req, res) => {
