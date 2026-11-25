@@ -764,11 +764,13 @@ async function dbCreateOrder(tenantId, data) {
       const r = await addPaymentTx(client, tenantId, order.id, data.initialPayment);
       Object.assign(order, r.order);
     }
-    await client.query('COMMIT');
-    const { rows: itemRows } = await pool.query(
+    // Los artículos se leen DENTRO de la transacción, con la misma conexión: pedir otra al pool mientras esta sigue
+    // tomada deja el servidor colgado cuando llegan a la vez tantos pedidos como conexiones hay.
+    const { rows: itemRows } = await client.query(
       'SELECT id, product_id, variant_key, emoji, name, detail, qty, unit_price, line_price FROM order_items WHERE order_id = $1 AND tenant_id = $2 ORDER BY ctid',
       [order.id, tenantId]
     );
+    await client.query('COMMIT');
     order.items = itemRows.map(i => ({
       id: i.id, productId: i.product_id, emoji: i.emoji, name: i.name,
       detail: i.detail, qty: i.qty, unitPrice: i.unit_price, linePrice: i.line_price, variantKey: i.variant_key || '',
@@ -1896,6 +1898,11 @@ const DEMO_ALLOWED_ROUTES = new Set([
   'GET /api/orders/:id/returns', 'GET /api/clients/:id/credit',
   'GET /api/tenant/settings', 'PUT /api/tenant/settings',
   'GET /api/reports',
+  // Fase 4A: gastos, cierre de caja, existencias, utilidad (nada de esto llama a servicios externos)
+  'GET /api/expenses', 'POST /api/expenses', 'POST /api/expenses/:id/void',
+  'GET /api/cash', 'GET /api/cash/:day', 'POST /api/cash/:day/close', 'POST /api/cash/:day/reopen',
+  'GET /api/stock', 'POST /api/stock/adjust', 'GET /api/stock/movements',
+  'GET /api/reports/profit', 'GET /api/reports/receivables',
   'GET /api/clients', 'POST /api/clients', 'PATCH /api/clients/:id', 'DELETE /api/clients/:id',
   'GET /api/catalog', 'POST /api/catalog', 'PATCH /api/catalog/:id', 'DELETE /api/catalog/:id',
   'POST /api/send', 'POST /api/send-media', 'POST /api/send-ticket', 'POST /api/send-instagram',
@@ -1905,16 +1912,20 @@ const DEMO_MAX_BODY = 1024 * 1024;
 const DEMO_MAX_EVENTS = 5000;   // filas de order_events por demo (cada edición/pago/anulación añade una)
 const DEMO_MAX_PAYMENTS = 600;
 const EV_LIMIT = ['order_events', DEMO_MAX_EVENTS];
+const MV_LIMIT = ['stock_movements', 3000]; // cada venta, edición, anulación, devolución o ajuste añade movimientos
 const CN_LIMIT = ['credit_notes', 200], REFUND_LIMIT = ['refunds', 300], CREDIT_LIMIT = ['client_credit_entries', 600];
 // ruta → lista de [tabla, máximo]; todas cuentan filas del propio negocio
 const DEMO_ROW_LIMITS = {
-  'POST /api/orders': [['orders', 300], EV_LIMIT],
-  'PATCH /api/orders/:id': [EV_LIMIT],
+  'POST /api/orders': [['orders', 300], EV_LIMIT, MV_LIMIT],
+  'PATCH /api/orders/:id': [EV_LIMIT, MV_LIMIT],
+  'POST /api/expenses': [['expenses', 300]],
+  'POST /api/cash/:day/close': [['cash_closings', 60]],
+  'POST /api/stock/adjust': [MV_LIMIT],
   'POST /api/orders/:id/payments': [['payments', DEMO_MAX_PAYMENTS], EV_LIMIT, CREDIT_LIMIT],
   'POST /api/payments/:id/void': [EV_LIMIT, CREDIT_LIMIT],
-  'POST /api/orders/:id/convert': [EV_LIMIT],
-  'POST /api/orders/:id/cancel': [EV_LIMIT, REFUND_LIMIT, CREDIT_LIMIT],
-  'POST /api/orders/:id/returns': [CN_LIMIT, ['credit_note_items', 2000], REFUND_LIMIT, CREDIT_LIMIT, EV_LIMIT],
+  'POST /api/orders/:id/convert': [EV_LIMIT, MV_LIMIT],
+  'POST /api/orders/:id/cancel': [EV_LIMIT, REFUND_LIMIT, CREDIT_LIMIT, MV_LIMIT],
+  'POST /api/orders/:id/returns': [CN_LIMIT, ['credit_note_items', 2000], REFUND_LIMIT, CREDIT_LIMIT, EV_LIMIT, MV_LIMIT],
   'POST /api/clients': [['clients', 300]], 'POST /api/catalog': [['catalog_products', 100]],
   'POST /api/send': [['messages', 600]], 'POST /api/send-media': [['messages', 600]],
   'POST /api/send-ticket': [['messages', 600]], 'POST /api/send-instagram': [['messages', 600]],
@@ -3344,50 +3355,41 @@ function reportBuckets(period, now, from, to) {
   return { kind: 'month', buckets: out };
 }
 
+// Rango de un informe en la zona del negocio (lo comparten /api/reports y /api/reports/*)
+// period: hoy | 7dias | mes | año | personalizado (con from/to) · canal: todos | wa | ig
+async function resolveReportRange(req, tenantId) {
+  const period = String(req.query.period || 'hoy');
+  const canal = ['wa', 'ig'].includes(req.query.canal) ? req.query.canal : 'todos';
+  if (!['hoy', '7dias', 'mes', 'año', 'personalizado'].includes(period)) throw new BadRequest('Periodo inválido');
+  let from = null, to = null;
+  if (period === 'personalizado') {
+    from = String(req.query.from || ''); to = String(req.query.to || '');
+    if (!isRealDate(from) || !isRealDate(to)) throw new BadRequest('Fechas inválidas (formato YYYY-MM-DD)');
+    if (from > to) throw new BadRequest('La fecha inicial debe ser anterior a la final');
+    if ((Date.parse(to) - Date.parse(from)) / 86400000 > 366) throw new BadRequest('El rango máximo es de un año');
+  }
+  const tz = await resolveTenantTz(tenantId, req.query.tz);
+  const { rows: [nowRow] } = await pool.query("SELECT to_char(NOW() AT TIME ZONE $1, 'YYYY-MM-DD HH24') AS now_local", [tz]);
+  const [ymd, hh] = nowRow.now_local.split(' ');
+  const [y, m, d] = ymd.split('-').map(Number);
+  const now = { y, m, d, h: Number(hh) };
+  const startLocal = {
+    hoy: ymd, '7dias': new Date(Date.UTC(y, m - 1, d - 6)).toISOString().slice(0, 10),
+    mes: ymd.slice(0, 8) + '01', 'año': y + '-01-01', personalizado: from,
+  }[period];
+  const endExclusive = period === 'personalizado' ? new Date(Date.parse(to) + 86400000).toISOString().slice(0, 10) : null;
+  return { period, canal, from, to, tz, ymd, now, startLocal, endExclusive };
+}
+const planRequired = (res) => res.status(403).json({ error: 'plan_required', message: 'Los informes están disponibles desde el plan Pro.' });
+
 app.get('/api/reports', requireAuth, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   if (req.tenant.plan === 'basic') {
     return res.status(403).json({ error: 'plan_required', message: 'Los informes están disponibles desde el plan Pro.' });
   }
   const tenantId = req.tenant.tenantId;
-  const period = String(req.query.period || 'hoy');
-  const canal = ['wa', 'ig'].includes(req.query.canal) ? req.query.canal : 'todos';
-  const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-  if (!['hoy', '7dias', 'mes', 'año', 'personalizado'].includes(period)) return res.status(400).json({ error: 'Periodo inválido' });
-  let from = null, to = null;
-  if (period === 'personalizado') {
-    from = String(req.query.from || ''); to = String(req.query.to || '');
-    // Fecha real de calendario (2026-02-31 no existe)
-    const realDate = (s) => ISO_DATE.test(s) && !isNaN(Date.parse(s)) && new Date(Date.parse(s)).toISOString().slice(0, 10) === s;
-    if (!realDate(from) || !realDate(to)) {
-      return res.status(400).json({ error: 'Fechas inválidas (formato YYYY-MM-DD)' });
-    }
-    if (from > to) return res.status(400).json({ error: 'La fecha inicial debe ser anterior a la final' });
-    if ((Date.parse(to) - Date.parse(from)) / 86400000 > 366) return res.status(400).json({ error: 'El rango máximo es de un año' });
-  }
-
   try {
-    const { rows: [t] } = await pool.query('SELECT timezone FROM tenants WHERE id = $1', [tenantId]);
-    let tz = isValidTimezone(t && t.timezone) ? t.timezone : null;
-    if (!tz && isValidTimezone(req.query.tz)) {
-      // Primera vez: la zona del navegador del negocio queda guardada como la suya
-      tz = req.query.tz;
-      await pool.query('UPDATE tenants SET timezone = $1 WHERE id = $2 AND timezone IS NULL', [tz, tenantId]);
-    }
-    if (!tz) tz = DEFAULT_TIMEZONE;
-
-    // Hora local del negocio y límites del período (como timestamps locales sin zona)
-    const { rows: [nowRow] } = await pool.query(
-      "SELECT to_char(NOW() AT TIME ZONE $1, 'YYYY-MM-DD HH24') AS now_local", [tz]);
-    const [ymd, hh] = nowRow.now_local.split(' ');
-    const [y, m, d] = ymd.split('-').map(Number);
-    const now = { y, m, d, h: Number(hh) };
-    const startLocal = {
-      hoy: ymd, '7dias': new Date(Date.UTC(y, m - 1, d - 6)).toISOString().slice(0, 10),
-      mes: ymd.slice(0, 8) + '01', 'año': y + '-01-01', personalizado: from,
-    }[period];
-    const endExclusive = period === 'personalizado'
-      ? new Date(Date.parse(to) + 86400000).toISOString().slice(0, 10) : null;
+    const { period, canal, from, to, tz, ymd, now, startLocal, endExclusive } = await resolveReportRange(req, tenantId);
 
     // Fecha/hora local de cada fila: created_at se guarda en la zona de la sesión de la base
     const LOCAL = (col) => `((${col} AT TIME ZONE current_setting('TimeZone')) AT TIME ZONE $2)`;
@@ -3444,17 +3446,27 @@ app.get('/api/reports', requireAuth, async (req, res) => {
         SELECT o.pay_method_label AS label, COUNT(*)::int AS n FROM orders o
         WHERE ${W} AND o.pay_method_label IS NOT NULL AND o.pay_method_label NOT IN ('', '—')
         GROUP BY o.pay_method_label ORDER BY n DESC, label`, P),
-      // Top productos: artículos de los pedidos; un pedido sin artículos cuenta como 1 unidad de su resumen
+      // Top productos: artículos de los pedidos menos lo devuelto por artículos; un pedido sin artículos cuenta como 1
+      // unidad de su resumen. Margen = (ventas − costo) / ventas solo sobre las líneas CON costo (antes del descuento del pedido).
       pool.query(`
-        SELECT name, MIN(emoji) AS emoji, SUM(qty)::int AS qty, SUM(revenue)::float AS revenue FROM (
-          SELECT COALESCE(oi.name, 'Producto') AS name, oi.emoji, oi.qty, COALESCE(oi.line_price, 0) AS revenue
+        SELECT name, MIN(emoji) AS emoji, SUM(qty)::int AS qty, SUM(revenue)::float AS revenue,
+               COALESCE(SUM(cost), 0)::float AS cost, COALESCE(SUM(rev_costed), 0)::float AS rev_costed FROM (
+          SELECT COALESCE(oi.name, 'Producto') AS name, oi.emoji,
+            GREATEST(oi.qty - r.ret, 0) AS qty,
+            COALESCE(oi.line_price, 0) * GREATEST(oi.qty - r.ret, 0) / NULLIF(oi.qty, 0) AS revenue,
+            CASE WHEN oi.unit_cost IS NOT NULL THEN oi.unit_cost * GREATEST(oi.qty - r.ret, 0) END AS cost,
+            CASE WHEN oi.unit_cost IS NOT NULL THEN COALESCE(oi.line_price, 0) * GREATEST(oi.qty - r.ret, 0) / NULLIF(oi.qty, 0) END AS rev_costed
           FROM order_items oi JOIN orders o ON o.id = oi.order_id AND oi.tenant_id = o.tenant_id
+          CROSS JOIN LATERAL (
+            SELECT COALESCE(SUM(cni.qty), 0)::int AS ret FROM credit_note_items cni
+            JOIN credit_notes cn ON cn.id = cni.credit_note_id AND cn.tenant_id = cni.tenant_id
+            WHERE cni.order_item_id = oi.id AND cn.tenant_id = oi.tenant_id) r
           WHERE ${W}
           UNION ALL
-          SELECT COALESCE(o.product_summary, 'Producto'), NULL, 1, COALESCE(o.total_price, 0)
+          SELECT COALESCE(o.product_summary, 'Producto'), NULL, 1, COALESCE(o.total_price, 0), NULL, NULL
           FROM orders o
           WHERE ${W} AND NOT EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id AND oi.tenant_id = o.tenant_id)
-        ) x GROUP BY name ORDER BY qty DESC, revenue DESC LIMIT 5`, P),
+        ) x GROUP BY name HAVING SUM(qty) > 0 ORDER BY qty DESC, revenue DESC LIMIT 5`, P),
       pool.query(`
         SELECT COALESCE(o.tenant_order_number, o.order_number) AS num, o.client_name, o.address, o.delivery_status, o.shipping
         FROM orders o WHERE ${W} AND ${ENC}
@@ -3502,7 +3514,9 @@ app.get('/api/reports', requireAuth, async (req, res) => {
         ? { wa: Math.round(k.count_wa / canalTotal * 100), ig: Math.round(k.count_ig / canalTotal * 100) }
         : { wa: 0, ig: 0 },
       paymentMethods: pays.rows.map(r => [r.label, r.n]),
-      topProducts: tops.rows.map(r => [(r.emoji || '📦') + ' ' + r.name, r.qty, '$' + (Number(r.revenue) || 0).toFixed(0)]),
+      // [nombre, unidades, ventas, margen % (null si ninguna línea tiene costo)]
+      topProducts: tops.rows.map(r => [(r.emoji || '📦') + ' ' + r.name, r.qty, '$' + (Number(r.revenue) || 0).toFixed(0),
+        r.rev_costed > 0 ? Math.round((r.rev_costed - r.cost) / r.rev_costed * 100) : null]),
       encomiendaRows: encRows.rows.map(r => ({
         id: '#' + String(r.num).padStart(4, '0'), cliente: r.client_name || '—', destino: r.address || '—',
         estado: r.delivery_status === 'delivered' ? 'Entregado' : r.delivery_status === 'not_delivered' ? 'No entregado' : 'En tránsito',
@@ -3511,9 +3525,153 @@ app.get('/api/reports', requireAuth, async (req, res) => {
       bars, barsCount, barLabels: buckets.map(b => b.label),
     });
   } catch (err) {
+    if (err instanceof BadRequest) return res.status(400).json({ error: err.message });
     console.error('Informes:', err.message);
     res.status(500).json({ error: 'No se pudo calcular el informe' });
   }
+});
+
+// Utilidad del periodo (Pro y Business). Todo en moneda base. Pedidos de verdad (sin presupuestos ni anulados) creados en el periodo.
+//  · vendido      = Σ (total − notas de crédito)                      (con envío e impuesto)
+//  · cobrado      = pagos − reembolsos del periodo, cada uno en SU fecha (sin saldo a favor)
+//  · devuelto     = Σ notas de crédito creadas en el periodo
+//  · ventasItems  = ventas netas de artículos, SIN envío NI impuesto: por línea, precio × (unidades − devueltas) / unidades,
+//                   con el descuento del pedido PRORRATEADO entre sus líneas (descuento tope = Σ líneas); una devolución por
+//                   importe se descuenta primero del envío y el resto (sin impuesto) de las ventas de artículos.
+//                   Un pedido antiguo sin artículos aporta total − envío − impuesto (todo «sin costo»).
+//  · costo        = Σ unit_cost × (unidades − devueltas), solo líneas con foto de costo
+//  · utilidadBruta = ventasItems − costo (una línea sin costo cuenta como costo 0: por eso ventasSinCosto avisa)
+//  · gastos       = gastos no anulados con fecha en el periodo (no tienen canal: con un canal filtrado no se calculan)
+//  · utilidadNeta = utilidadBruta − gastos
+app.get('/api/reports/profit', requireAuth, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  if (req.tenant.plan === 'basic') return planRequired(res);
+  const tenantId = req.tenant.tenantId;
+  try {
+    const { period, canal, to, tz, ymd, startLocal, endExclusive } = await resolveReportRange(req, tenantId);
+    const LOCAL = (col) => `((${col} AT TIME ZONE current_setting('TimeZone')) AT TIME ZONE $2)`;
+    const inPeriod = (col) => `${LOCAL(col)} >= $3::timestamp AND ($4::timestamp IS NULL OR ${LOCAL(col)} < $4::timestamp)`;
+    const tsIn = (col) => `${col} >= ($3::timestamp AT TIME ZONE $2) AND ($4::timestamp IS NULL OR ${col} < ($4::timestamp AT TIME ZONE $2))`;
+    const canalCond = `($5 = 'todos' OR o.platform = $5)`;
+    const P = [tenantId, tz, startLocal, endExclusive, canal];
+    const W = `o.tenant_id = $1 AND o.kind = 'order' AND o.delivery_status <> 'cancelled' AND ${inPeriod('o.created_at')} AND ${canalCond}`;
+    const RET = `(SELECT COALESCE(SUM(cni.qty), 0) FROM credit_note_items cni JOIN credit_notes cn ON cn.id = cni.credit_note_id AND cn.tenant_id = cni.tenant_id WHERE cni.order_item_id = oi.id AND cn.tenant_id = oi.tenant_id)`;
+    const [prof, cobros, dev, exp, base] = await Promise.all([
+      pool.query(`
+        WITH ord AS (
+          SELECT o.id, o.total_price, o.credited_total, o.shipping, o.discount, o.tax_rate, o.tax_amount,
+            (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id AND oi.tenant_id = o.tenant_id) AS n_items,
+            (SELECT COALESCE(SUM(oi.line_price), 0) FROM order_items oi WHERE oi.order_id = o.id AND oi.tenant_id = o.tenant_id) AS gross,
+            (SELECT COALESCE(SUM(cni.amount), 0) FROM credit_note_items cni JOIN credit_notes cn ON cn.id = cni.credit_note_id AND cn.tenant_id = cni.tenant_id
+              WHERE cn.order_id = o.id AND cn.tenant_id = o.tenant_id AND cni.order_item_id IS NULL) AS by_amount
+          FROM orders o WHERE ${W}
+        ), line AS (
+          SELECT ord.id AS order_id, oi.unit_cost, oi.qty, oi.line_price,
+            GREATEST(oi.qty - ${RET}, 0) AS kept,
+            CASE WHEN ord.gross > 0 THEN GREATEST(0, ord.gross - LEAST(ord.discount, ord.gross)) / ord.gross ELSE 1 END AS factor
+          FROM ord JOIN order_items oi ON oi.order_id = ord.id AND oi.tenant_id = $1
+        ), po AS (
+          SELECT order_id,
+            SUM(line_price * factor * kept / NULLIF(qty, 0)) AS net,
+            SUM(unit_cost * kept) FILTER (WHERE unit_cost IS NOT NULL) AS cost,
+            SUM(line_price * factor * kept / NULLIF(qty, 0)) FILTER (WHERE unit_cost IS NULL) AS nocost,
+            SUM(line_price * factor * kept / NULLIF(qty, 0)) FILTER (WHERE unit_cost IS NOT NULL) AS withcost
+          FROM line GROUP BY order_id
+        ), calc AS (
+          SELECT ord.total_price - ord.credited_total AS vendido,
+            CASE WHEN ord.n_items = 0 THEN GREATEST(0, ord.total_price - ord.credited_total - ord.shipping - ord.tax_amount) ELSE 0 END AS orphan,
+            COALESCE(po.net, 0) AS net, COALESCE(po.cost, 0) AS cost, COALESCE(po.nocost, 0) AS nocost, COALESCE(po.withcost, 0) AS withcost,
+            LEAST(COALESCE(po.net, 0), GREATEST(0, ord.by_amount - ord.shipping) / (1 + ord.tax_rate / 100)) AS red
+          FROM ord LEFT JOIN po ON po.order_id = ord.id
+        )
+        SELECT COALESCE(SUM(vendido), 0)::float AS vendido, COUNT(*)::int AS pedidos,
+          COALESCE(SUM(net - red + orphan), 0)::float AS ventas_items,
+          COALESCE(SUM(cost), 0)::float AS costo,
+          COALESCE(SUM(CASE WHEN net > 0 THEN nocost * (net - red) / net ELSE 0 END + orphan), 0)::float AS sin_costo,
+          COALESCE(SUM(CASE WHEN net > 0 THEN withcost * (net - red) / net ELSE 0 END), 0)::float AS con_costo
+        FROM calc`, P),
+      pool.query(`
+        SELECT COALESCE(SUM(t), 0)::float AS total FROM (
+          SELECT COALESCE(SUM(p.amount_base), 0) AS t FROM payments p JOIN orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
+          WHERE p.tenant_id = $1 AND p.voided_at IS NULL AND p.method <> $6 AND ${tsIn('p.paid_at')} AND ${canalCond}
+          UNION ALL
+          SELECT -COALESCE(SUM(r.amount_base), 0) FROM refunds r JOIN orders o ON o.id = r.order_id AND o.tenant_id = r.tenant_id
+          WHERE r.tenant_id = $1 AND r.method <> $6 AND ${tsIn('r.created_at')} AND ${canalCond}
+        ) x`, [...P, CREDIT_METHOD]),
+      pool.query(`
+        SELECT COALESCE(SUM(cn.amount_base), 0)::float AS total, COUNT(*)::int AS n FROM credit_notes cn
+        JOIN orders o ON o.id = cn.order_id AND o.tenant_id = cn.tenant_id
+        WHERE cn.tenant_id = $1 AND ${tsIn('cn.created_at')} AND ${canalCond}`, P),
+      pool.query(`
+        SELECT COALESCE(SUM(amount_base), 0)::float AS total, COUNT(*)::int AS n FROM expenses
+        WHERE tenant_id = $1 AND voided_at IS NULL AND spent_on >= $2::date AND ($3::date IS NULL OR spent_on < $3::date)`, [tenantId, startLocal, endExclusive]),
+      pool.query('SELECT base_currency FROM tenants WHERE id = $1', [tenantId]),
+    ]);
+    const k = prof.rows[0];
+    const r2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
+    const ventasItems = r2(k.ventas_items), costo = r2(k.costo), bruta = r2(ventasItems - costo);
+    const conCosto = r2(k.con_costo);
+    const gastosAplican = canal === 'todos';
+    const gastos = gastosAplican ? r2(exp.rows[0].total) : null;
+    res.json({
+      timezone: tz, period, canal, from: startLocal, to: endExclusive ? to : ymd, baseCurrency: base.rows[0] ? base.rows[0].base_currency : 'USD',
+      pedidos: k.pedidos, vendido: r2(k.vendido), cobrado: r2(cobros.rows[0].total),
+      devuelto: r2(dev.rows[0].total), devueltoCount: dev.rows[0].n,
+      ventasItems, costo, utilidadBruta: bruta,
+      margenBruto: conCosto > 0 ? Math.round((conCosto - costo) / conCosto * 1000) / 10 : null, // % sobre las ventas CON costo
+      ventasSinCosto: r2(k.sin_costo), ventasConCosto: conCosto,
+      gastos, gastosCount: gastosAplican ? exp.rows[0].n : null, gastosAplican,
+      utilidadNeta: gastosAplican ? r2(bruta - gastos) : null,
+    });
+  } catch (err) {
+    if (err instanceof BadRequest) return res.status(400).json({ error: err.message });
+    console.error('Utilidad:', err.message);
+    res.status(500).json({ error: 'No se pudo calcular la utilidad' });
+  }
+});
+
+// Por cobrar con antigüedad (Pro y Business): saldo de pedidos no anulados, en tramos de 0–7, 8–30, 31–60 y más de 60
+// días desde la creación del pedido, y los clientes que más deben (hasta 50: nombre, total y pedido más antiguo).
+const RECEIVABLES_LIMIT = 50;
+app.get('/api/reports/receivables', requireAuth, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  if (req.tenant.plan === 'basic') return planRequired(res);
+  const tenantId = req.tenant.tenantId;
+  try {
+    const OPEN = `o.tenant_id = $1 AND o.kind = 'order' AND o.delivery_status <> 'cancelled' AND o.total_price - o.credited_total - o.amount_paid > 0`;
+    const [buckets, debtors, base] = await Promise.all([
+      pool.query(`
+        SELECT CASE WHEN age <= 7 THEN 0 WHEN age <= 30 THEN 1 WHEN age <= 60 THEN 2 ELSE 3 END AS b,
+               SUM(bal)::float AS total, COUNT(*)::int AS n
+        FROM (SELECT o.total_price - o.credited_total - o.amount_paid AS bal,
+                     FLOOR(EXTRACT(EPOCH FROM (NOW() - o.created_at)) / 86400)::int AS age
+              FROM orders o WHERE ${OPEN}) x GROUP BY b`, [tenantId]),
+      pool.query(`
+        SELECT COALESCE(o.client_id::text, 'n:' || lower(COALESCE(o.client_name, ''))) AS k,
+               (array_agg(o.client_id ORDER BY o.created_at))[1] AS client_id,
+               (array_agg(o.client_name ORDER BY o.created_at DESC))[1] AS name,
+               SUM(o.total_price - o.credited_total - o.amount_paid)::float AS total, COUNT(*)::int AS n,
+               MIN(o.created_at) AS oldest_at,
+               (array_agg(COALESCE(o.tenant_order_number, o.order_number) ORDER BY o.created_at))[1] AS oldest_num,
+               FLOOR(EXTRACT(EPOCH FROM (NOW() - MIN(o.created_at))) / 86400)::int AS oldest_age
+        FROM orders o WHERE ${OPEN}
+        GROUP BY 1 ORDER BY total DESC, name LIMIT ${RECEIVABLES_LIMIT + 1}`, [tenantId]),
+      pool.query('SELECT base_currency FROM tenants WHERE id = $1', [tenantId]),
+    ]);
+    const defs = [['0-7', '0–7 días'], ['8-30', '8–30 días'], ['31-60', '31–60 días'], ['60+', 'Más de 60 días']];
+    const byB = new Map(buckets.rows.map(r => [r.b, r]));
+    const out = defs.map(([key, label], i) => ({ key, label, total: money2(byB.get(i) ? byB.get(i).total : 0), count: byB.get(i) ? byB.get(i).n : 0 }));
+    const bucketOf = (age) => age <= 7 ? '0-7' : age <= 30 ? '8-30' : age <= 60 ? '31-60' : '60+';
+    res.json({
+      baseCurrency: base.rows[0] ? base.rows[0].base_currency : 'USD',
+      total: money2(out.reduce((a, b) => a + b.total, 0)), count: out.reduce((a, b) => a + b.count, 0), buckets: out,
+      debtors: debtors.rows.slice(0, RECEIVABLES_LIMIT).map(r => ({
+        clientId: r.client_id, name: r.name || 'Sin nombre', total: money2(r.total), orders: r.n,
+        oldestOrder: '#' + String(r.oldest_num).padStart(4, '0'), oldestAt: r.oldest_at, oldestDays: r.oldest_age, bucket: bucketOf(r.oldest_age),
+      })),
+      truncated: debtors.rows.length > RECEIVABLES_LIMIT, limit: RECEIVABLES_LIMIT,
+    });
+  } catch (err) { sendApiError(res, err, 'Por cobrar'); }
 });
 
 // ══════════════════════════════════════════════════════════════
