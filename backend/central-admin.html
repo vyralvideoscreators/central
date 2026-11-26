@@ -688,13 +688,13 @@ function renderTable(tenants) {
         <div style="font-size:11px;color:var(--text2);">${esc(t.full_name || '')}</div>
       </td>
       <td style="color:var(--text2);font-size:12px;">${esc(t.email)}</td>
-      <td><span class="badge badge-${t.plan}">${planLabel(t.plan)}</span></td>
+      <td><span class="badge badge-${esc(t.plan)}">${planLabel(t.plan)}</span></td>
       <td style="font-size:12px;color:var(--text2);">${esc(t.country || '—')}</td>
       <td><span class="badge ${t.whatsapp_connected ? 'badge-yes' : 'badge-no'}">${t.whatsapp_connected ? '✓ Sí' : '✗ No'}</span></td>
       <td style="font-size:12px;color:var(--text2);">${fmtDate(t.created_at)}</td>
       <td><span class="badge ${t.active ? 'badge-active' : 'badge-suspended'}">${t.active ? 'Activo' : 'Suspendido'}</span></td>
       <td>
-        <button class="action-btn" onclick="openDetail('${t.id}')" title="Ver detalle">Ver</button>
+        <button class="action-btn" onclick="openDetail('${safeId(t.id)}')" title="Ver detalle">Ver</button>
       </td>
     </tr>
   `).join('');
@@ -731,8 +731,8 @@ async function openDetail(tenantId) {
 
 function renderSidePanel(t) {
   const statusBtn = t.active
-    ? `<button class="btn-action danger" onclick="suspendTenant('${t.id}')">Suspender cuenta</button>`
-    : `<button class="btn-action success" onclick="reactivateTenant('${t.id}')">Reactivar cuenta</button>`;
+    ? `<button class="btn-action danger" onclick="suspendTenant('${safeId(t.id)}')">Suspender cuenta</button>`
+    : `<button class="btn-action success" onclick="reactivateTenant('${safeId(t.id)}')">Reactivar cuenta</button>`;
 
   document.getElementById('sidePanelContent').innerHTML = `
     <div class="sp-title">${esc(t.business_name)}</div>
@@ -760,22 +760,22 @@ function renderSidePanel(t) {
     </div>
 
     <div class="sp-section">
-      <div class="sp-section-title">Plan actual: <span class="badge badge-${t.plan}" style="margin-left:4px;">${planLabel(t.plan)}</span></div>
+      <div class="sp-section-title">Plan actual: <span class="badge badge-${esc(t.plan)}" style="margin-left:4px;">${planLabel(t.plan)}</span></div>
       <div class="plan-select-row">
         <select id="planSelector">
           <option value="basic"    ${t.plan==='basic'   ?'selected':''}>Basic — Gratis</option>
           <option value="pro"      ${t.plan==='pro'     ?'selected':''}>Pro — $29/mes</option>
           <option value="business" ${t.plan==='business'?'selected':''}>Business — $59/mes</option>
         </select>
-        <button onclick="changePlan('${t.id}')">Cambiar</button>
+        <button onclick="changePlan('${safeId(t.id)}')">Cambiar</button>
       </div>
     </div>
 
     <div class="sp-actions">
       <button class="btn-action" onclick="openEditTenant()">Editar datos</button>
-      <button class="btn-action" onclick="openResetPassword('${t.id}')">Resetear contraseña</button>
+      <button class="btn-action" onclick="openResetPassword('${safeId(t.id)}')">Resetear contraseña</button>
       ${statusBtn}
-      <button class="btn-action danger" onclick="confirmDelete('${t.id}','${esc(t.business_name)}')">Eliminar cuenta</button>
+      <button class="btn-action danger" onclick="confirmDelete('${safeId(t.id)}')">Eliminar cuenta</button>
     </div>
   `;
 }
@@ -824,7 +824,9 @@ async function setStatus(tenantId, active) {
   }
 }
 
-function confirmDelete(tenantId, name) {
+function confirmDelete(tenantId) {
+  // El nombre se toma de la memoria, nunca del atributo onclick (texto de usuario).
+  const name = (currentTenant && currentTenant.id === tenantId ? currentTenant.business_name : '') || 'este negocio';
   showConfirm(
     '¿Eliminar "' + name + '"?',
     'Esta acción borrará permanentemente el negocio, todas sus conversaciones y mensajes. No se puede deshacer.',
@@ -981,8 +983,10 @@ function showToast(msg) {
 }
 
 // ── Helpers ──
-function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function planLabel(p) { return {basic:'Basic',pro:'Pro',business:'Business'}[p] || p; }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function planLabel(p) { return {basic:'Basic',pro:'Pro',business:'Business'}[p] || esc(p); }
+// Ids que van dentro de un onclick: solo caracteres de UUID; nunca texto de usuario.
+function safeId(s) { return String(s||'').replace(/[^A-Za-z0-9-]/g,''); }
 function fmtDate(d) { if (!d) return '—'; try { return new Date(d).toLocaleDateString('es-ES',{day:'2-digit',month:'short',year:'numeric'}); } catch { return '—'; } }
 
 // Enter key en login
@@ -1153,7 +1157,7 @@ function renderDemos() {
   body.innerHTML = list.map(d => {
     const pill = d.expired ? '<span class="days-pill days-exp">Expirada</span>'
       : '<span class="days-pill ' + (d.days_left <= 2 ? 'days-warn' : 'days-ok') + '">' + d.days_left + (d.days_left === 1 ? ' día' : ' días') + '</span>';
-    const id = esc(d.id);
+    const id = safeId(d.id);
     return '<tr>' +
       '<td><div style="font-weight:600;">' + esc(d.business_name) + '</div><div style="font-size:11.5px;color:var(--text2);">' + esc(d.full_name || '') + '</div></td>' +
       '<td>' + esc(d.email) + '</td>' +

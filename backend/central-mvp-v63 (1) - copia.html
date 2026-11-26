@@ -3592,13 +3592,17 @@ function saveRealConvos() {
       ? Object.assign({}, m, { localUrl: undefined }) : m);
     real[k] = keep;
   });
-  try { localStorage.setItem('central_real_convos', JSON.stringify(real)); } catch(e) {}
+  // La caché lleva el tenantId del JWT: si en este navegador entra otro negocio, no se reutiliza (como central_profile)
+  if (!businessProfile.tenantId) return;
+  try { localStorage.setItem('central_real_convos', JSON.stringify({ tenantId: businessProfile.tenantId, convos: real })); } catch(e) {}
 }
 
 function loadRealConvos() {
   try {
-    const saved = JSON.parse(localStorage.getItem('central_real_convos') || 'null');
-    if (!saved) return;
+    const wrap = JSON.parse(localStorage.getItem('central_real_convos') || 'null');
+    if (!wrap) return;
+    if (!businessProfile.tenantId || wrap.tenantId !== businessProfile.tenantId || !wrap.convos) { localStorage.removeItem('central_real_convos'); return; }
+    const saved = wrap.convos;
     Object.entries(saved).forEach(([k, c]) => {
       CONVO_VOLATILE.forEach(f => { delete c[f]; }); // cachés guardadas por versiones anteriores traían el estado de pantalla
       if (Array.isArray(c.messages)) c.messages = c.messages.slice(-CONVO_CACHE_MSGS);
@@ -3659,7 +3663,7 @@ function sessionEnded(msg, code) {
   if (_sessionEnding) return;
   _sessionEnding = true;
   msg = msg || SESSION_REASONS[code];
-  try { localStorage.removeItem('central_jwt'); localStorage.removeItem('central_auth'); localStorage.removeItem('central_tenant'); } catch (e) {}
+  try { localStorage.removeItem('central_jwt'); localStorage.removeItem('central_auth'); localStorage.removeItem('central_tenant'); localStorage.removeItem('central_real_convos'); } catch (e) {}
   showToast(msg || 'Tu sesión se cerró. Vuelve a iniciar sesión.', 'error');
   setTimeout(() => { location.href = '/central-registro.html' + (code ? '?aviso=' + encodeURIComponent(code) : ''); }, 2200);
 }
@@ -3855,7 +3859,7 @@ function renderTicketBubble(list, m, c) {
   if (m.ticketId && m.ticketInner) window[m.ticketId] = m.ticketInner;
   const borderColor = isPresupuesto ? 'var(--yellow)' : '';
   wrap.innerHTML = `
-    <button class="ticket-bubble-btn" onclick="openTicketPreview('${m.ticketId}')" title="Ver ticket">
+    <button class="ticket-bubble-btn" onclick="openTicketPreview(${escJsAttr(m.ticketId)})" title="Ver ticket">
       <div class="ticket-bubble" ${borderColor ? `style="border-left:3px solid ${borderColor};"` : ''}>${m.ticketInner}</div>
     </button>
     <div class="msg-av" style="background:${gradBg};align-self:flex-end;">Tú</div>
@@ -7682,11 +7686,11 @@ function renderCatalog() {
           <div class="pc-sizes">${sizePills}</div>
           ${stockMetaHtml(p)}
           <div class="pc-footer">
-            <div class="pc-edit-btn role-manager" onclick="openEditProduct('${cat.key}','${p.id}')">
+            <div class="pc-edit-btn role-manager" onclick="openEditProduct(${escJsAttr(cat.key)},${escJsAttr(p.id)})">
               <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125"/></svg>
               Editar
             </div>
-            <div class="pc-delete-btn role-manager" onclick="deleteProduct('${cat.key}','${p.id}')">
+            <div class="pc-delete-btn role-manager" onclick="deleteProduct(${escJsAttr(cat.key)},${escJsAttr(p.id)})">
               <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>
               Eliminar
             </div>
@@ -10311,7 +10315,7 @@ function resetPanelForConvo(key) {
 function logout() {
   try { localStorage.removeItem('central_auth'); } catch(e) {}
   try { localStorage.removeItem('central_jwt'); } catch(e) {}
-  try { localStorage.removeItem('central_tenant'); } catch(e) {}
+  try { localStorage.removeItem('central_tenant'); localStorage.removeItem('central_real_convos'); } catch(e) {}
   try { localStorage.removeItem('central_pagos'); localStorage.removeItem('central_delivery'); } catch(e) {}
   window.location.href = '/central-registro.html';
 }

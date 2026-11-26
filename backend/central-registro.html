@@ -449,7 +449,8 @@ if (localStorage.getItem('central_jwt')) window.location.href = APP_URL;
 // Enlace del correo de demo: prellenar el correo y abrir el login
 document.addEventListener('DOMContentLoaded', () => {
   const AVISOS = { user_inactive: 'Tu usuario fue desactivado. Habla con el dueño del negocio.', temp_password_expired: 'La contraseña temporal caducó. Pide al dueño que genere una nueva.', session_closed: 'Tu sesión se cerró. Vuelve a iniciar sesión.' };
-  const aviso = AVISOS[new URLSearchParams(location.search).get('aviso')];
+  const avisoKey = new URLSearchParams(location.search).get('aviso');
+  const aviso = Object.hasOwn(AVISOS, avisoKey) ? AVISOS[avisoKey] : undefined;
   if (aviso) { const box = document.getElementById('loginErr'); if (box) { box.textContent = aviso; box.style.display = 'block'; } }
   const pre = new URLSearchParams(location.search).get('email');
   if (pre) {
