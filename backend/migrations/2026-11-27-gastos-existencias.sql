@@ -20,7 +20,9 @@
 --   2) Cierre de caja por día: cash_closings. Un día cerrado a la vez (índice único parcial WHERE reopened_at IS NULL);
 --      reabrir NO borra: marca reopened_at/reopen_reason y se conserva el historial. Con el día cerrado el servidor rechaza
 --      pagos, anulaciones de pago, reembolsos y gastos de ese día (comprobado dentro de la misma transacción; la fila del
---      tenant se bloquea FOR SHARE en operaciones de dinero y FOR UPDATE al cerrar/reabrir).
+--      tenant se bloquea FOR KEY SHARE en operaciones de dinero y FOR UPDATE al cerrar/reabrir y al cambiar la moneda base).
+--      La caja cuenta por método Y moneda (claves "método|MONEDA"). La zona horaria sale de la ubicación del negocio
+--      (ver 2026-11-27-zona-horaria.sql).
 --   3) Costo y existencias: catalog_products.cost (≥ 0) y track_stock; order_items.unit_cost (foto del costo al vender)
 --      y variant_key; stock_levels (nivel por producto y variante, puede ser negativo) y stock_movements (historial).
 -- ══════════════════════════════════════════════════════════════
