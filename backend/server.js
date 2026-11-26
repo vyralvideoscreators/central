@@ -762,6 +762,7 @@ async function ordersFilter(tenantId, q) {
   }
   if (q.q !== undefined && String(q.q).trim() !== '') {
     const text = String(q.q).trim().slice(0, 100);
+    if (text.length < 2) throw new BadRequest('La búsqueda necesita al menos 2 caracteres');
     P.push(likeOf(text)); const li = P.length;
     const digits = /^(#|p-?)?0*(\d{1,9})$/i.exec(text);
     let numCond = '';
@@ -777,7 +778,9 @@ async function ordersCounts(tenantId) {
   let tz = null;
   try { tz = await resolveTenantTz(tenantId); } catch (e) { if (!(e instanceof BadRequest)) throw e; }
   const live = "o.kind = 'order' AND o.delivery_status <> 'cancelled'";
-  const dayOf = (col) => `((${col} AT TIME ZONE current_setting('TimeZone')) AT TIME ZONE $2)::date`;
+  // Rango sobre created_at CRUDO (puede usar el índice): el día del negocio [d, d+1) llevado a la hora local del servidor
+  const dayStart = (offset) => `(((now() AT TIME ZONE $2)::date + ${offset})::timestamp AT TIME ZONE $2) AT TIME ZONE current_setting('TimeZone')`;
+  const inDay = (offset) => `$2::text IS NOT NULL AND o.created_at >= ${dayStart(offset)} AND o.created_at < ${dayStart(offset + 1)}`;
   const { rows: [r] } = await pool.query(`
     SELECT COUNT(*) FILTER (WHERE ${live})::int AS "all",
       COUNT(*) FILTER (WHERE o.kind = 'order' AND o.delivery_status = 'to_deliver')::int AS to_deliver,
@@ -792,10 +795,10 @@ async function ordersCounts(tenantId) {
       COALESCE(SUM(${OWED}) FILTER (WHERE ${live} AND ${OWED} > 0.004), 0)::float AS owed,
       COUNT(*) FILTER (WHERE ${live} AND $2::text IS NOT NULL AND o.delivery_status <> 'delivered' AND o.delivery_date = (now() AT TIME ZONE $2)::date)::int AS today,
       COUNT(*) FILTER (WHERE ${live} AND $2::text IS NOT NULL AND o.delivery_status <> 'delivered' AND o.delivery_date = (now() AT TIME ZONE $2)::date + 1)::int AS tomorrow,
-      COUNT(*) FILTER (WHERE ${live} AND $2::text IS NOT NULL AND ${dayOf('o.created_at')} = (now() AT TIME ZONE $2)::date)::int AS orders_today,
-      COALESCE(SUM(o.total_price) FILTER (WHERE ${live} AND $2::text IS NOT NULL AND ${dayOf('o.created_at')} = (now() AT TIME ZONE $2)::date), 0)::float AS sales_today,
-      COUNT(*) FILTER (WHERE ${live} AND $2::text IS NOT NULL AND ${dayOf('o.created_at')} = (now() AT TIME ZONE $2)::date - 1)::int AS orders_yesterday,
-      COALESCE(SUM(o.total_price) FILTER (WHERE ${live} AND $2::text IS NOT NULL AND ${dayOf('o.created_at')} = (now() AT TIME ZONE $2)::date - 1), 0)::float AS sales_yesterday
+      COUNT(*) FILTER (WHERE ${live} AND ${inDay(0)})::int AS orders_today,
+      COALESCE(SUM(o.total_price - o.credited_total) FILTER (WHERE ${live} AND ${inDay(0)}), 0)::float AS sales_today,
+      COUNT(*) FILTER (WHERE ${live} AND ${inDay(-1)})::int AS orders_yesterday,
+      COALESCE(SUM(o.total_price - o.credited_total) FILTER (WHERE ${live} AND ${inDay(-1)}), 0)::float AS sales_yesterday
     FROM orders o WHERE o.tenant_id = $1`, [tenantId, tz]);
   return {
     all: r.all, to_deliver: r.to_deliver, preparing: r.preparing, on_the_way: r.on_the_way, delivered: r.delivered, not_delivered: r.not_delivered,
@@ -825,7 +828,8 @@ async function dbListOrders(tenantId, q = {}) {
   return {
     orders,
     nextCursor: rows.length > limit && last ? encodeCursor({ c: last.cursor_ts, i: last.id }) : null,
-    counts: q.before || q._legacy ? undefined : await ordersCounts(tenantId),
+    // Los contadores cuestan un recorrido de los pedidos del negocio: solo si se piden (counts=1) y en la primera página
+    counts: q.before || q._legacy || String(q.counts) !== '1' ? undefined : await ordersCounts(tenantId),
   };
 }
 // Respuesta de siempre (arreglo): los pedidos más recientes, con un tope
@@ -1864,21 +1868,18 @@ function mapClientRow(r) {
 // Presupuestos y pedidos anulados no cuentan; el total es el EFECTIVO (menos notas de crédito). $2 = id de un
 // cliente (o NULL para todos).
 const CLIENT_BALANCE_SQL = `
-    SELECT c.*, COALESCE(b.balance, 0) AS balance, COALESCE(b.n, 0) AS orders_with_balance, COALESCE(cr.credit, 0) AS credit,
+    SELECT c.*, COALESCE(oc.balance, 0) AS balance, COALESCE(oc.n_owed, 0) AS orders_with_balance, COALESCE(cr.credit, 0) AS credit,
       COALESCE(oc.n, 0) AS orders_count, COALESCE(oc.spent, 0) AS total_spent
     FROM clients c
     LEFT JOIN (
-      SELECT client_id, COUNT(*) AS n, SUM(total_price - credited_total) AS spent
+      -- UN solo recorrido de los pedidos vigentes: compras, total comprado y saldo por cobrar
+      SELECT client_id, COUNT(*) AS n, SUM(total_price - credited_total) AS spent,
+        COUNT(*) FILTER (WHERE total_price - credited_total > amount_paid) AS n_owed,
+        SUM(total_price - credited_total - amount_paid) FILTER (WHERE total_price - credited_total > amount_paid) AS balance
       FROM orders WHERE tenant_id = $1 AND client_id IS NOT NULL AND kind = 'order' AND delivery_status <> 'cancelled'
         AND ($2::uuid IS NULL OR client_id = $2::uuid)
       GROUP BY client_id
     ) oc ON oc.client_id = c.id
-    LEFT JOIN (
-      SELECT client_id, SUM(total_price - credited_total - amount_paid) AS balance, COUNT(*) AS n
-      FROM orders WHERE tenant_id = $1 AND client_id IS NOT NULL AND kind = 'order' AND delivery_status <> 'cancelled'
-        AND total_price - credited_total > amount_paid AND ($2::uuid IS NULL OR client_id = $2::uuid)
-      GROUP BY client_id
-    ) b ON b.client_id = c.id
     LEFT JOIN (
       SELECT client_id, SUM(amount) AS credit FROM client_credit_entries
       WHERE tenant_id = $1 AND ($2::uuid IS NULL OR client_id = $2::uuid) GROUP BY client_id
@@ -3288,6 +3289,7 @@ app.get('/api/conversations', requireAuth, async (req, res) => {
     const q = req.query;
     if (q.limit === undefined && q.before === undefined && q.q === undefined) return res.json(await dbGetConversations(req.tenant.tenantId));
     const text = q.q === undefined ? '' : String(q.q).trim().slice(0, 100);
+    if (text && text.length < 2) throw new BadRequest('La búsqueda necesita al menos 2 caracteres');
     res.json(await dbListConversations(req.tenant.tenantId, { limit: q.limit, cursor: q.before, q: text || null }));
   } catch (err) { sendApiError(res, err, 'Chats'); }
 });
@@ -3405,9 +3407,10 @@ app.get('/api/orders/:id/returns', requireAuth, async (req, res) => {
       pool.query('SELECT * FROM refunds WHERE order_id = $1 AND tenant_id = $2 ORDER BY created_at LIMIT 500', [req.params.id, tenantId]),
     ]);
     const cnotes = await mapCreditNoteFull(pool, tenantId, notes);
-    await ops.attachByName(pool, tenantId, cnotes, ops.BY_CREATED);
-    for (const n of cnotes) await ops.attachByName(pool, tenantId, n.refunds, ops.BY_CREATED);
-    res.json({ creditNotes: cnotes, refunds: await ops.attachByName(pool, tenantId, refs.map(mapRefundRow), ops.BY_CREATED) });
+    const refunds = refs.map(mapRefundRow);
+    // UNA sola consulta de nombres para notas, sus reembolsos y los reembolsos del pedido
+    await ops.attachByName(pool, tenantId, [...cnotes, ...cnotes.flatMap(n => n.refunds || []), ...refunds], ops.BY_CREATED);
+    res.json({ creditNotes: cnotes, refunds });
   } catch (err) { sendApiError(res, err, 'Devoluciones del pedido'); }
 });
 
@@ -4571,6 +4574,13 @@ app.get('/api/reports/receivables', requireAuth, reportSlot, async (req, res) =>
 
 app.get('/api/clients', requireAuth, async (req, res) => {
   try {
+    // ?clientId=: solo esa ficha (con su saldo y compras), para refrescar una sin recargar la lista entera
+    if (req.query.clientId !== undefined) {
+      if (!UUID_RE.test(String(req.query.clientId))) return res.json([]);
+      if (!dbReady) return res.json([]);
+      const { rows } = await pool.query(CLIENT_BALANCE_SQL, [req.tenant.tenantId, String(req.query.clientId)]);
+      return res.json(rows.map(mapClientRow));
+    }
     const clients = await dbGetClients(req.tenant.tenantId);
     res.json(clients);
   } catch (err) {
@@ -5800,10 +5810,13 @@ const BACKGROUND_INDEXES = [
   { name: 'orders_legacy_paid_id_idx', table: 'orders', sql: "CREATE INDEX CONCURRENTLY IF NOT EXISTS orders_legacy_paid_id_idx ON orders (id) WHERE pay_status = 'ok' AND amount_paid = 0 AND total_price > 0" },
   // Fase 4B: lista de pedidos paginada por cursor (tenant, created_at DESC, id) y sus filtros por estado y cliente
   { name: 'orders_tenant_created_desc_idx', table: 'orders', sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS orders_tenant_created_desc_idx ON orders (tenant_id, created_at DESC, id DESC)' },
-  { name: 'orders_tenant_client_idx', table: 'orders', sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS orders_tenant_client_idx ON orders (tenant_id, client_id) WHERE client_id IS NOT NULL' },
+  // (orders_tenant_client_idx (tenant_id, client_id) ya existe desde initDB: es el que usan las fichas y el filtro clientId; no se duplica)
+  // Fase 4B: pestañas por estado (tenant, estado, created_at DESC, id DESC) y «entregas de hoy/mañana» por fecha de entrega (parcial: solo pendientes)
+  { name: 'orders_tenant_status_created_idx', table: 'orders', sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS orders_tenant_status_created_idx ON orders (tenant_id, delivery_status, created_at DESC, id DESC)' },
+  { name: 'orders_tenant_delivery_date_idx', table: 'orders', sql: "CREATE INDEX CONCURRENTLY IF NOT EXISTS orders_tenant_delivery_date_idx ON orders (tenant_id, delivery_date) WHERE kind = 'order' AND delivery_status NOT IN ('cancelled', 'delivered')" },
   // Fase 4B: chats paginados (por último mensaje) y mensajes de un chat hacia atrás
   { name: 'conversations_tenant_last_idx', table: 'conversations', sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS conversations_tenant_last_idx ON conversations (tenant_id, last_message_at DESC NULLS LAST, wa_id)' },
-  { name: 'messages_tenant_wa_time_idx', table: 'messages', sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS messages_tenant_wa_time_idx ON messages (tenant_id, wa_id, time DESC, id)' },
+  { name: 'messages_tenant_wa_time_idx', table: 'messages', sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS messages_tenant_wa_time_idx ON messages (tenant_id, wa_id, time DESC, id DESC)' },
   // Fase 4B: las FK «quién hizo qué» (ON DELETE SET NULL) necesitan índice para que borrar un usuario no recorra la tabla; parciales (casi vacíos)
   ...team.USER_FK_COLUMNS.map(([table, col]) => ({ name: `${table}_${col}_idx`, table,
     sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${table}_${col}_idx ON ${table} (${col}) WHERE ${col} IS NOT NULL` })),
@@ -5851,11 +5864,12 @@ async function ensureIndexes() {
 initDB().then(() => {
   server.listen(PORT, () => {
     console.log(`🚀 CENTRAL Backend v5.0 escuchando en puerto ${PORT}`);
-    ensureIndexes().catch(err => console.error('⚠️  ensureIndexes:', err.message));
+    // Primero los índices (incluidos los de las columnas «quién hizo qué») y DESPUÉS, en serie, el VALIDATE de sus FK
+    ensureIndexes().catch(err => console.error('⚠️  ensureIndexes:', err.message))
+      .then(() => team.validateTeamFks(pool)).catch(err => console.error('⚠️  validateTeamFks:', err.message));
     validateOrdersKindCheck(pool).catch(err => console.error('⚠️  validateOrdersKindCheck:', err.message));
     teamLimitSweep();
     setInterval(teamLimitSweep, 60 * 60000).unref();
-    team.validateTeamFks(pool).catch(err => console.error('⚠️  validateTeamFks:', err.message));
     if (backfillAfterListen) {
       runPaymentsBackfill(pool).catch(() => {});
       setTimeout(() => runPaymentsBackfill(pool).catch(() => {}), 10 * 60000).unref();

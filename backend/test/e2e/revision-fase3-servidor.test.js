@@ -30,7 +30,7 @@ run(async () => {
   ok(/WHERE \(order_id IS NOT NULL\)/.test(idxDef('client_credit_order_idx')), 'Índice parcial client_credit_entries (order_id)');
   ok(/WHERE \(credit_note_id IS NOT NULL\)/.test(idxDef('refunds_credit_note_idx')), 'Índice parcial refunds (credit_note_id)');
   ok(/WHERE \(client_id IS NOT NULL\)/.test(idxDef('credit_notes_client_idx')), 'Índice parcial credit_notes (client_id)');
-  ok(!idxDef('orders_tenant_delivery_date_idx'), 'Ya no hay índice por delivery_date (nadie filtra por esa columna)');
+  ok(!idxDef('orders_tenant_delivery_date_idx') || /WHERE/.test(idxDef('orders_tenant_delivery_date_idx')), 'Si hay índice por delivery_date es el parcial de la Fase 4B (entregas de hoy/mañana), nunca uno completo');
   let validated = false;
   for (let i = 0; i < 20 && !validated; i++) {
     const c = (await db.query(`SELECT convalidated FROM pg_constraint WHERE conname='orders_kind_check' AND conrelid=to_regclass('public.orders')`)).rows[0];

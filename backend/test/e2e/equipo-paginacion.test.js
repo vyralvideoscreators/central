@@ -25,7 +25,7 @@ run(async () => {
   ok(r.status === 200 && Array.isArray(r.body) && r.body.length === 230, 'Sin parámetros: arreglo con todos los pedidos (compatibilidad)');
 
   // Páginas con cursor: sin repetidos ni saltos, orden descendente
-  r = await j('/api/orders?limit=100', { headers: A.H });
+  r = await j('/api/orders?limit=100&counts=1', { headers: A.H });
   ok(r.status === 200 && r.body.orders.length === 100 && !!r.body.nextCursor && !!r.body.counts, 'Página 1: 100 pedidos, cursor y contadores');
   const seen = new Set(r.body.orders.map(o => o.id));
   let cursor = r.body.nextCursor, pages = 1, all = [...r.body.orders];
@@ -49,7 +49,7 @@ run(async () => {
   ok(r.status === 400, 'Cursor manipulado → 400');
 
   // Contadores sobre TODOS los pedidos, no solo los cargados
-  const cnt = (await j('/api/orders?limit=20', { headers: A.H })).body.counts;
+  const cnt = (await j('/api/orders?limit=20&counts=1', { headers: A.H })).body.counts;
   const { rows: [exp] } = await c.query(`SELECT
     count(*) FILTER (WHERE kind='order' AND delivery_status<>'cancelled')::int AS "all",
     count(*) FILTER (WHERE kind='order' AND delivery_status='delivered')::int AS delivered,
@@ -97,7 +97,7 @@ run(async () => {
   r = await j('/api/orders?clientId=' + cl.id, { headers: A.H });
   ok(r.body.orders.length === 1 && r.body.orders[0].clientId === cl.id, 'Filtro por cliente');
   // Aislamiento
-  r = await j('/api/orders?limit=100', { headers: B.H });
+  r = await j('/api/orders?limit=100&counts=1', { headers: B.H });
   ok(r.body.orders.length === 3 && r.body.counts.all === 3, 'El otro negocio solo ve y cuenta lo suyo');
   const cursA = (await j('/api/orders?limit=5', { headers: A.H })).body.nextCursor;
   r = await j('/api/orders?limit=100&before=' + encodeURIComponent(cursA), { headers: B.H });

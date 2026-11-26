@@ -39,6 +39,7 @@ const ACTOR_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 const actorText = (a) => (a && typeof a === 'object' ? a.role : a) || 'owner';
 const actorId = (a) => (a && typeof a === 'object' && ACTOR_UUID.test(String(a.id)) ? a.id : null);
 const OWNER_LABEL = 'Dueño';
+const DELETED_USER_LABEL = 'Usuario eliminado';
 // Añade a cada elemento el NOMBRE de quien hizo la operación. pairs = [campoId, campoNombre, campoCondición?]: sin id → «Dueño»
 // (operaciones anteriores a la Fase 4B o hechas por el dueño antiguo); con campoCondición, si ese campo está vacío el nombre es null
 // (p. ej. «anulado por» de algo que no está anulado). Una sola consulta por lista, siempre filtrada por negocio.
@@ -51,7 +52,7 @@ async function attachByName(db, tenantId, items, pairs) {
     for (const r of rows) names.set(r.id, r.name);
   }
   for (const it of items) {
-    for (const [f, n, when] of pairs) it[n] = when && !it[when] ? null : (it[f] && names.get(it[f])) || OWNER_LABEL;
+    for (const [f, n, when] of pairs) it[n] = when && !it[when] ? null : it[f] ? (names.get(it[f]) || DELETED_USER_LABEL) : OWNER_LABEL;
   }
   return items;
 }

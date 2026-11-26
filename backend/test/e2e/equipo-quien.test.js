@@ -69,6 +69,7 @@ run(async () => {
   const B = await reg('Quien B');
   await c.query('UPDATE orders SET created_by_user_id = $1 WHERE id = $2', [(await c.query("SELECT id FROM team_users WHERE tenant_id=$1 AND role='owner'", [B.id])).rows[0].id, oid]);
   r = await j('/api/orders', { headers: O.H });
-  ok(r.body.find(o => o.id === oid).byName === 'Dueño', 'El nombre de un usuario de otro negocio nunca se revela');
+  const other = r.body.find(o => o.id === oid).byName;
+  ok(other === 'Usuario eliminado' && !/Quien B/.test(JSON.stringify(r.body.find(o => o.id === oid))), 'El nombre de un usuario de otro negocio nunca se revela');
   await c.end();
 });

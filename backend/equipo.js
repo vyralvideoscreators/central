@@ -71,72 +71,123 @@ BEGIN
 END
 $fn$ LANGUAGE plpgsql`;
 
-// Solo DDL, en una transacción corta con advisory lock y lock_timeout. Antes de cada ALTER/CREATE se comprueba si ya existe:
-// en un arranque normal no se ejecuta ningún DDL. Devuelve true si el esquema quedó completo.
+// Solo DDL, PARTIDO en transacciones cortas (cada una con lock_timeout de 2 s y hasta 4 reintentos), todas bajo UN advisory lock global
+// (sesión) para que dos réplicas no se pisen. Orden: (1) team_users y sus índices (tabla nueva, vacía); (2) por cada tabla existente,
+// sus columnas «quién hizo qué» y sus FK NOT VALID, cada tabla en su propia transacción (un bloqueo de pedidos no frena a pagos);
+// (3) AL FINAL, en su propia transacción, lo que toca tenants: la columna, la función del espejo y los triggers (tenants es la tabla
+// más usada: su bloqueo es el último y el más corto). Antes de abrir cada transacción se comprueba si hace falta: en un arranque
+// normal no se ejecuta ningún DDL. El relleno de tenants (runTeamBackfill) lo llama server.js después. Devuelve true si el esquema quedó completo.
+const STEP_LOCK_TIMEOUT = '2s', STEP_ATTEMPTS = 4;
+async function runDdlStep(pool, label, fn) {
+  let lastErr;
+  for (let attempt = 1; attempt <= STEP_ATTEMPTS; attempt++) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(`SET LOCAL lock_timeout = '${STEP_LOCK_TIMEOUT}'`);
+      await fn(client);
+      await client.query('COMMIT');
+      return true;
+    } catch (err) {
+      lastErr = err;
+      await client.query('ROLLBACK').catch(() => {});
+    } finally {
+      client.release();
+    }
+    if (attempt < STEP_ATTEMPTS) await new Promise(r => setTimeout(r, 400 * attempt));
+  }
+  console.error(`⚠️  Migración del equipo (${label}):`, lastErr && lastErr.message);
+  return false;
+}
+const hasConstraint = async (db, table, name) => !!(await db.query(
+  'SELECT 1 FROM pg_constraint WHERE conname = $1 AND conrelid = to_regclass($2)', [name, 'public.' + table])).rows[0];
+
 async function ensureTeamSchema(pool) {
   await assertTeamTablesAreOurs(pool); // antes de tocar nada
-  const client = await pool.connect();
+  const lock = await pool.connect();
   try {
-    await client.query('BEGIN');
-    await client.query('SELECT pg_advisory_xact_lock($1)', [TEAM_DDL_LOCK_KEY]);
-    await client.query(`SET LOCAL lock_timeout = '5s'`);
-    if (!(await hasColumn(client, 'tenants', 'team_over_limit_since'))) {
-      await client.query('ALTER TABLE tenants ADD COLUMN team_over_limit_since TIMESTAMPTZ');
-    }
-    if (!(await hasRelation(client, 'team_users'))) {
-      await client.query(`
-        CREATE TABLE team_users (
-          id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          tenant_id                UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-          name                     TEXT NOT NULL,
-          email                    TEXT NOT NULL,
-          password_hash            TEXT NOT NULL,
-          role                     TEXT NOT NULL CHECK (role IN ('owner','manager','seller')),
-          active                   BOOLEAN NOT NULL DEFAULT true,
-          must_change_password     BOOLEAN NOT NULL DEFAULT false,
-          temp_password_expires_at TIMESTAMPTZ,
-          token_version            INTEGER NOT NULL DEFAULT 0,
-          created_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
-          deactivated_at           TIMESTAMPTZ,
-          last_login_at            TIMESTAMPTZ
-        )`);
-    }
-    // Tabla NUEVA (vacía): sus índices se crean aquí, no en BACKGROUND_INDEXES
-    await ensureOwnIndex(client, 'team_users_email_lower_uniq', 'team_users',
-      'CREATE UNIQUE INDEX team_users_email_lower_uniq ON team_users (lower(email))');
-    await ensureOwnIndex(client, 'team_users_one_owner_uniq', 'team_users',
-      `CREATE UNIQUE INDEX team_users_one_owner_uniq ON team_users (tenant_id) WHERE role = 'owner'`);
-    await ensureOwnIndex(client, 'team_users_tenant_idx', 'team_users',
-      'CREATE INDEX team_users_tenant_idx ON team_users (tenant_id, active)');
-    // Columnas «quién hizo qué»: NULL (instantáneo, solo catálogo). La FK se añade NOT VALID (no recorre la tabla) y se valida
-    // en segundo plano tras listen (validateTeamFks).
-    for (const [table, col] of USER_FK_COLUMNS) {
-      if (!(await hasColumn(client, table, col))) await client.query(`ALTER TABLE ${table} ADD COLUMN ${col} UUID`);
-      const { rows } = await client.query(
-        'SELECT 1 FROM pg_constraint WHERE conname = $1 AND conrelid = to_regclass($2)', [fkName(table, col), 'public.' + table]);
-      if (!rows[0]) {
-        await client.query(`ALTER TABLE ${table} ADD CONSTRAINT ${fkName(table, col)} FOREIGN KEY (${col}) REFERENCES team_users(id) ON DELETE SET NULL NOT VALID`);
+    // Lock global de sesión (espera hasta 30 s a que otra réplica termine). Se suelta al final, pase lo que pase.
+    await lock.query(`SET lock_timeout = '30s'`);
+    await lock.query('SELECT pg_advisory_lock($1)', [TEAM_DDL_LOCK_KEY]);
+    await lock.query('RESET lock_timeout');
+    try {
+      // 1) team_users (tabla nueva)
+      if (!(await hasRelation(pool, 'team_users'))) {
+        await runDdlStep(pool, 'team_users', async (c) => {
+          await c.query(`
+            CREATE TABLE IF NOT EXISTS team_users (
+              id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+              tenant_id                UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+              name                     TEXT NOT NULL,
+              email                    TEXT NOT NULL,
+              password_hash            TEXT NOT NULL,
+              role                     TEXT NOT NULL CHECK (role IN ('owner','manager','seller')),
+              active                   BOOLEAN NOT NULL DEFAULT true,
+              must_change_password     BOOLEAN NOT NULL DEFAULT false,
+              temp_password_expires_at TIMESTAMPTZ,
+              token_version            INTEGER NOT NULL DEFAULT 0,
+              created_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+              deactivated_at           TIMESTAMPTZ,
+              last_login_at            TIMESTAMPTZ
+            )`);
+        });
       }
+      // Tabla NUEVA (vacía): sus índices se crean aquí, no en BACKGROUND_INDEXES
+      if (await hasRelation(pool, 'team_users')) {
+        await assertTeamTablesAreOurs(pool);
+        await runDdlStep(pool, 'índices de team_users', async (c) => {
+          await ensureOwnIndex(c, 'team_users_email_lower_uniq', 'team_users',
+            'CREATE UNIQUE INDEX team_users_email_lower_uniq ON team_users (lower(email))');
+          await ensureOwnIndex(c, 'team_users_one_owner_uniq', 'team_users',
+            `CREATE UNIQUE INDEX team_users_one_owner_uniq ON team_users (tenant_id) WHERE role = 'owner'`);
+          await ensureOwnIndex(c, 'team_users_tenant_idx', 'team_users',
+            'CREATE INDEX team_users_tenant_idx ON team_users (tenant_id, active)');
+        });
+      }
+      // 2) Columnas «quién hizo qué»: NULL (instantáneo, solo catálogo). La FK se añade NOT VALID (no recorre la tabla) y se valida
+      // en segundo plano tras listen (validateTeamFks). Una transacción por tabla.
+      const byTable = new Map();
+      for (const [t, col] of USER_FK_COLUMNS) byTable.set(t, [...(byTable.get(t) || []), col]);
+      for (const [table, cols] of byTable) {
+        let needed = false;
+        for (const col of cols) if (!(await hasColumn(pool, table, col)) || !(await hasConstraint(pool, table, fkName(table, col)))) needed = true;
+        if (!needed) continue;
+        await runDdlStep(pool, table, async (c) => {
+          for (const col of cols) {
+            if (!(await hasColumn(c, table, col))) await c.query(`ALTER TABLE ${table} ADD COLUMN ${col} UUID`);
+            if (!(await hasConstraint(c, table, fkName(table, col)))) {
+              await c.query(`ALTER TABLE ${table} ADD CONSTRAINT ${fkName(table, col)} FOREIGN KEY (${col}) REFERENCES team_users(id) ON DELETE SET NULL NOT VALID`);
+            }
+          }
+        });
+      }
+      // 3) Lo que toca tenants, AL FINAL y en su propia transacción: la columna, la función del espejo y los triggers
+      const trigCount = async (db) => (await db.query(`SELECT count(*)::int AS n FROM pg_trigger WHERE tgname IN ('tenants_team_sync_ins','tenants_team_sync_upd')
+        AND tgrelid = to_regclass('public.tenants') AND NOT tgisinternal`)).rows[0].n;
+      const hasFn = async (db) => !!(await db.query(`SELECT 1 FROM pg_proc WHERE proname = 'team_sync_owner' AND pronamespace = 'public'::regnamespace`)).rows[0];
+      if (!(await hasColumn(pool, 'tenants', 'team_over_limit_since')) || !(await hasFn(pool)) || (await trigCount(pool)) < 2) {
+        await runDdlStep(pool, 'tenants', async (c) => {
+          if (!(await hasColumn(c, 'tenants', 'team_over_limit_since'))) await c.query('ALTER TABLE tenants ADD COLUMN team_over_limit_since TIMESTAMPTZ');
+          if (!(await hasFn(c))) await c.query(OWNER_SYNC_FN);
+          for (const [name, ddl] of [
+            ['tenants_team_sync_ins', `CREATE TRIGGER tenants_team_sync_ins AFTER INSERT ON tenants FOR EACH ROW EXECUTE PROCEDURE team_sync_owner()`],
+            ['tenants_team_sync_upd', `CREATE TRIGGER tenants_team_sync_upd AFTER UPDATE OF email, password_hash, full_name, business_name ON tenants
+               FOR EACH ROW WHEN (OLD.email IS DISTINCT FROM NEW.email OR OLD.password_hash IS DISTINCT FROM NEW.password_hash
+                 OR OLD.full_name IS DISTINCT FROM NEW.full_name OR OLD.business_name IS DISTINCT FROM NEW.business_name)
+               EXECUTE PROCEDURE team_sync_owner()`],
+          ]) {
+            const { rows } = await c.query('SELECT 1 FROM pg_trigger WHERE tgname = $1 AND tgrelid = to_regclass($2) AND NOT tgisinternal', [name, 'public.tenants']);
+            if (!rows[0]) await c.query(ddl);
+          }
+        });
+      }
+    } finally {
+      await lock.query('SELECT pg_advisory_unlock($1)', [TEAM_DDL_LOCK_KEY]).catch(() => {});
     }
-    // Espejo del dueño: ver la nota de la cabecera
-    const { rows: fn } = await client.query(`SELECT 1 FROM pg_proc WHERE proname = 'team_sync_owner' AND pronamespace = 'public'::regnamespace`);
-    if (!fn[0]) await client.query(OWNER_SYNC_FN);
-    for (const [name, ddl] of [
-      ['tenants_team_sync_ins', `CREATE TRIGGER tenants_team_sync_ins AFTER INSERT ON tenants FOR EACH ROW EXECUTE PROCEDURE team_sync_owner()`],
-      ['tenants_team_sync_upd', `CREATE TRIGGER tenants_team_sync_upd AFTER UPDATE OF email, password_hash, full_name, business_name ON tenants
-         FOR EACH ROW WHEN (OLD.email IS DISTINCT FROM NEW.email OR OLD.password_hash IS DISTINCT FROM NEW.password_hash
-           OR OLD.full_name IS DISTINCT FROM NEW.full_name OR OLD.business_name IS DISTINCT FROM NEW.business_name)
-         EXECUTE PROCEDURE team_sync_owner()`],
-    ]) {
-      const { rows } = await client.query('SELECT 1 FROM pg_trigger WHERE tgname = $1 AND tgrelid = to_regclass($2) AND NOT tgisinternal', [name, 'public.tenants']);
-      if (!rows[0]) await client.query(ddl);
-    }
-    await client.query('COMMIT');
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
     console.error('⚠️  Migración del equipo:', err.message);
   } finally {
-    client.release();
+    lock.release();
   }
   try {
     if (!(await hasColumn(pool, 'tenants', 'team_over_limit_since'))) return false;
@@ -152,15 +203,26 @@ async function ensureTeamSchema(pool) {
   }
 }
 
-// VALIDATE de las FK NOT VALID: se hace DESPUÉS de listen (recorre cada tabla, con un bloqueo que no impide leer ni escribir).
-// Tolerante a fallos: se reintenta en el siguiente arranque; mientras tanto la FK ya vigila las filas nuevas.
+// VALIDATE de las FK NOT VALID: se hace DESPUÉS de listen y de ensureIndexes (los índices de las columnas ya existen), EN SERIE y bajo el
+// advisory lock global del equipo (una réplica a la vez). Recorre cada tabla con un bloqueo que no impide leer ni escribir; cada VALIDATE
+// espera como mucho 2 s el bloqueo. Tolerante a fallos: se reintenta en el siguiente arranque; mientras tanto la FK vigila las filas nuevas.
 async function validateTeamFks(pool) {
-  for (const [table, col] of USER_FK_COLUMNS) {
-    try {
-      const { rows } = await pool.query(
-        'SELECT convalidated FROM pg_constraint WHERE conname = $1 AND conrelid = to_regclass($2)', [fkName(table, col), 'public.' + table]);
-      if (rows[0] && !rows[0].convalidated) await pool.query(`ALTER TABLE ${table} VALIDATE CONSTRAINT ${fkName(table, col)}`);
-    } catch (err) { console.error(`⚠️  VALIDATE ${fkName(table, col)}:`, err.message); }
+  const client = await pool.connect();
+  let locked = false;
+  try {
+    locked = (await client.query('SELECT pg_try_advisory_lock($1) AS ok', [TEAM_DDL_LOCK_KEY])).rows[0].ok;
+    if (!locked) return;
+    await client.query(`SET lock_timeout = '${STEP_LOCK_TIMEOUT}'`);
+    for (const [table, col] of USER_FK_COLUMNS) {
+      try {
+        const { rows } = await client.query(
+          'SELECT convalidated FROM pg_constraint WHERE conname = $1 AND conrelid = to_regclass($2)', [fkName(table, col), 'public.' + table]);
+        if (rows[0] && !rows[0].convalidated) await client.query(`ALTER TABLE ${table} VALIDATE CONSTRAINT ${fkName(table, col)}`);
+      } catch (err) { console.error(`⚠️  VALIDATE ${fkName(table, col)}:`, err.message); }
+    }
+  } finally {
+    if (locked) await client.query('SELECT pg_advisory_unlock($1)', [TEAM_DDL_LOCK_KEY]).catch(() => {});
+    client.release();
   }
 }
 

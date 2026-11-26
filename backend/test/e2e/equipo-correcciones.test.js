@@ -127,5 +127,31 @@ run(async () => {
   r = await j('/api/tenant/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'a@b.co', password: 'x' }) });
   ok(!('details' in (r.body || {})), 'Los errores de login no incluyen details');
 
+  // ── Contadores solo con counts=1, búsqueda mínima de 2, ficha suelta, nombres ──
+  r = await j('/api/orders?limit=5', { headers: O.H });
+  ok(r.status === 200 && r.body.counts === undefined, 'Sin counts=1 no se calculan los contadores');
+  r = await j('/api/orders?limit=5&counts=1', { headers: O.H });
+  ok(r.status === 200 && r.body.counts && r.body.counts.all >= 1 && typeof r.body.counts.salesToday === 'number', 'Con counts=1 sí');
+  r = await j('/api/orders?q=a', { headers: O.H });
+  ok(r.status === 400, 'Buscar con 1 carácter → 400');
+  r = await j('/api/conversations?q=a', { headers: O.H });
+  ok(r.status === 400, 'Chats: buscar con 1 carácter → 400');
+  r = await send(O.H, 'POST', '/api/clients', { name: 'Ficha Suelta' });
+  const cid = r.body.id;
+  r = await j('/api/clients?clientId=' + cid, { headers: seller.H });
+  ok(r.status === 200 && r.body.length === 1 && r.body[0].id === cid && r.body[0].ordersCount === 0, 'GET /api/clients?clientId= devuelve solo esa ficha');
+  r = await j('/api/clients?clientId=no-es-uuid', { headers: seller.H });
+  ok(r.status === 200 && r.body.length === 0, 'Un clientId inválido no rompe (lista vacía)');
+  // Ventas de hoy = total − devuelto (SUM(total_price − credited_total))
+  await c.query("UPDATE orders SET credited_total = 5 WHERE id = $1", [orderC]);
+  r = await j('/api/orders?limit=1&counts=1', { headers: O.H });
+  const exp = (await c.query(`SELECT COALESCE(SUM(total_price - credited_total),0)::float AS s FROM orders WHERE tenant_id = $1 AND kind = 'order' AND delivery_status <> 'cancelled' AND created_at::date = now()::date`, [O.id])).rows[0].s;
+  ok(Math.abs(r.body.counts.salesToday - exp) < 0.01, 'Ventas de hoy descuentan lo devuelto (' + r.body.counts.salesToday + ')');
+  // Un id de usuario que ya no existe se muestra como «Usuario eliminado»
+  const ops = require('../../operacion');
+  const items = [{ createdByUserId: '00000000-0000-4000-8000-0000000000aa' }, { createdByUserId: null }, { createdByUserId: seller.id }];
+  await ops.attachByName(c, O.id, items, ops.BY_CREATED);
+  ok(items[0].byName === 'Usuario eliminado' && items[1].byName === 'Dueño' && items[2].byName === 'Vera Vendedora', 'attachByName: id inexistente = «Usuario eliminado», sin id = «Dueño»');
+
   await c.end();
 });
