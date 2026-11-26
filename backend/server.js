@@ -960,8 +960,9 @@ async function inTx(fn) {
 }
 
 // Respuesta de error de las rutas de pagos: datos mal enviados → 400; lo demás → 500 sin detalles internos
-// Cuerpo del 400 de un BadRequest: «sin ubicación» lleva su código propio (location_required) para que el SPA lleve a Ajustes → Ubicación
-const badRequestBody = (err) => err instanceof ops.LocationRequired ? { error: 'location_required', message: err.message } : { error: err.message };
+// Cuerpo del 400 de un BadRequest: «sin ubicación» lleva su código propio (location_required) para que el SPA lleve a Ajustes → Perfil → País y zona horaria
+const badRequestBody = (err) => err instanceof ops.LocationRequired ? { error: 'location_required', message: err.message }
+  : err instanceof ops.CashClosed ? { error: 'cash_closed', message: err.message } : { error: err.message };
 function sendApiError(res, err, label) {
   if (err instanceof BadRequest) return res.status(400).json(badRequestBody(err));
   console.error(label + ':', err.message);
@@ -1004,7 +1005,7 @@ async function fetchOrderFull(db, tenantId, orderId) {
   return rows[0] ? mapOrderRow(rows[0]) : null;
 }
 
-// Zona horaria del negocio: SOLO la de su ubicación (país + zona, Ajustes → Ubicación). Nunca la del navegador: el `tz` de la
+// Zona horaria del negocio: SOLO la de su ubicación (país + zona, Ajustes → Perfil → País y zona horaria). Nunca la del navegador: el `tz` de la
 // URL que aún mande un cliente antiguo se ignora. Sin ubicación → 400 { error: 'location_required' }.
 async function resolveTenantTz(tenantId) {
   const { rows: [t] } = await pool.query('SELECT timezone, country FROM tenants WHERE id = $1', [tenantId]);
@@ -1121,7 +1122,10 @@ async function addPaymentTx(db, tenantId, orderId, body, createdBy = 'owner') {
       paidAt = new Date(raw);
       if (isNaN(paidAt.getTime())) throw new BadRequest('Fecha del pago inválida');
     }
-    if (paidAt.getTime() > Date.now() + 86400000) throw new BadRequest('La fecha del pago no puede ser futura');
+    // Futura = posterior al día de hoy DEL NEGOCIO (sin ubicación y con hora: tolerancia de un día, no hay día que comparar)
+    if (tz ? (await ops.businessDay(db, tz, paidAt)) > (await ops.businessDay(db, tz)) : paidAt.getTime() > Date.now() + 86400000) {
+      throw new BadRequest('La fecha del pago no puede ser futura');
+    }
     if (paidAt.getFullYear() < 2000) throw new BadRequest('Fecha del pago inválida');
   }
 
@@ -1942,7 +1946,7 @@ const DEMO_ALLOWED_ROUTES = new Set([
   'GET /api/reports',
   // Fase 4A: gastos, cierre de caja, existencias, utilidad (nada de esto llama a servicios externos)
   'GET /api/expenses', 'POST /api/expenses', 'POST /api/expenses/:id/void',
-  'GET /api/cash', 'GET /api/cash/:day', 'POST /api/cash/:day/close', 'POST /api/cash/:day/reopen',
+  'GET /api/cash', 'GET /api/cash/:day', 'POST /api/cash/:day/close', 'POST /api/cash/:day/reopen', 'GET /api/cash-closed',
   'GET /api/stock', 'POST /api/stock/adjust', 'GET /api/stock/movements',
   'GET /api/reports/profit', 'GET /api/reports/receivables',
   'GET /api/clients', 'POST /api/clients', 'PATCH /api/clients/:id', 'DELETE /api/clients/:id',
@@ -2660,7 +2664,8 @@ async function applyTenantLocation(db, tenantId, { country, timezone }) {
   const { rows: [cur] } = await db.query('SELECT country, timezone FROM tenants WHERE id = $1 FOR UPDATE', [tenantId]);
   if (!cur) return null;
   let newCountry = cur.country;
-  if (country !== undefined && country !== cur.country) {
+  // '' o null con un país guardado vacío/null = «sin cambio» (un negocio sin país puede editar otros campos)
+  if (country !== undefined && country !== cur.country && !(!country && !cur.country)) {
     const c = ops.canonCountry(country);
     if (!c) throw new BadRequest('País no válido: elige uno de la lista');
     newCountry = c;
@@ -2672,7 +2677,7 @@ async function applyTenantLocation(db, tenantId, { country, timezone }) {
   } else tz = ops.tzOf({ country: newCountry, timezone: cur.timezone });
   if (tz !== ops.tzOf(cur)) {
     const { rows: [open] } = await db.query('SELECT 1 FROM cash_closings WHERE tenant_id = $1 AND reopened_at IS NULL LIMIT 1', [tenantId]);
-    if (open) throw new BadRequest('No se puede cambiar la zona horaria mientras haya cierres de caja vigentes: reabre esos días en Caja primero');
+    if (open) throw new BadRequest('No se puede cambiar la zona horaria mientras haya cierres de caja vigentes: reabre esos días en Gastos → Cierre de caja primero (plan Básico: Ajustes → Perfil)');
   }
   await db.query('UPDATE tenants SET country = $2, timezone = $3 WHERE id = $1', [tenantId, newCountry, tz]);
   return { country: ops.canonCountry(newCountry) || newCountry, timezone: tz };
@@ -2798,7 +2803,7 @@ app.get('/api/tenant/auto-reply', requireAuth, async (req, res) => {
       enabled:    !!t.auto_reply_enabled,
       message:    t.off_hours_message || DEFAULT_OFF_HOURS_MESSAGE,
       schedule:   isValidSchedule(t.business_hours) ? t.business_hours : DEFAULT_SCHEDULE,
-      timezone:   ops.tzOf(t), // la de la ubicación del negocio (Ajustes → Ubicación); aquí ya no se cambia
+      timezone:   ops.tzOf(t), // la de la ubicación del negocio (Ajustes → Perfil → País y zona horaria); aquí ya no se cambia
       configured: t.business_hours !== null || t.off_hours_message !== null,
     });
   } catch (err) {
@@ -3217,7 +3222,18 @@ app.post('/api/cash/:day/close', requireAuth, cashPlan, async (req, res) => {
     res.json(await inTx(async (c) => { await ops.closeCashDay(c, tenantId, req.params.day, req.body); return ops.getCashDay(c, tenantId, req.params.day); }));
   } catch (err) { sendApiError(res, err, 'Cerrar caja'); }
 });
-app.post('/api/cash/:day/reopen', requireAuth, cashPlan, async (req, res) => {
+// Reabrir (y ver qué días siguen cerrados) se permite en TODOS los planes: quien baja de plan con cierres vigentes no puede
+// quedar bloqueado. La lista de días cerrados vive en `/api/cash-closed`.
+app.get('/api/cash-closed', requireAuth, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  try {
+    const { rows } = await pool.query(
+      `SELECT to_char(day, 'YYYY-MM-DD') AS day, closed_at FROM cash_closings
+       WHERE tenant_id = $1 AND reopened_at IS NULL ORDER BY day DESC LIMIT 200`, [req.tenant.tenantId]);
+    res.json({ days: rows.map(r => ({ day: r.day, closedAt: r.closed_at })) });
+  } catch (err) { sendApiError(res, err, 'Días con caja cerrada'); }
+});
+app.post('/api/cash/:day/reopen', requireAuth, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   const tenantId = req.tenant.tenantId;
   try {
@@ -3324,17 +3340,19 @@ function cleanZones(v) {
   });
 }
 
-// ¿Hay datos en moneda base que un cambio de moneda dejaría mal? Pagos, gastos, reembolsos, cierres de caja o costos.
+// ¿Hay datos en moneda base que un cambio de moneda dejaría mal? Pagos, gastos, reembolsos, notas de crédito, cierres de caja,
+// costos o pedidos con total (cambiar la etiqueta sin convertir descuadraría los totales).
 async function baseCurrencyInUse(db, tenantId) {
   const { rows: [r] } = await db.query(`SELECT (
       EXISTS (SELECT 1 FROM payments WHERE tenant_id = $1) OR EXISTS (SELECT 1 FROM expenses WHERE tenant_id = $1)
       OR EXISTS (SELECT 1 FROM refunds WHERE tenant_id = $1) OR EXISTS (SELECT 1 FROM cash_closings WHERE tenant_id = $1)
+      OR EXISTS (SELECT 1 FROM credit_notes WHERE tenant_id = $1) OR EXISTS (SELECT 1 FROM orders WHERE tenant_id = $1 AND total_price > 0)
       OR EXISTS (SELECT 1 FROM catalog_products WHERE tenant_id = $1 AND cost IS NOT NULL)
       OR EXISTS (SELECT 1 FROM orders o JOIN order_items oi ON oi.order_id = o.id AND oi.tenant_id = o.tenant_id
                  WHERE o.tenant_id = $1 AND oi.unit_cost IS NOT NULL)) AS x`, [tenantId]);
   return r.x;
 }
-const BASE_CURRENCY_LOCKED_MSG = 'No se puede cambiar la moneda base: ya hay pagos, gastos, reembolsos, cierres de caja o costos registrados';
+const BASE_CURRENCY_LOCKED_MSG = 'No se puede cambiar la moneda base: ya hay pagos, pedidos con total, gastos, reembolsos, notas de crédito, cierres de caja o costos registrados';
 
 app.get('/api/tenant/settings', requireAuth, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
@@ -4734,7 +4752,8 @@ app.put('/api/admin/tenants/:tenantId', requireAdmin, async (req, res) => {
     await txc.query('ROLLBACK').catch(() => {});
     if (err instanceof BadRequest) return res.status(400).json({ error: err.message });
     if (err.code === '23505') return res.status(409).json({ error: 'Ese correo ya está en uso por otra cuenta' });
-    res.status(500).json({ error: err.message });
+    console.error('Editar negocio (admin):', err);
+    res.status(500).json({ error: 'No se pudo guardar el negocio. Inténtalo de nuevo.' });
   } finally {
     txc.release();
   }

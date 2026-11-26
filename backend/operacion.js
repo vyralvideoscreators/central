@@ -18,7 +18,9 @@ class BadRequest extends Error {}
 // Falta la ubicación del negocio (país/zona): los cálculos por día no pueden saber qué día es. Se responde 400 con
 // { error: 'location_required', message }.
 class LocationRequired extends BadRequest {}
-const LOCATION_MSG = 'Configura la ubicación del negocio en Ajustes → Ubicación';
+// Día con la caja cerrada: 400 con { error: 'cash_closed', message } (el SPA lo reconoce por el código, no por el texto).
+class CashClosed extends BadRequest {}
+const LOCATION_MSG = 'Configura la ubicación del negocio en Ajustes → Perfil → País y zona horaria';
 
 const OPS_DDL_LOCK_KEY = 72616105;
 const DEFAULT_TIMEZONE = 'America/Caracas';
@@ -335,7 +337,7 @@ async function assertCashOpen(db, tenantId, { instants = [], days = [] } = {}) {
   if (!all.size) return t;
   const { rows } = await db.query(
     'SELECT day FROM cash_closings WHERE tenant_id = $1 AND reopened_at IS NULL AND day = ANY($2::date[]) ORDER BY day LIMIT 1', [tenantId, [...all]]);
-  if (rows[0]) throw new BadRequest(`La caja del ${dayLabel(rows[0].day)} está cerrada. Reábrela en Caja para registrar o anular movimientos de ese día.`);
+  if (rows[0]) throw new CashClosed(`La caja del ${dayLabel(rows[0].day)} está cerrada. Reábrela en Gastos → Cierre de caja (plan Básico: Ajustes → Perfil) para registrar o anular movimientos de ese día.`);
   return t;
 }
 
@@ -382,7 +384,9 @@ function closingLines(r, baseCurrency = 'USD') {
   const keys = [...new Set([...Object.keys(exp), ...Object.keys(cnt)])];
   return keys.map(k => {
     const i = k.lastIndexOf('|');
-    const method = i >= 0 ? k.slice(0, i) : k, currency = i >= 0 ? k.slice(i + 1) : baseCurrency;
+    // La moneda solo cuenta si tiene forma de moneda; si no, toda la clave es el método (en moneda base)
+    const hasCur = i >= 0 && /^[A-Z]{3,5}$/.test(k.slice(i + 1));
+    const method = hasCur ? k.slice(0, i) : k, currency = hasCur ? k.slice(i + 1) : baseCurrency;
     return { method, currency, expected: Number(exp[k] || 0), counted: Number(cnt[k] || 0), difference: Number(dif[k] || 0) };
   }).sort((a, b) => a.method.localeCompare(b.method) || a.currency.localeCompare(b.currency));
 }
@@ -457,7 +461,8 @@ async function closeCashDay(db, tenantId, day, body, createdBy = 'owner') {
     const currency = e.currency === undefined || e.currency === null || e.currency === '' ? base : String(e.currency).trim().toUpperCase();
     if (!PAY_CURRENCY_RE.test(currency)) throw new BadRequest(`Moneda inválida en «${m}»`);
     const n = payNum(e.amount);
-    if (!Number.isFinite(n) || n < 0 || n > MAX_MONEY) throw new BadRequest(`Importe contado inválido en «${m}» (${currency})`);
+    // Lo contado es el movimiento NETO del día en esa caja: si salió dinero (reembolsos, gastos) se anota en negativo.
+    if (!Number.isFinite(n) || n < -MAX_MONEY || n > MAX_MONEY) throw new BadRequest(`Importe contado inválido en «${m}» (${currency})`);
     const k = methodKey(m) + '|' + currency;
     if (countedC.has(k)) throw new BadRequest(`«${m}» (${currency}) está repetido en lo contado`);
     countedC.set(k, { method: m, currency, cents: centsOf(n) });
@@ -724,6 +729,6 @@ module.exports = {
   lockTenantForCash, businessDay, assertCashOpen, computeCashExpected, getCashDay, closeCashDay, reopenCashDay, mapClosing,
   mapExpenseRow, addExpenseTx, voidExpenseTx,
   applyStockDelta, syncOrderStock, restoreReturnedStock, adjustStockTx, mapMovementRow, orderDeducted,
-  LocationRequired, LOCATION_MSG, COUNTRIES, COUNTRY_TIMEZONES, OTHER_COUNTRY, canonCountry, timezonesForCountry, defaultTimezoneFor, tzValidForCountry, requireTz, closingLines, cashKey,
+  LocationRequired, CashClosed, LOCATION_MSG, COUNTRIES, COUNTRY_TIMEZONES, OTHER_COUNTRY, canonCountry, timezonesForCountry, defaultTimezoneFor, tzValidForCountry, requireTz, closingLines, cashKey,
   tzOf, DEFAULT_TIMEZONE, shiftDay, isRealDate, money2, centsOf,
 };

@@ -2,7 +2,7 @@
 const { ok, j, send, reg, db: dbConnect, run, DEMO_KEY, adminToken } = require('../helpers/harness');
 const post = (H, u, b) => send(H, 'POST', u, b);
 const put = (H, u, b) => send(H, 'PUT', u, b);
-const LOC_MSG = 'Configura la ubicación del negocio en Ajustes → Ubicación';
+const LOC_MSG = 'Configura la ubicación del negocio en Ajustes → Perfil → País y zona horaria';
 const isLoc = (r) => r.status === 400 && r.body && r.body.error === 'location_required' && r.body.message === LOC_MSG;
 
 run(async () => {

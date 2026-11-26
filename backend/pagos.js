@@ -76,7 +76,7 @@ const rawMethodsFor = (allRaw, wanted) => { const k = methodKey(wanted); return 
 async function backfillLegacyPayments(db, limit = BACKFILL_BATCH) {
   const hasClosings = await hasRelation(db, 'cash_closings');
   const { rows: cand } = await db.query(`
-    SELECT o.id, o.pay_method_label FROM orders o
+    SELECT o.id, o.tenant_id, o.pay_method_label FROM orders o
     WHERE o.pay_status = 'ok' AND o.amount_paid = 0 AND o.total_price > 0
       AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.order_id = o.id)${hasClosings ? `
       AND NOT EXISTS (
@@ -85,8 +85,26 @@ async function backfillLegacyPayments(db, limit = BACKFILL_BATCH) {
           AND cc.day = ((o.created_at AT TIME ZONE current_setting('TimeZone')) AT TIME ZONE tt.timezone)::date)` : ''}
     ORDER BY o.id LIMIT $1 FOR UPDATE OF o SKIP LOCKED`, [limit]);
   if (!cand.length) return 0;
-  const ids = cand.map(r => r.id);
-  const methods = cand.map(r => {
+  // Orden de bloqueo: pedido (arriba) → tenant. Se toma el tenant FOR KEY SHARE (como cualquier operación de dinero) y, YA con el
+  // candado, se repite la comprobación de cierre con la zona efectiva (misma regla que tzOf): un cierre de caja que llegó entre
+  // el SELECT y el INSERT espera al cierre o, si ya se confirmó, deja el pedido fuera.
+  let keep = cand;
+  if (hasClosings) {
+    const ops = require('./operacion'); // carga diferida: operacion.js requiere este archivo
+    const tIds = [...new Set(cand.map(r => r.tenant_id))].sort();
+    const { rows: ts } = await db.query('SELECT id, country, timezone FROM tenants WHERE id = ANY($1::uuid[]) ORDER BY id FOR KEY SHARE', [tIds]);
+    const tzBy = new Map(ts.map(t => [t.id, ops.tzOf(t)]));
+    const { rows: closed } = await db.query(`
+      SELECT c.id FROM unnest($1::uuid[], $2::uuid[], $3::text[]) AS c(id, tenant_id, tz)
+      JOIN orders o ON o.id = c.id
+      JOIN cash_closings cc ON cc.tenant_id = c.tenant_id AND cc.reopened_at IS NULL
+        AND cc.day = ((o.created_at AT TIME ZONE current_setting('TimeZone')) AT TIME ZONE c.tz)::date
+      WHERE c.tz IS NOT NULL`, [cand.map(r => r.id), cand.map(r => r.tenant_id), cand.map(r => tzBy.get(r.tenant_id) || null)]);
+    if (closed.length) { const skip = new Set(closed.map(r => r.id)); keep = cand.filter(r => !skip.has(r.id)); }
+    if (!keep.length) return 0;
+  }
+  const ids = keep.map(r => r.id);
+  const methods = keep.map(r => {
     const lbl = String(r.pay_method_label || '').trim();
     return !lbl || lbl === '—' ? 'Sin Especificar' : normalizeMethodName(lbl);
   });

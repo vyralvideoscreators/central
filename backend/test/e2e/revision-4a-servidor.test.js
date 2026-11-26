@@ -142,7 +142,7 @@ run(async () => {
   const Bs = await reg('Plan Básico');
   const uuid = '00000000-0000-4000-8000-000000000000';
   for (const [m, u, b] of [['GET', '/api/expenses'], ['POST', '/api/expenses', { amount: 1, category: 'Otros', method: 'Efectivo' }], ['POST', `/api/expenses/${uuid}/void`, { reason: 'x' }],
-    ['GET', '/api/cash'], ['GET', '/api/cash/2026-01-15'], ['POST', '/api/cash/2026-01-15/close', { counted: [] }], ['POST', '/api/cash/2026-01-15/reopen', { reason: 'x' }],
+    ['GET', '/api/cash'], ['GET', '/api/cash/2026-01-15'], ['POST', '/api/cash/2026-01-15/close', { counted: [] }],
     ['PUT', '/api/tenant/settings', { expenseCategories: ['Una', 'Dos'] }]]) {
     r = await send(Bs.H, m, u, b);
     ok(r.status === 403 && r.body.error === 'plan_required' && typeof r.body.message === 'string', `Básico: ${m} ${u.split('/').slice(0, 3).join('/')} → 403 plan_required`);

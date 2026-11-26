@@ -477,7 +477,7 @@ tbody td { padding: 11px 14px; vertical-align: middle; }
       </div>
       <div class="edit-field">
         <label class="edit-label">País</label>
-        <input class="form-input" id="editCountry" type="text">
+        <select class="form-input" id="editCountry"></select>
       </div>
     </div>
     <div class="edit-field">
@@ -847,7 +847,15 @@ function openEditTenant() {
   document.getElementById('editErr').style.display = 'none';
   document.getElementById('editBusinessName').value    = t.business_name || '';
   document.getElementById('editFullName').value        = t.full_name || '';
-  document.getElementById('editCountry').value         = t.country || '';
+  // País: lista cerrada (la misma del registro). Un valor antiguo que no esté en la lista se muestra tal cual, y como no cambia no se envía.
+  const cSel = document.getElementById('editCountry');
+  const cList = ['Venezuela','Colombia','México','Argentina','Chile','Perú','Ecuador','Bolivia','Paraguay','Uruguay','Panama','Costa Rica','Guatemala','Honduras','El Salvador','Nicaragua','República Dominicana','Cuba','Puerto Rico','España','Otro'];
+  const cLabel = { Panama: 'Panamá' };
+  const cur = t.country || '';
+  cSel.innerHTML = '<option value="">— Sin país —</option>' +
+    (cur && !cList.includes(cur) ? '<option value="' + esc(cur) + '">' + esc(cur) + '</option>' : '') +
+    cList.map(c => '<option value="' + esc(c) + '">' + esc(cLabel[c] || c) + '</option>').join('');
+  cSel.value = cur;
   document.getElementById('editEmail').value           = t.email || '';
   document.getElementById('editWhatsappNumber').value  = t.whatsapp_number || '';
   document.getElementById('editWhatsappPhoneId').value = t.whatsapp_phone_number_id || '';
@@ -873,7 +881,6 @@ async function saveEditTenant() {
   const payload = {
     business_name:            businessName,
     full_name:                document.getElementById('editFullName').value.trim(),
-    country:                  document.getElementById('editCountry').value.trim(),
     email:                    email,
     whatsapp_number:          document.getElementById('editWhatsappNumber').value.trim(),
     whatsapp_phone_number_id: document.getElementById('editWhatsappPhoneId').value.trim(),
@@ -881,6 +888,9 @@ async function saveEditTenant() {
     instagram_access_token:   document.getElementById('editIgToken').value.trim(),
     instagram_account_id:     document.getElementById('editIgAccountId').value.trim(),
   };
+  // El país solo se envía si cambió (así un negocio sin país o con un valor antiguo puede editar el resto)
+  const newCountry = document.getElementById('editCountry').value;
+  if (newCountry !== (currentTenant.country || '')) payload.country = newCountry;
   const btn = document.getElementById('editSaveBtn');
   btn.disabled = true;
   try {

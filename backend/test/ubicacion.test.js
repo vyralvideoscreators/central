@@ -19,7 +19,7 @@ ok(ops.tzOf({ country: 'Venezuela', timezone: 'Asia/Tokyo' }) === 'America/Carac
 ok(ops.tzOf({ country: 'México', timezone: 'America/Cancun' }) === 'America/Cancun', 'Zona del país con varias → se respeta');
 ok(ops.tzOf({ country: 'Otro', timezone: null }) === null && ops.tzOf({ country: 'Otro', timezone: 'America/New_York' }) === 'America/New_York' && ops.tzOf({ country: 'Otro', timezone: 'Asia/Tokyo' }) === null, '«Otro»: solo la elegida de su lista');
 ok(ops.tzOf({ country: null, timezone: null }) === null && ops.tzOf({ country: null, timezone: 'America/Lima' }) === 'America/Lima' && ops.tzOf({ country: 'VE', timezone: 'Nada/Mala' }) === null, 'Sin país: la guardada si es válida (negocios antiguos), si no ninguna');
-let threw = false; try { ops.requireTz({ country: 'Otro' }); } catch (e) { threw = e instanceof ops.LocationRequired && e instanceof ops.BadRequest && /Ajustes → Ubicación/.test(e.message); }
+let threw = false; try { ops.requireTz({ country: 'Otro' }); } catch (e) { threw = e instanceof ops.LocationRequired && e instanceof ops.BadRequest && /Ajustes → Perfil → País y zona horaria/.test(e.message); }
 ok(threw, 'requireTz sin zona lanza LocationRequired (un BadRequest con el mensaje de ubicación)');
 
 console.log(fails ? `\n${fails} FALLO(S)` : '\nTODO OK');
