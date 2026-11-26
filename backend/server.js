@@ -20,6 +20,7 @@ const crypto     = require('crypto');
 const { ensurePaymentsSchema, ensureOrderCycleSchema, validateOrdersKindCheck, CREDIT_METHOD, isCreditMethod, runPaymentsBackfill, recalcOrderPayment,
   normalizeMethodName, mergeMethodTotals, rawMethodsFor } = require('./pagos');
 const ops = require('./operacion');
+const team = require('./equipo');
 const { BadRequest } = ops; // error de datos del cliente de la API (se responde 400 con este mensaje)
 
 const app = express();
@@ -470,6 +471,18 @@ async function initDB() {
       console.error('❌ Falta el esquema de gastos y existencias. Se detiene el arranque para reintentar.');
       process.exit(1);
     }
+    // Fase 4B — equipo con roles y quién hizo qué (ver equipo.js y migrations/2026-11-28-equipo.sql). Mismo criterio: sin
+    // team_users nadie podría iniciar sesión, así que se detiene el arranque y Railway conserva la versión anterior.
+    let teamReady = false;
+    for (let attempt = 1; attempt <= 4 && !teamReady; attempt++) {
+      teamReady = await team.ensureTeamSchema(pool);
+      if (!teamReady && attempt < 4) await new Promise(r => setTimeout(r, 1000 * 2 ** (attempt - 1)));
+    }
+    if (!teamReady) {
+      console.error('❌ Falta el esquema del equipo. Se detiene el arranque para reintentar.');
+      process.exit(1);
+    }
+    try { await team.runTeamBackfill(pool); } catch (err) { console.error('⚠️  Relleno del dueño del equipo:', err.message); }
     // Zona horaria desde el país (ver backfillTenantTimezones): rápido e idempotente; un fallo solo se registra
     try { await backfillTenantTimezones(); } catch (err) { console.error('⚠️  Relleno de zonas horarias:', err.message); }
     // Relleno de pedidos pagados "a la antigua" (por lotes; un fallo solo se registra). En el PRIMER arranque
@@ -5041,6 +5054,15 @@ const BACKGROUND_INDEXES = [
   // Relleno de pagos en cada arranque (pagos.js): hace barata la búsqueda de pedidos 'ok' sin pago. Parcial:
   // solo contiene pedidos pendientes de convertir (casi siempre ninguno).
   { name: 'orders_legacy_paid_id_idx', table: 'orders', sql: "CREATE INDEX CONCURRENTLY IF NOT EXISTS orders_legacy_paid_id_idx ON orders (id) WHERE pay_status = 'ok' AND amount_paid = 0 AND total_price > 0" },
+  // Fase 4B: lista de pedidos paginada por cursor (tenant, created_at DESC, id) y sus filtros por estado y cliente
+  { name: 'orders_tenant_created_desc_idx', table: 'orders', sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS orders_tenant_created_desc_idx ON orders (tenant_id, created_at DESC, id DESC)' },
+  { name: 'orders_tenant_client_idx', table: 'orders', sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS orders_tenant_client_idx ON orders (tenant_id, client_id) WHERE client_id IS NOT NULL' },
+  // Fase 4B: chats paginados (por último mensaje) y mensajes de un chat hacia atrás
+  { name: 'conversations_tenant_last_idx', table: 'conversations', sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS conversations_tenant_last_idx ON conversations (tenant_id, last_message_at DESC NULLS LAST, wa_id)' },
+  { name: 'messages_tenant_wa_time_idx', table: 'messages', sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS messages_tenant_wa_time_idx ON messages (tenant_id, wa_id, time DESC, id)' },
+  // Fase 4B: las FK «quién hizo qué» (ON DELETE SET NULL) necesitan índice para que borrar un usuario no recorra la tabla; parciales (casi vacíos)
+  ...team.USER_FK_COLUMNS.map(([table, col]) => ({ name: `${table}_${col}_idx`, table,
+    sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${table}_${col}_idx ON ${table} (${col}) WHERE ${col} IS NOT NULL` })),
 ];
 async function ensureIndexes() {
   if (!dbReady) return;
@@ -5087,6 +5109,7 @@ initDB().then(() => {
     console.log(`🚀 CENTRAL Backend v5.0 escuchando en puerto ${PORT}`);
     ensureIndexes().catch(err => console.error('⚠️  ensureIndexes:', err.message));
     validateOrdersKindCheck(pool).catch(err => console.error('⚠️  validateOrdersKindCheck:', err.message));
+    team.validateTeamFks(pool).catch(err => console.error('⚠️  validateTeamFks:', err.message));
     if (backfillAfterListen) {
       runPaymentsBackfill(pool).catch(() => {});
       setTimeout(() => runPaymentsBackfill(pool).catch(() => {}), 10 * 60000).unref();
