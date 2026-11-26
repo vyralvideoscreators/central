@@ -3560,15 +3560,21 @@ document.addEventListener('DOMContentLoaded', verifySessionAndApplyTenant);
 const convos = {};  // solo conversaciones reales (llegan de /api/conversations)
 
 // ─── PERSISTENCIA DE CONVERSACIONES REALES ───────────────────
+// Solo se guardan los metadatos de cada chat y sus ÚLTIMOS 20 mensajes (la caché solo sirve para pintar algo mientras llega el
+// servidor). Nunca el estado de la sesión de pantalla (histInit, hasMore, msgBefore, loadingOlder…): un chat guardado con
+// «historial ya cargado» no volvería a pedirlo y se quedaría con mensajes viejos.
+const CONVO_CACHE_MSGS = 20;
+const CONVO_VOLATILE = ['histInit', 'histFailed', 'hasMore', 'msgBefore', 'loadingOlder', 'olderFailed'];
 function saveRealConvos() {
   const real = {};
   Object.entries(convos).forEach(([k, c]) => {
     if (!c.isReal) return;
+    const keep = Object.assign({}, c);
+    CONVO_VOLATILE.forEach(f => { delete keep[f]; });
     // Las URLs blob: dejan de valer al recargar: no se guardan (el archivo se vuelve a pedir al servidor)
-    real[k] = Object.assign({}, c, {
-      messages: (c.messages || []).map(m => (m.localUrl && String(m.localUrl).startsWith('blob:'))
-        ? Object.assign({}, m, { localUrl: undefined }) : m),
-    });
+    keep.messages = (c.messages || []).slice(-CONVO_CACHE_MSGS).map(m => (m.localUrl && String(m.localUrl).startsWith('blob:'))
+      ? Object.assign({}, m, { localUrl: undefined }) : m);
+    real[k] = keep;
   });
   try { localStorage.setItem('central_real_convos', JSON.stringify(real)); } catch(e) {}
 }
@@ -3578,6 +3584,8 @@ function loadRealConvos() {
     const saved = JSON.parse(localStorage.getItem('central_real_convos') || 'null');
     if (!saved) return;
     Object.entries(saved).forEach(([k, c]) => {
+      CONVO_VOLATILE.forEach(f => { delete c[f]; }); // cachés guardadas por versiones anteriores traían el estado de pantalla
+      if (Array.isArray(c.messages)) c.messages = c.messages.slice(-CONVO_CACHE_MSGS);
       convos[k] = c;
     });
   } catch(e) {}
@@ -3775,6 +3783,7 @@ function saveTicketToConvo(convoKey, ticketId, ticketInner, ticketType, timeStr)
     ticketInner,
     ticketType,   // 'confirm' or 'presupuesto'
     time: timeStr,
+    _lt: Date.now(),
   });
 }
 
@@ -3859,7 +3868,9 @@ function loadChat(key) {
   // messages
   const list = document.getElementById('msgList');
   list.innerHTML = '';
-  if (c.hasMore) list.insertAdjacentHTML('afterbegin', '<div style="text-align:center;padding:8px;"><button type="button" class="btn-ghost" onclick="loadOlderMessages()">Cargar mensajes anteriores</button></div>');
+  if (c.isReal && c.histFailed) list.insertAdjacentHTML('afterbegin', '<div class="msg-edge" role="status">No se pudo cargar el historial · <button type="button" class="btn-ghost" onclick="retryConvoHistory()">Reintentar</button></div>');
+  else if (c.hasMore) list.insertAdjacentHTML('afterbegin', '<div class="msg-edge"><button type="button" class="btn-ghost" onclick="loadOlderMessages(true)"' + (c.loadingOlder ? ' disabled' : '') + '>' + (c.olderFailed ? 'Reintentar: ver mensajes anteriores' : 'Ver mensajes anteriores') + '</button></div>');
+  else if (c.isReal && c.histInit && !c.loadingOlder) list.insertAdjacentHTML('afterbegin', '<div class="msg-edge">Inicio de la conversación</div>');
   c.messages.forEach(m => {
     if (m.type === 'ticket') {
       renderTicketBubble(list, m, c);
@@ -3963,7 +3974,9 @@ async function sendMsg() {
   const timeStr = now.toLocaleTimeString('es-VE', { hour:'2-digit', minute:'2-digit' });
 
   // Mostrar el mensaje en la UI inmediatamente (optimista)
-  c.messages.push({ role:'out', type:'text', text, time: timeStr });
+  // _lt = cuándo se creó aquí; el id lo pone la respuesta del servidor (así el historial no lo duplica)
+  const msgRef = { role:'out', type:'text', text, time: timeStr, _lt: Date.now() };
+  c.messages.push(msgRef);
   const wrap = document.createElement('div');
   wrap.className = 'msg out';
   wrap.innerHTML = `
@@ -3991,11 +4004,40 @@ async function sendMsg() {
       const data = await res.json();
       if (!res.ok || !data.success) {
         showToast('⚠ Error al enviar: ' + (data.error || 'desconocido'));
+      } else if (data.message && data.message.id) {
+        confirmSentMessage(c, msgRef, data.message.id);
       }
     } catch (err) {
       showToast('⚠ No se pudo conectar con el backend real');
     }
   }
+}
+
+// El servidor confirmó un envío: el mensaje que se pintó al momento recibe SU id. Si el historial ya trajo ese mismo mensaje (la
+// petición del historial se cruzó con el envío), se quita la copia local en vez de dejar dos.
+function confirmSentMessage(c, ref, id) {
+  if (!c || !ref || !id || ref.id === id) return;
+  const dup = (c.messages || []).find(m => m !== ref && m.id === id);
+  if (dup) {
+    c.messages = c.messages.filter(m => m !== ref);
+    if (convos[currentConvo] === c) loadChat(currentConvo);
+  } else ref.id = id;
+  saveRealConvos();
+}
+// Un envío llegó por WebSocket (message_sent): si es el que esta pantalla acaba de pintar, solo se le pone el id; si lo mandó otra
+// persona del equipo, se añade. Devuelve true si cambió la lista de mensajes.
+function adoptSentMessage(waId, sm) {
+  const c = convos[waId];
+  if (!c || !sm) return false;
+  if (sm.id && (c.messages || []).some(m => m.id === sm.id)) return false;
+  const fresh = Date.now() - 60000;
+  const pend = (c.messages || []).find(m => !m.id && m.role === 'out' && (m._lt || 0) > fresh &&
+    ((m.type === 'text' && sm.type === 'text' && m.text === sm.text) ||
+     (m.type === sm.type && m.type !== 'text' && m.type !== 'ticket' && (m.filename || '') === (sm.filename || '')) ||
+     (m.type === 'ticket' && sm.type === 'image')));
+  if (pend) { pend.id = sm.id; return false; }
+  c.messages = (c.messages || []).concat([Object.assign(mapServerMessage(sm), { _lt: Date.now() })]);
+  return true;
 }
 
 // ─── SEND FILE ────────────────────────────────────────────────
@@ -4015,7 +4057,7 @@ async function sendFile(input) {
   const localUrl = URL.createObjectURL(file);
 
   // Guardar en historial con URL local para que persista al cambiar de chat
-  const msgObj = { role:'out', type: mediaType, filename: file.name, caption:'', localUrl, time: timeStr };
+  const msgObj = { role:'out', type: mediaType, filename: file.name, caption:'', localUrl, time: timeStr, _lt: Date.now() };
   c.messages.push(msgObj);
 
   // Mostrar burbuja inmediatamente
@@ -4081,6 +4123,7 @@ async function sendFile(input) {
         // Guardar la ruta del servidor: al recargar, la URL local (blob:) ya no sirve
         msgObj.mediaUrl = data.message.mediaUrl;
         msgObj.mediaId = data.message.mediaId;
+        if (data.message.id) confirmSentMessage(c, msgObj, data.message.id);
         saveRealConvos();
       }
     } catch (err) {
@@ -10474,8 +10517,23 @@ let convoPage = { cursor: null, loading: false };
 function ingestServerConvos(list) {
   list.forEach(rc => {
     const key = rc.waId;
-    if (convos[key]) return; // lo que ya está en pantalla no se pisa
     const isIg = (rc.platform === 'ig') || key.startsWith('ig_');
+    const ex = convos[key];
+    if (ex) {
+      // Un chat que ya existe (de la caché o de una carga anterior) se ACTUALIZA con lo que dice el servidor: nombre, hora, id de
+      // Instagram y mensajes. Solo se conservan los envíos locales que el servidor aún no devuelve (sin id).
+      if (!ex.isReal) return;
+      ex.name = rc.name || ex.name || rc.waId;
+      if (rc.lastMessageAt) ex.ts = new Date(rc.lastMessageAt).getTime();
+      if (isIg) ex.igSenderId = rc.igSenderId || ex.igSenderId || key.replace('ig_', '');
+      // Con el historial ya pedido (histInit) los mensajes los lleva esa petición y el WebSocket: no se tocan
+      if (!ex.histInit && Array.isArray(rc.messages)) {
+        const srv = rc.messages.map(mapServerMessage);
+        const pending = (ex.messages || []).filter(m => !m.id && (m._lt || 0) > Date.now() - 120000); // envíos locales aún sin confirmar
+        ex.messages = srv.concat(pending);
+      }
+      return;
+    }
     convos[key] = {
       name: rc.name || rc.waId,
       initials: (rc.name || rc.waId).split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase(),
@@ -10538,24 +10596,34 @@ function scheduleConvoServerSearch(q) {
   }, 400);
 }
 // Al abrir un chat se piden sus últimos 50 mensajes; al subir, los anteriores de 50 en 50
-async function ensureConvoHistory(key) {
+// Del servidor se queda TODO lo que devuelve; a eso solo se añaden los mensajes creados en esta pantalla DESPUÉS de pedir el historial
+// (envíos aún sin confirmar o llegados mientras tanto). Los más antiguos llegan solo con «Ver mensajes anteriores».
+// Si falla, no se reintenta solo: queda un aviso con botón «Reintentar» (nada de bucles).
+async function ensureConvoHistory(key, force) {
   const c = convos[key];
-  if (!c || !c.isReal || !c.waId || c.histInit) return;
-  c.histInit = true;
+  if (!c || !c.isReal || !c.waId || (c.histInit && !force)) return;
+  c.histInit = true; c.histFailed = false;
+  const askedAt = Date.now();
   try {
     const d = await apiJson('GET', '/api/conversations/' + encodeURIComponent(c.waId) + '?limit=50');
     const srv = (d.messages || []).map(mapServerMessage);
     const ids = new Set(srv.map(m => m.id));
-    const local = c.messages.filter(m => !m.id || !ids.has(m.id)); // tickets y envíos aún sin id del servidor
+    const local = (c.messages || []).filter(m => (!m.id || !ids.has(m.id)) && (m._lt || 0) >= askedAt);
     c.messages = srv.concat(local);
     c.hasMore = !!d.hasMore; c.msgBefore = d.nextBefore || null;
     if (currentConvo === key) loadChat(key);
-  } catch (e) { c.histInit = false; }
+  } catch (e) {
+    c.histFailed = true; // sigue marcado como pedido: no se reintenta en bucle
+    showToast('No se pudo cargar el historial del chat (' + e.message + ')', 'error');
+    if (currentConvo === key) loadChat(key);
+  }
 }
-async function loadOlderMessages() {
+function retryConvoHistory() { if (currentConvo) ensureConvoHistory(currentConvo, true); }
+async function loadOlderMessages(manual) {
   const key = currentConvo, c = convos[key];
   if (!c || !c.isReal || !c.hasMore || !c.msgBefore || c.loadingOlder) return;
-  c.loadingOlder = true;
+  if (c.olderFailed && !manual) return; // tras un fallo solo el botón reintenta (no el scroll)
+  c.loadingOlder = true; c.olderFailed = false;
   const list = document.getElementById('msgList');
   const prevH = list.scrollHeight;
   try {
@@ -10564,11 +10632,17 @@ async function loadOlderMessages() {
     const older = (d.messages || []).map(mapServerMessage).filter(m => !have.has(m.id));
     c.messages = older.concat(c.messages);
     c.hasMore = !!d.hasMore; c.msgBefore = d.nextBefore || null;
+    c.loadingOlder = false;
     if (currentConvo === key) { loadChat(key); list.scrollTop = list.scrollHeight - prevH; } // se queda donde estaba, no salta al final
-  } catch (err) { showToast('No se pudieron cargar mensajes anteriores (' + err.message + ')', 'error'); }
+  } catch (err) {
+    c.olderFailed = true;
+    c.loadingOlder = false;
+    showToast('No se pudieron cargar mensajes anteriores (' + err.message + ')', 'error');
+    if (currentConvo === key) loadChat(key);
+  }
   finally { c.loadingOlder = false; }
 }
-document.getElementById('msgList').addEventListener('scroll', function () { if (this.scrollTop < 40) loadOlderMessages(); });
+document.getElementById('msgList').addEventListener('scroll', function () { if (this.scrollTop < 40) loadOlderMessages(false); });
 
 // ─── INIT ─────────────────────────────────────────
 applyPlanNavigation(activePlan);
@@ -11120,6 +11194,8 @@ function attachMessageMedia(el, m) {
           }
 
           const m = mapServerMessage(Object.assign({}, data.message, { role: 'in' }));
+          m._lt = Date.now(); // llegó en esta sesión: el historial que se esté pidiendo no debe borrarlo
+          if (convos[waId].messages.some(x => x.id && x.id === m.id)) return; // ya estaba (llegó también por el historial)
           convos[waId].messages.push(m);
 
           if (currentConvo !== waId) convos[waId].unread = true;
@@ -11138,10 +11214,16 @@ function attachMessageMedia(el, m) {
           // Los envíos hechos desde esta pantalla ya se pintaron al momento; aquí solo se
           // añaden los que generó el servidor (respuesta automática fuera de horario).
           if (data.auto && convos[data.waId]) {
-            convos[data.waId].messages.push(mapServerMessage(data.message));
+            const am = mapServerMessage(data.message); am._lt = Date.now();
+            if (!convos[data.waId].messages.some(x => x.id && x.id === am.id)) convos[data.waId].messages.push(am);
             saveRealConvos();
             bumpConvoToTop(data.waId);
             if (currentConvo === data.waId) loadChat(data.waId);
+          } else if (!data.auto && convos[data.waId] && data.message) {
+            // Lo mandó esta pantalla (solo se le pone el id) o otra persona del equipo (se añade)
+            const changed = adoptSentMessage(data.waId, data.message);
+            saveRealConvos();
+            if (changed) { bumpConvoToTop(data.waId); if (currentConvo === data.waId) loadChat(data.waId); }
           }
         }
 

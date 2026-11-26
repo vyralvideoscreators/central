@@ -803,7 +803,9 @@ async function ordersCounts(tenantId) {
   return {
     all: r.all, to_deliver: r.to_deliver, preparing: r.preparing, on_the_way: r.on_the_way, delivered: r.delivered, not_delivered: r.not_delivered,
     quote: r.quote, cancelled: r.cancelled, pending_pay: r.pending_pay, delivered_unpaid: r.delivered_unpaid, owed: money2(r.owed), today: r.today, tomorrow: r.tomorrow,
-    ordersToday: r.orders_today, salesToday: money2(r.sales_today), ordersYesterday: r.orders_yesterday, salesYesterday: money2(r.sales_yesterday),
+    // Sin zona horaria no hay «hoy»: null (el SPA avisa que falta configurarla) en vez de un 0 que parecería cierto
+    ordersToday: tz ? r.orders_today : null, salesToday: tz ? money2(r.sales_today) : null,
+    ordersYesterday: tz ? r.orders_yesterday : null, salesYesterday: tz ? money2(r.sales_yesterday) : null,
   };
 }
 
