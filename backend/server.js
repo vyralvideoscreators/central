@@ -2027,7 +2027,11 @@ wss.on('connection', (ws) => {
       if (dbReady) {
         // Mismas comprobaciones que requireAuth: cuenta activa, usuario activo y sesión vigente (token_version)
         const sess = await resolveSession(decoded);
-        if (sess.fail || sess.user.must_change_password) return rejectSocket(sess.fail ? 'Sesión no válida' : 'Cambia tu contraseña primero');
+        if (sess.fail) return rejectSocket('Sesión no válida');
+        if (sess.user.must_change_password) { // la app ya muestra el cambio obligatorio: sin datos y sin auth_error (que la recargaría)
+          try { ws.send(JSON.stringify({ type: 'must_change_password' })); ws.close(); } catch {}
+          return;
+        }
         ws.userId = sess.user.id;
       }
       if (ws.readyState !== 1) return;

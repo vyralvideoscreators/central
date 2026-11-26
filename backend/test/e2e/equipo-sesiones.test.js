@@ -34,6 +34,8 @@ run(async () => {
   r = await login(email, temp);
   ok(r.status === 200 && r.body.mustChangePassword === true && r.body.user.role === 'seller' && r.body.tenant.fullName === 'Sara', 'Login con la temporal: pide cambiarla');
   const tok1 = r.body.token;
+  const sockTemp = await openWs(tok1);
+  ok(sockTemp.msgs.some(m => m.type === 'must_change_password') && !sockTemp.msgs.some(m => m.type === 'auth_error' || m.type === 'init'), 'Con la temporal el WebSocket no da datos ni auth_error (la app no se recarga en bucle)');
   const dec = jwt.decode(tok1);
   ok(dec.userId === sid && dec.role === 'seller' && Number.isInteger(dec.tv) && dec.tenantId === O.id, 'El token lleva tenantId, userId, role y tv');
   r = await j('/api/orders', { headers: authH(tok1) });

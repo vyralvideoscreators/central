@@ -613,9 +613,10 @@ async function doLogin() {
       body: JSON.stringify({ email, password }),
     });
     const data = await res.json();
-    if (!res.ok) { showMsg('loginErr', (data.error === 'demo_expired' && data.message) || data.error || 'Correo o contraseña incorrectos'); return; }
+    if (!res.ok) { showMsg('loginErr', (['demo_expired', 'user_inactive', 'temp_password_expired'].includes(data.error) && data.message) || data.error || 'Correo o contraseña incorrectos'); return; }
     saveSession(data);
-    showMsg('loginOk', 'Sesión iniciada — redirigiendo…');
+    // Con una contraseña temporal, la app abre directamente la ventana para cambiarla antes de dejar entrar
+    showMsg('loginOk', data.mustChangePassword ? 'Sesión iniciada — ahora elige tu propia contraseña…' : 'Sesión iniciada — redirigiendo…');
     setTimeout(() => window.location.href = APP_URL, 700);
   } catch {
     showMsg('loginErr', 'No se pudo conectar con el servidor');

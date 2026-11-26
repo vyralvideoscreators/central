@@ -7159,8 +7159,8 @@ function showTempPasswordDialog(name, email, password, expires) {
   return new Promise(resolve => {
     const d = _openDialog(
       '<div class="modal-title">Contraseña temporal de ' + escHtml(name) + '</div>' +
-      '<div class="modal-sub">Compártela con ' + escHtml(name) + ' (' + escHtml(email) + '). Tendrá que cambiarla al entrar' +
-        (expires ? ' y caduca el ' + escHtml(fmtWhen(expires)) : '') + '.</div>' +
+      '<div class="modal-sub">Compártela con ' + escHtml(name) + ' (' + escHtml(email) + '). Tendrá que cambiarla al entrar.' +
+        (expires ? ' Caduca el ' + escHtml(fmtWhen(expires)) : '') + '</div>' +
       '<div class="team-temp" id="teamTempPw" tabindex="0">' + escHtml(password) + '</div>' +
       '<div class="team-warn" role="note">No se volverá a mostrar. Si se pierde, restablece la contraseña desde el equipo.</div>' +
       '<div class="modal-footer"><button class="btn-ghost" data-act="copy">Copiar</button><button class="btn-primary" data-act="done">Listo</button></div>',
@@ -11071,6 +11071,7 @@ function attachMessageMedia(el, m) {
   let stopReconnect = false;
 
   function connect() {
+    if (TEAM_ME.mustChange) return; // con la contraseña temporal no hay datos en tiempo real hasta cambiarla
     try {
       ws = new WebSocket(WS_URL);
     } catch (e) {
