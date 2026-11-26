@@ -673,6 +673,7 @@ function mapOrderRow(r) {
     balance:             (isQuote || r.delivery_status === 'cancelled') ? 0 : Math.max(0, money2(effective - Number(r.amount_paid || 0))),
     createdAt:           r.created_at,
     updatedAt:           r.updated_at,
+    createdByUserId:     r.created_by_user_id || null,
     items,
   };
 }
@@ -697,7 +698,7 @@ async function dbGetOrders(tenantId) {
     GROUP BY o.id
     ORDER BY o.created_at DESC
   `, [tenantId]);
-  return rows.map(mapOrderRow);
+  return ops.attachByName(pool, tenantId, rows.map(mapOrderRow), ops.BY_CREATED);
 }
 
 // Inserta los artículos de un pedido. El producto del catálogo solo se enlaza si es de ESTE negocio (si no, queda sin
@@ -729,7 +730,7 @@ async function insertOrderItems(db, tenantId, orderId, items, { snapshotCost, ol
   return lines;
 }
 
-async function dbCreateOrder(tenantId, data) {
+async function dbCreateOrder(tenantId, data, actor = null) {
   if (!dbReady) return null;
   // Presupuesto o pedido (Fase 3). Un presupuesto no admite cobros ni se numera como pedido.
   const kind = data.kind === undefined || data.kind === null || data.kind === '' ? 'order' : data.kind;
@@ -768,8 +769,8 @@ async function dbCreateOrder(tenantId, data) {
       INSERT INTO orders (tenant_id, client_id, client_name, platform, product_summary,
         total_price, pay_status, delivery_status, pay_method_label, delivery_method_label,
         address, notes, shipping, tenant_order_number, discount,
-        kind, quote_number, tax_rate, tax_amount, delivery_date, delivery_zone)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+        kind, quote_number, tax_rate, tax_amount, delivery_date, delivery_zone, created_by_user_id)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
       RETURNING *
     `, [
       tenantId, clientId, data.clientName || null, data.platform || null,
@@ -777,23 +778,23 @@ async function dbCreateOrder(tenantId, data) {
       deliveryStatus, data.payMethodLabel || null,
       data.deliveryMethodLabel || null, data.address || null, data.notes || null,
       shipping, isQuote ? null : seqRows[0].seq, discount,
-      kind, isQuote ? seqRows[0].seq : null, amounts ? taxRate : 0, amounts ? amounts.tax : 0, deliveryDate, deliveryZone,
+      kind, isQuote ? seqRows[0].seq : null, amounts ? taxRate : 0, amounts ? amounts.tax : 0, deliveryDate, deliveryZone, actorId(actor),
     ]);
     const order = rows[0];
 
     const stockLines = await insertOrderItems(client, tenantId, order.id, items, { snapshotCost: !isQuote });
 
     await addOrderEvent(client, tenantId, order.id, 'created', {
-      total, items: items.length, clientName: data.clientName || null, platform: data.platform || null, kind });
+      total, items: items.length, clientName: data.clientName || null, platform: data.platform || null, kind }, actor);
     // Pago inicial opcional: nace en la misma transacción que el pedido (nunca se marca pagado sin pago)
     if (data.initialPayment !== undefined && data.initialPayment !== null) {
       if (typeof data.initialPayment !== 'object' || Array.isArray(data.initialPayment)) throw new BadRequest('El pago inicial no es válido');
-      const r = await addPaymentTx(client, tenantId, order.id, data.initialPayment);
+      const r = await addPaymentTx(client, tenantId, order.id, data.initialPayment, actor);
       Object.assign(order, r.order);
     }
     // Existencias (Fase 4A): un pedido descuenta lo que vende; un presupuesto no (descuenta al convertirse). Va DESPUÉS del
     // pago inicial: el orden de bloqueo es pedido → tenant → cliente (saldo a favor) → existencias.
-    if (!isQuote) await ops.syncOrderStock(client, tenantId, order.id, stockLines, 'sale');
+    if (!isQuote) await ops.syncOrderStock(client, tenantId, order.id, stockLines, 'sale', actor);
     // Los artículos se leen DENTRO de la transacción, con la misma conexión: pedir otra al pool mientras esta sigue
     // tomada deja el servidor colgado cuando llegan a la vez tantos pedidos como conexiones hay.
     const { rows: itemRows } = await client.query(
@@ -806,6 +807,7 @@ async function dbCreateOrder(tenantId, data) {
       detail: i.detail, qty: i.qty, unitPrice: i.unit_price, linePrice: i.line_price, variantKey: i.variant_key || '',
     }));
     const result = mapOrderRow(order);
+    await ops.withName(client, tenantId, result, ops.BY_CREATED);
     if (createdClient) result.createdClient = createdClient;
     return result;
   } catch (err) {
@@ -999,10 +1001,12 @@ function sendApiError(res, err, label) {
   return res.status(500).json({ error: 'No se pudo completar la operación' });
 }
 
+// createdBy = actor ({ id, role, name } de req.user) o 'owner' (sistema): ver operacion.js → actorText / actorId
+const { actorText, actorId } = ops;
 async function addOrderEvent(db, tenantId, orderId, type, data, createdBy = 'owner') {
   await db.query(
-    'INSERT INTO order_events (tenant_id, order_id, type, data, created_by) VALUES ($1, $2, $3, $4, $5)',
-    [tenantId, orderId, type, JSON.stringify(data ?? null), createdBy]);
+    'INSERT INTO order_events (tenant_id, order_id, type, data, created_by, created_by_user_id) VALUES ($1, $2, $3, $4, $5, $6)',
+    [tenantId, orderId, type, JSON.stringify(data ?? null), actorText(createdBy), actorId(createdBy)]);
 }
 
 function mapPaymentRow(r) {
@@ -1010,7 +1014,7 @@ function mapPaymentRow(r) {
     id: r.id, orderId: r.order_id, clientId: r.client_id,
     amount: Number(r.amount), currency: r.currency, exchangeRate: Number(r.exchange_rate), amountBase: Number(r.amount_base),
     method: r.method, reference: r.reference, paidAt: r.paid_at, note: r.note,
-    createdAt: r.created_at, createdBy: r.created_by,
+    createdAt: r.created_at, createdBy: r.created_by, createdByUserId: r.created_by_user_id || null, voidedByUserId: r.voided_by_user_id || null,
     voided: !!r.voided_at, voidedAt: r.voided_at, voidReason: r.void_reason,
   };
   if (r.order_num !== undefined) {
@@ -1032,7 +1036,7 @@ async function fetchOrderFull(db, tenantId, orderId) {
     LEFT JOIN order_items oi ON oi.order_id = o.id AND oi.tenant_id = o.tenant_id
     WHERE o.id = $1 AND o.tenant_id = $2
     GROUP BY o.id`, [orderId, tenantId]);
-  return rows[0] ? mapOrderRow(rows[0]) : null;
+  return rows[0] ? ops.withName(db, tenantId, mapOrderRow(rows[0]), ops.BY_CREATED) : null;
 }
 
 // Zona horaria del negocio: SOLO la de su ubicación (país + zona, Ajustes → Perfil → País y zona horaria). Nunca la del navegador: el `tz` de la
@@ -1180,9 +1184,9 @@ async function addPaymentTx(db, tenantId, orderId, body, createdBy = 'owner') {
   if (!withCredit) await ops.assertCashOpen(db, tenantId, { instants: [paidAt] });
   const { rows } = await db.query(`
     INSERT INTO payments (tenant_id, order_id, client_id, amount, currency, exchange_rate, amount_base,
-                          method, reference, paid_at, note, created_by)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10::timestamptz, now()), $11, $12) RETURNING *
-  `, [tenantId, orderId, ord[0].client_id, amountR, currency, rate, amountBaseC / 100, method, reference, paidAt, note, createdBy]);
+                          method, reference, paid_at, note, created_by, created_by_user_id)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10::timestamptz, now()), $11, $12, $13) RETURNING *
+  `, [tenantId, orderId, ord[0].client_id, amountR, currency, rate, amountBaseC / 100, method, reference, paidAt, note, actorText(createdBy), actorId(createdBy)]);
   if (withCredit) {
     await db.query(`INSERT INTO client_credit_entries (tenant_id, client_id, amount, kind, order_id, ref_id)
       VALUES ($1, $2, $3, 'credit_payment', $4, $5)`, [tenantId, ord[0].client_id, -amountBaseC / 100, orderId, rows[0].id]);
@@ -1203,8 +1207,8 @@ async function voidPaymentTx(db, tenantId, paymentId, reason, createdBy = 'owner
   // Caja cerrada: no se anulan pagos de un día cerrado (el día del pago, no el de hoy)
   if (!isCreditMethod(pr[0].method)) await ops.assertCashOpen(db, tenantId, { instants: [pr[0].paid_at] });
   const { rows } = await db.query(
-    'UPDATE payments SET voided_at = now(), void_reason = $3 WHERE id = $1 AND tenant_id = $2 AND voided_at IS NULL RETURNING *',
-    [paymentId, tenantId, why]);
+    'UPDATE payments SET voided_at = now(), void_reason = $3, voided_by_user_id = $4 WHERE id = $1 AND tenant_id = $2 AND voided_at IS NULL RETURNING *',
+    [paymentId, tenantId, why, actorId(createdBy)]);
   if (!rows[0]) throw new BadRequest('Este pago ya fue anulado');
   // Lo cobrado neto (pagos − reembolsos) no puede quedar negativo: un pago ya devuelto no se anula (se corrige con una operación nueva)
   const { rows: [net] } = await db.query(`SELECT
@@ -1242,6 +1246,7 @@ function mapRefundRow(r) {
     id: r.id, orderId: r.order_id, creditNoteId: r.credit_note_id,
     amount: Number(r.amount), currency: r.currency, exchangeRate: Number(r.exchange_rate), amountBase: Number(r.amount_base),
     method: r.method, reference: r.reference, reason: r.reason, createdAt: r.created_at, createdBy: r.created_by,
+    createdByUserId: r.created_by_user_id || null,
   };
 }
 
@@ -1286,9 +1291,9 @@ async function settleRefundTx(db, tenantId, ord, amountC, o) {
   for (const [c, m] of [[cashC, method], [creditC, CREDIT_METHOD]]) {
     if (c <= 0) continue;
     const { rows } = await db.query(`
-      INSERT INTO refunds (tenant_id, order_id, credit_note_id, amount, currency, exchange_rate, amount_base, method, reason, created_by)
-      VALUES ($1, $2, $3, $4, $5, 1, $4, $6, $7, $8) RETURNING *`,
-      [tenantId, ord.id, o.creditNoteId || null, c / 100, base, m, o.reason, o.createdBy]);
+      INSERT INTO refunds (tenant_id, order_id, credit_note_id, amount, currency, exchange_rate, amount_base, method, reason, created_by, created_by_user_id)
+      VALUES ($1, $2, $3, $4, $5, 1, $4, $6, $7, $8, $9) RETURNING *`,
+      [tenantId, ord.id, o.creditNoteId || null, c / 100, base, m, o.reason, actorText(o.createdBy), actorId(o.createdBy)]);
     if (m === CREDIT_METHOD) {
       await db.query(`INSERT INTO client_credit_entries (tenant_id, client_id, amount, kind, order_id, ref_id)
         VALUES ($1, $2, $3, 'refund_to_credit', $4, $5)`, [tenantId, creditClientId, c / 100, ord.id, rows[0].id]);
@@ -1318,7 +1323,7 @@ async function mapCreditNoteFull(db, tenantId, noteRows) {
   ]);
   return noteRows.map(n => ({
     id: n.id, orderId: n.order_id, clientId: n.client_id, number: fmtCreditNote(n.number),
-    amountBase: Number(n.amount_base), reason: n.reason, createdAt: n.created_at, createdBy: n.created_by,
+    amountBase: Number(n.amount_base), reason: n.reason, createdAt: n.created_at, createdBy: n.created_by, createdByUserId: n.created_by_user_id || null,
     items: items.rows.filter(i => i.credit_note_id === n.id).map(i => ({
       id: i.id, orderItemId: i.order_item_id, name: i.name, qty: i.qty, amount: Number(i.amount) })),
     refunds: refs.rows.filter(r => r.credit_note_id === n.id).map(mapRefundRow),
@@ -1410,9 +1415,9 @@ async function createReturnTx(db, tenantId, orderId, body, createdBy = 'owner') 
       COALESCE((SELECT MAX(number) FROM credit_notes WHERE tenant_id = $1), 0)) + 1
     WHERE id = $1 RETURNING credit_note_seq AS seq`, [tenantId]);
   const { rows: [note] } = await db.query(`
-    INSERT INTO credit_notes (tenant_id, order_id, client_id, number, amount_base, reason, created_by)
-    VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-    [tenantId, orderId, ord0.client_id, sq.seq, amountC / 100, reason, createdBy]);
+    INSERT INTO credit_notes (tenant_id, order_id, client_id, number, amount_base, reason, created_by, created_by_user_id)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+    [tenantId, orderId, ord0.client_id, sq.seq, amountC / 100, reason, actorText(createdBy), actorId(createdBy)]);
   for (const l of lines) {
     await db.query(`INSERT INTO credit_note_items (tenant_id, credit_note_id, order_item_id, name, qty, amount)
       VALUES ($1, $2, $3, $4, $5, $6)`, [tenantId, note.id, l.orderItemId, l.name, l.qty, l.amountC / 100]);
@@ -1472,7 +1477,7 @@ async function convertQuoteTx(db, tenantId, orderId, createdBy = 'owner') {
   await db.query(`UPDATE order_items oi SET unit_cost = cp.cost FROM catalog_products cp
     WHERE oi.order_id = $1 AND oi.tenant_id = $2 AND cp.id = oi.product_id AND cp.tenant_id = $2`, [orderId, tenantId]);
   const { rows: qLines } = await db.query('SELECT product_id, variant_key, qty FROM order_items WHERE order_id = $1 AND tenant_id = $2', [orderId, tenantId]);
-  await ops.syncOrderStock(db, tenantId, orderId, qLines.map(l => ({ productId: l.product_id, variantKey: l.variant_key || '', qty: l.qty })), 'sale');
+  await ops.syncOrderStock(db, tenantId, orderId, qLines.map(l => ({ productId: l.product_id, variantKey: l.variant_key || '', qty: l.qty })), 'sale', createdBy);
   await addOrderEvent(db, tenantId, orderId, 'converted', {
     quote: 'P-' + pad4(ord.quote_number || 0), order: '#' + pad4(sq.seq), quoteCreatedAt: ord.created_at }, createdBy);
   return true;
@@ -1480,7 +1485,7 @@ async function convertQuoteTx(db, tenantId, orderId, createdBy = 'owner') {
 
 // Actualiza un pedido (campos en snake_case). Con `items` reemplaza todos sus artículos;
 // con `client_id` lo pasa a otra ficha del mismo negocio (null = sin ficha). Todo o nada.
-async function dbUpdateOrder(tenantId, orderId, fields) {
+async function dbUpdateOrder(tenantId, orderId, fields, actor = null) {
   if (!dbReady) return null;
   if (!UUID_RE.test(String(orderId))) return null;
   // El estado de cobro lo derivan los pagos (POST /api/orders/:id/payments): ya no se acepta por aquí
@@ -1599,7 +1604,7 @@ async function dbUpdateOrder(tenantId, orderId, fields) {
       const stockLines = await insertOrderItems(client, tenantId, orderId, items, { snapshotCost: found[0].kind !== 'quote', oldCosts });
       // Existencias: se aplica SOLO la diferencia entre las líneas viejas y las nuevas (un presupuesto no mueve existencias)
       if (found[0].kind !== 'quote') {
-        await ops.syncOrderStock(client, tenantId, orderId, stockLines, 'edit', 'owner',
+        await ops.syncOrderStock(client, tenantId, orderId, stockLines, 'edit', actor,
           oldLines.map(l => ({ productId: l.product_id, variantKey: l.variant_key || '', qty: l.qty })));
       }
     }
@@ -1612,10 +1617,10 @@ async function dbUpdateOrder(tenantId, orderId, fields) {
     }
     if (items) changes.items = { count: items.length };
     if (changes.delivery_status) {
-      await addOrderEvent(client, tenantId, orderId, 'status_changed', changes.delivery_status);
+      await addOrderEvent(client, tenantId, orderId, 'status_changed', changes.delivery_status, actor);
       delete changes.delivery_status;
     }
-    if (Object.keys(changes).length) await addOrderEvent(client, tenantId, orderId, 'edited', { fields: Object.keys(changes), changes });
+    if (Object.keys(changes).length) await addOrderEvent(client, tenantId, orderId, 'edited', { fields: Object.keys(changes), changes }, actor);
     const { rows: itemRows } = await client.query(
       'SELECT id, product_id, variant_key, emoji, name, detail, qty, unit_price, line_price FROM order_items WHERE order_id = $1 AND tenant_id = $2 ORDER BY ctid',
       [orderId, tenantId]
@@ -1625,7 +1630,7 @@ async function dbUpdateOrder(tenantId, orderId, fields) {
       id: it.id, productId: it.product_id, emoji: it.emoji, name: it.name,
       detail: it.detail, qty: it.qty, unitPrice: it.unit_price, linePrice: it.line_price, variantKey: it.variant_key || '',
     }));
-    return mapOrderRow(rows[0]);
+    return ops.withName(client, tenantId, mapOrderRow(rows[0]), ops.BY_CREATED);
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     throw err;
@@ -3082,7 +3087,7 @@ app.post('/api/orders', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Falta el nombre del cliente' });
   }
   try {
-    const order = await dbCreateOrder(req.tenant.tenantId, req.body);
+    const order = await dbCreateOrder(req.tenant.tenantId, req.body, req.user);
     if (!order) return res.status(503).json({ error: 'Base de datos no disponible' });
     res.json(order);
   } catch (err) { sendApiError(res, err, 'Crear pedido'); }
@@ -3090,7 +3095,7 @@ app.post('/api/orders', requireAuth, async (req, res) => {
 
 app.patch('/api/orders/:id', requireAuth, async (req, res) => {
   try {
-    const order = await dbUpdateOrder(req.tenant.tenantId, req.params.id, req.body || {});
+    const order = await dbUpdateOrder(req.tenant.tenantId, req.params.id, req.body || {}, req.user);
     if (!order) return res.status(404).json({ error: 'Pedido no encontrado' });
     res.json(order);
   } catch (err) { sendApiError(res, err, 'Editar pedido'); }
@@ -3114,11 +3119,11 @@ const cycleRoute = (label, notFound, op) => async (req, res) => {
   } catch (err) { sendApiError(res, err, label); }
 };
 app.post('/api/orders/:id/convert', requireAuth, cycleRoute('Convertir presupuesto', 'Pedido no encontrado',
-  async (c, t, req) => (await convertQuoteTx(c, t, req.params.id)) ? { extra: {} } : null));
+  async (c, t, req) => (await convertQuoteTx(c, t, req.params.id, req.user)) ? { extra: {} } : null));
 app.post('/api/orders/:id/cancel', requireAuth, cycleRoute('Anular pedido', 'Pedido no encontrado',
-  async (c, t, req) => (await cancelOrderTx(c, t, req.params.id, req.body)) ? { extra: {} } : null));
+  async (c, t, req) => (await cancelOrderTx(c, t, req.params.id, req.body, req.user)) ? { extra: {} } : null));
 app.post('/api/orders/:id/returns', requireAuth, cycleRoute('Devolución', 'Pedido no encontrado',
-  async (c, t, req) => { const r = await createReturnTx(c, t, req.params.id, req.body); return r && { extra: { creditNote: r.creditNote } }; }));
+  async (c, t, req) => { const r = await createReturnTx(c, t, req.params.id, req.body, req.user); return r && { extra: { creditNote: r.creditNote } }; }));
 
 app.get('/api/orders/:id/returns', requireAuth, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
@@ -3131,7 +3136,10 @@ app.get('/api/orders/:id/returns', requireAuth, async (req, res) => {
       pool.query('SELECT * FROM credit_notes WHERE order_id = $1 AND tenant_id = $2 ORDER BY number LIMIT 500', [req.params.id, tenantId]),
       pool.query('SELECT * FROM refunds WHERE order_id = $1 AND tenant_id = $2 ORDER BY created_at LIMIT 500', [req.params.id, tenantId]),
     ]);
-    res.json({ creditNotes: await mapCreditNoteFull(pool, tenantId, notes), refunds: refs.map(mapRefundRow) });
+    const cnotes = await mapCreditNoteFull(pool, tenantId, notes);
+    await ops.attachByName(pool, tenantId, cnotes, ops.BY_CREATED);
+    for (const n of cnotes) await ops.attachByName(pool, tenantId, n.refunds, ops.BY_CREATED);
+    res.json({ creditNotes: cnotes, refunds: await ops.attachByName(pool, tenantId, refs.map(mapRefundRow), ops.BY_CREATED) });
   } catch (err) { sendApiError(res, err, 'Devoluciones del pedido'); }
 });
 
@@ -3168,7 +3176,8 @@ app.get('/api/orders/:id/payments', requireAuth, async (req, res) => {
     const { rows } = await pool.query(
       'SELECT * FROM payments WHERE order_id = $1 AND tenant_id = $2 ORDER BY paid_at, created_at', [req.params.id, tenantId]);
     const o = mapOrderRow(ord[0]);
-    res.json({ payments: rows.map(mapPaymentRow), amountPaid: o.amountPaid, balance: o.balance, payStatus: o.payStatus });
+    const plist = await ops.attachByName(pool, tenantId, rows.map(mapPaymentRow), ops.BY_EXPENSE);
+    res.json({ payments: plist, amountPaid: o.amountPaid, balance: o.balance, payStatus: o.payStatus });
   } catch (err) { sendApiError(res, err, 'Pagos del pedido'); }
 });
 
@@ -3178,7 +3187,8 @@ app.post('/api/orders/:id/payments', requireAuth, async (req, res) => {
   const tenantId = req.tenant.tenantId;
   try {
     const out = await inTx(async (c) => {
-      const r = await addPaymentTx(c, tenantId, req.params.id, req.body);
+      const r = await addPaymentTx(c, tenantId, req.params.id, req.body, req.user);
+      if (r) await ops.withName(c, tenantId, r.payment, ops.BY_EXPENSE);
       return r && { payment: r.payment, order: await fetchOrderFull(c, tenantId, req.params.id) };
     });
     if (!out) return res.status(404).json({ error: 'Pedido no encontrado' });
@@ -3192,7 +3202,8 @@ app.post('/api/payments/:id/void', requireAuth, async (req, res) => {
   const tenantId = req.tenant.tenantId;
   try {
     const out = await inTx(async (c) => {
-      const r = await voidPaymentTx(c, tenantId, req.params.id, req.body && req.body.reason);
+      const r = await voidPaymentTx(c, tenantId, req.params.id, req.body && req.body.reason, req.user);
+      if (r) await ops.withName(c, tenantId, r.payment, ops.BY_EXPENSE);
       return r && { payment: r.payment, order: await fetchOrderFull(c, tenantId, r.order.id) };
     });
     if (!out) return res.status(404).json({ error: 'Pago no encontrado' });
@@ -3274,6 +3285,7 @@ app.get('/api/payments', requireAuth, async (req, res) => {
     });
     const merged = [...list.rows.map(p => ({ ...mapPaymentRow(p), kind: 'payment' })), ...refList.rows.map(mapRefundAsPayment)]
       .sort((a, b) => new Date(b.paidAt) - new Date(a.paidAt));
+    await ops.attachByName(pool, tenantId, merged.slice(0, PAYMENTS_LIST_LIMIT), ops.BY_EXPENSE);
     const truncated = list.rows.length > PAYMENTS_LIST_LIMIT || refList.rows.length > PAYMENTS_LIST_LIMIT || merged.length > PAYMENTS_LIST_LIMIT;
     const byMethod = mergeMethodTotals(totals.rows);
     res.json({
@@ -3294,9 +3306,10 @@ app.get('/api/orders/:id/events', requireAuth, async (req, res) => {
     const { rows: ord } = await pool.query('SELECT 1 FROM orders WHERE id = $1 AND tenant_id = $2', [req.params.id, tenantId]);
     if (!ord[0]) return res.status(404).json({ error: 'Pedido no encontrado' });
     const { rows } = await pool.query(
-      'SELECT id, type, data, created_by, created_at FROM order_events WHERE order_id = $1 AND tenant_id = $2 ORDER BY created_at, seq LIMIT 500',
+      'SELECT id, type, data, created_by, created_by_user_id, created_at FROM order_events WHERE order_id = $1 AND tenant_id = $2 ORDER BY created_at, seq LIMIT 500',
       [req.params.id, tenantId]);
-    res.json({ events: rows.map(r => ({ id: r.id, type: r.type, data: r.data, createdBy: r.created_by, createdAt: r.created_at })) });
+    res.json({ events: await ops.attachByName(pool, tenantId, rows.map(r => ({
+      id: r.id, type: r.type, data: r.data, createdBy: r.created_by, createdByUserId: r.created_by_user_id || null, createdAt: r.created_at })), ops.BY_CREATED) });
   } catch (err) { sendApiError(res, err, 'Historial del pedido'); }
 });
 
@@ -3349,7 +3362,7 @@ app.get('/api/expenses', requireAuth, expensesPlan, async (req, res) => {
     ]);
     res.json({
       timezone: tz, from: start, to, baseCurrency: base.rows[0] ? base.rows[0].base_currency : 'USD',
-      expenses: list.rows.slice(0, EXPENSES_LIST_LIMIT).map(ops.mapExpenseRow),
+      expenses: await ops.attachByName(pool, tenantId, list.rows.slice(0, EXPENSES_LIST_LIMIT).map(ops.mapExpenseRow), ops.BY_EXPENSE),
       truncated: list.rows.length > EXPENSES_LIST_LIMIT, limit: EXPENSES_LIST_LIMIT, totalCount: cnt.rows[0].n, voidedCount: cnt.rows[0].voided,
       total: money2(byCat.rows.reduce((a, r) => a + r.total, 0)),
       byCategory: byCat.rows.map(r => ({ category: r.category, total: money2(r.total), count: r.n })),
@@ -3361,7 +3374,7 @@ app.get('/api/expenses', requireAuth, expensesPlan, async (req, res) => {
 app.post('/api/expenses', requireAuth, expensesPlan, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   try {
-    const expense = await inTx(c => ops.addExpenseTx(c, req.tenant.tenantId, req.body));
+    const expense = await inTx(c => ops.addExpenseTx(c, req.tenant.tenantId, req.body, req.user));
     res.json({ expense });
   } catch (err) { sendApiError(res, err, 'Registrar gasto'); }
 });
@@ -3370,7 +3383,7 @@ app.post('/api/expenses/:id/void', requireAuth, expensesPlan, async (req, res) =
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   if (!UUID_RE.test(req.params.id)) return res.status(404).json({ error: 'Gasto no encontrado' });
   try {
-    const expense = await inTx(c => ops.voidExpenseTx(c, req.tenant.tenantId, req.params.id, req.body && req.body.reason));
+    const expense = await inTx(c => ops.voidExpenseTx(c, req.tenant.tenantId, req.params.id, req.body && req.body.reason, req.user));
     if (!expense) return res.status(404).json({ error: 'Gasto no encontrado' });
     res.json({ expense });
   } catch (err) { sendApiError(res, err, 'Anular gasto'); }
@@ -3388,7 +3401,7 @@ app.get('/api/cash', requireAuth, cashPlan, async (req, res) => {
       pool.query('SELECT base_currency FROM tenants WHERE id = $1', [tenantId]),
     ]);
     const base = (bt && bt.base_currency) || 'USD';
-    res.json({ timezone: tz, baseCurrency: base, from: start, to, closings: rows.slice(0, 400).map(r => ops.mapClosing(r, base)), truncated: rows.length > 400 });
+    res.json({ timezone: tz, baseCurrency: base, from: start, to, closings: await ops.attachByName(pool, tenantId, rows.slice(0, 400).map(r => ops.mapClosing(r, base)), ops.BY_CLOSING), truncated: rows.length > 400 });
   } catch (err) { sendApiError(res, err, 'Cierres de caja'); }
 });
 app.get('/api/cash/:day', requireAuth, cashPlan, async (req, res) => {
@@ -3400,7 +3413,7 @@ app.post('/api/cash/:day/close', requireAuth, cashPlan, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   const tenantId = req.tenant.tenantId;
   try {
-    res.json(await inTx(async (c) => { await ops.closeCashDay(c, tenantId, req.params.day, req.body); return ops.getCashDay(c, tenantId, req.params.day); }));
+    res.json(await inTx(async (c) => { await ops.closeCashDay(c, tenantId, req.params.day, req.body, req.user); return ops.getCashDay(c, tenantId, req.params.day); }));
   } catch (err) { sendApiError(res, err, 'Cerrar caja'); }
 });
 // Reabrir (y ver qué días siguen cerrados) se permite en TODOS los planes: quien baja de plan con cierres vigentes no puede
@@ -3418,7 +3431,7 @@ app.post('/api/cash/:day/reopen', requireAuth, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   const tenantId = req.tenant.tenantId;
   try {
-    res.json(await inTx(async (c) => { await ops.reopenCashDay(c, tenantId, req.params.day, req.body); return ops.getCashDay(c, tenantId, req.params.day); }));
+    res.json(await inTx(async (c) => { await ops.reopenCashDay(c, tenantId, req.params.day, req.body, req.user); return ops.getCashDay(c, tenantId, req.params.day); }));
   } catch (err) { sendApiError(res, err, 'Reabrir caja'); }
 });
 
@@ -4321,7 +4334,7 @@ app.get('/api/stock', requireAuth, async (req, res) => {
 
 app.post('/api/stock/adjust', requireAuth, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
-  try { res.json(await inTx(c => ops.adjustStockTx(c, req.tenant.tenantId, req.body))); }
+  try { res.json(await inTx(c => ops.adjustStockTx(c, req.tenant.tenantId, req.body, req.user))); }
   catch (err) { sendApiError(res, err, 'Ajustar existencias'); }
 });
 
@@ -4342,7 +4355,7 @@ app.get('/api/stock/movements', requireAuth, async (req, res) => {
       FROM stock_movements m LEFT JOIN orders o ON o.id = m.order_id AND o.tenant_id = m.tenant_id
       WHERE m.tenant_id = $1 AND ($2::uuid IS NULL OR m.product_id = $2) AND ($3::text IS NULL OR m.variant_key = $3)
       ORDER BY m.created_at DESC, m.id LIMIT ${limit + 1}`, [tenantId, productId, vk]);
-    res.json({ movements: rows.slice(0, limit).map(ops.mapMovementRow), truncated: rows.length > limit, limit });
+    res.json({ movements: await ops.attachByName(pool, tenantId, rows.slice(0, limit).map(ops.mapMovementRow), ops.BY_CREATED), truncated: rows.length > limit, limit });
   } catch (err) { sendApiError(res, err, 'Movimientos de existencias'); }
 });
 

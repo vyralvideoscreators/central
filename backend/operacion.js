@@ -32,6 +32,34 @@ const DEFAULT_EXPENSE_CATEGORIES = ['Compras de mercancía', 'Envíos', 'Alquile
 const MAX_EXPENSE_CATEGORIES = 30;
 const STOCK_REASONS = ['sale', 'cancel', 'return', 'edit', 'adjust_in', 'adjust_out', 'count'];
 
+// ── Quién hace la operación (Fase 4B) ─────────────────────────
+// «actor» = { id, role, name } del usuario que llama (req.user), o 'owner'/null (sistema, relleno, semilla). El texto
+// created_by (que ya existía) guarda el rol; created_by_user_id la persona. NULL = anterior a la Fase 4B (se muestra «Dueño»).
+const ACTOR_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const actorText = (a) => (a && typeof a === 'object' ? a.role : a) || 'owner';
+const actorId = (a) => (a && typeof a === 'object' && ACTOR_UUID.test(String(a.id)) ? a.id : null);
+const OWNER_LABEL = 'Dueño';
+// Añade a cada elemento el NOMBRE de quien hizo la operación. pairs = [campoId, campoNombre, campoCondición?]: sin id → «Dueño»
+// (operaciones anteriores a la Fase 4B o hechas por el dueño antiguo); con campoCondición, si ese campo está vacío el nombre es null
+// (p. ej. «anulado por» de algo que no está anulado). Una sola consulta por lista, siempre filtrada por negocio.
+async function attachByName(db, tenantId, items, pairs) {
+  const ids = new Set();
+  for (const it of items) for (const [f] of pairs) if (it[f]) ids.add(it[f]);
+  const names = new Map();
+  if (ids.size) {
+    const { rows } = await db.query('SELECT id, name FROM team_users WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [tenantId, [...ids]]);
+    for (const r of rows) names.set(r.id, r.name);
+  }
+  for (const it of items) {
+    for (const [f, n, when] of pairs) it[n] = when && !it[when] ? null : (it[f] && names.get(it[f])) || OWNER_LABEL;
+  }
+  return items;
+}
+const BY_CREATED = [['createdByUserId', 'byName']];
+const BY_EXPENSE = [['createdByUserId', 'byName'], ['voidedByUserId', 'voidedByName', 'voided']];
+const BY_CLOSING = [['closedByUserId', 'byName'], ['reopenedByUserId', 'reopenedByName', 'reopenedAt']];
+const withName = async (db, tenantId, obj, pairs) => (await attachByName(db, tenantId, [obj], pairs))[0];
+
 // ── Utilidades ────────────────────────────────────────────────
 const centsOf = (n) => Math.round(Number(n || 0) * 100);
 const money2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
@@ -394,7 +422,8 @@ function mapClosing(r, baseCurrency = 'USD') {
   const lines = closingLines(r, baseCurrency);
   return {
     id: r.id, day: r.day, status: r.reopened_at ? 'reopened' : 'closed', note: r.note,
-    closedAt: r.closed_at, closedBy: r.closed_by, reopenedAt: r.reopened_at, reopenReason: r.reopen_reason,
+    closedAt: r.closed_at, closedBy: r.closed_by, closedByUserId: r.closed_by_user_id || null,
+    reopenedAt: r.reopened_at, reopenReason: r.reopen_reason, reopenedByUserId: r.reopened_by_user_id || null,
     lines,
     // Descuadre: cuántas filas no cuadran (los importes de monedas distintas no se suman)
     differentLines: lines.filter(l => centsOf(l.difference) !== 0).length,
@@ -413,7 +442,7 @@ async function getCashDay(db, tenantId, day) {
     db.query('SELECT * FROM cash_closings WHERE tenant_id = $1 AND day = $2::date ORDER BY closed_at DESC LIMIT 50', [tenantId, day]),
     businessDay(db, tz),
   ]);
-  const history = hist.rows.map(r => mapClosing(r, base));
+  const history = await attachByName(db, tenantId, hist.rows.map(r => mapClosing(r, base)), BY_CLOSING);
   const current = history.find(h => h.status === 'closed') || null;
   // rows: lo que se muestra/cuenta. Con el día cerrado lleva counted y difference del cierre vigente.
   const byKey = current ? new Map(current.lines.map(l => [methodKey(l.method) + '|' + l.currency, l])) : null;
@@ -483,22 +512,22 @@ async function closeCashDay(db, tenantId, day, body, createdBy = 'owner') {
     difObj[key] = (centsOf(cntObj[key]) - centsOf(expObj[key])) / 100;
   }
   const { rows: [row] } = await db.query(`
-    INSERT INTO cash_closings (tenant_id, day, expected, counted, difference, note, closed_by)
-    VALUES ($1, $2::date, $3, $4, $5, $6, $7) RETURNING *`,
-    [tenantId, day, JSON.stringify(expObj), JSON.stringify(cntObj), JSON.stringify(difObj), note, createdBy]);
-  return mapClosing(row, base);
+    INSERT INTO cash_closings (tenant_id, day, expected, counted, difference, note, closed_by, closed_by_user_id)
+    VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8) RETURNING *`,
+    [tenantId, day, JSON.stringify(expObj), JSON.stringify(cntObj), JSON.stringify(difObj), note, actorText(createdBy), actorId(createdBy)]);
+  return withName(db, tenantId, mapClosing(row, base), BY_CLOSING);
 }
 
-async function reopenCashDay(db, tenantId, day, body) {
+async function reopenCashDay(db, tenantId, day, body, actor = null) {
   if (!isRealDate(day)) throw new BadRequest('Fecha inválida (formato AAAA-MM-DD)');
   const reason = cleanText(body && body.reason, 200, 'Motivo', true);
   const t = await lockTenantForCash(db, tenantId, 'UPDATE');
   requireTz(t);
   const { rows } = await db.query(
-    'UPDATE cash_closings SET reopened_at = now(), reopen_reason = $3 WHERE tenant_id = $1 AND day = $2::date AND reopened_at IS NULL RETURNING *',
-    [tenantId, day, reason]);
+    'UPDATE cash_closings SET reopened_at = now(), reopen_reason = $3, reopened_by_user_id = $4 WHERE tenant_id = $1 AND day = $2::date AND reopened_at IS NULL RETURNING *',
+    [tenantId, day, reason, actorId(actor)]);
   if (!rows[0]) throw new BadRequest(`La caja del ${dayLabel(day)} no está cerrada`);
-  return mapClosing(rows[0], t.base_currency || 'USD');
+  return withName(db, tenantId, mapClosing(rows[0], t.base_currency || 'USD'), BY_CLOSING);
 }
 
 // ── Gastos ────────────────────────────────────────────────────
@@ -507,7 +536,8 @@ function mapExpenseRow(r) {
   return {
     id: r.id, spentOn: r.spent_on, amount: Number(r.amount), currency: r.currency, exchangeRate: Number(r.exchange_rate),
     amountBase: Number(r.amount_base), category: r.category, method: normalizeMethodName(r.method), note: r.note,
-    createdAt: r.created_at, createdBy: r.created_by, voided: !!r.voided_at, voidedAt: r.voided_at, voidReason: r.void_reason,
+    createdAt: r.created_at, createdBy: r.created_by, createdByUserId: r.created_by_user_id || null,
+    voided: !!r.voided_at, voidedAt: r.voided_at, voidReason: r.void_reason, voidedByUserId: r.voided_by_user_id || null,
   };
 }
 
@@ -548,23 +578,23 @@ async function addExpenseTx(db, tenantId, body, createdBy = 'owner') {
   const note = cleanText(body.note, 300, 'Nota', false);
   await assertCashOpen(db, tenantId, { days: [spentOn] });
   const { rows } = await db.query(`
-    INSERT INTO expenses (tenant_id, spent_on, amount, currency, exchange_rate, amount_base, category, method, note, created_by)
-    VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-    [tenantId, spentOn, amountR, currency, rate, amountBaseC / 100, category, method, note, createdBy]);
-  return mapExpenseRow(rows[0]);
+    INSERT INTO expenses (tenant_id, spent_on, amount, currency, exchange_rate, amount_base, category, method, note, created_by, created_by_user_id)
+    VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+    [tenantId, spentOn, amountR, currency, rate, amountBaseC / 100, category, method, note, actorText(createdBy), actorId(createdBy)]);
+  return withName(db, tenantId, mapExpenseRow(rows[0]), BY_EXPENSE);
 }
 
 // Anula un gasto (DENTRO de una transacción). null si no existe en este negocio.
-async function voidExpenseTx(db, tenantId, expenseId, reason) {
+async function voidExpenseTx(db, tenantId, expenseId, reason, actor = null) {
   const why = cleanText(reason, 200, 'Motivo', true);
   const { rows: [e] } = await db.query('SELECT spent_on FROM expenses WHERE id = $1 AND tenant_id = $2', [expenseId, tenantId]);
   if (!e) return null;
   requireTz(await lockTenantForCash(db, tenantId, 'SHARE')); // sin ubicación no se sabe qué día es
   await assertCashOpen(db, tenantId, { days: [e.spent_on] });
   const { rows } = await db.query(
-    'UPDATE expenses SET voided_at = now(), void_reason = $3 WHERE id = $1 AND tenant_id = $2 AND voided_at IS NULL RETURNING *', [expenseId, tenantId, why]);
+    'UPDATE expenses SET voided_at = now(), void_reason = $3, voided_by_user_id = $4 WHERE id = $1 AND tenant_id = $2 AND voided_at IS NULL RETURNING *', [expenseId, tenantId, why, actorId(actor)]);
   if (!rows[0]) throw new BadRequest('Este gasto ya fue anulado');
-  return mapExpenseRow(rows[0]);
+  return withName(db, tenantId, mapExpenseRow(rows[0]), BY_EXPENSE);
 }
 
 // ── Existencias ───────────────────────────────────────────────
@@ -577,9 +607,9 @@ async function applyStockDelta(db, tenantId, productId, variantKey, delta, reaso
     ON CONFLICT (tenant_id, product_id, variant_key) DO UPDATE SET qty = stock_levels.qty + EXCLUDED.qty, updated_at = now()
     RETURNING qty`, [tenantId, productId, variantKey, delta]);
   const { rows: [mv] } = await db.query(`
-    INSERT INTO stock_movements (tenant_id, product_id, variant_key, delta, qty_after, reason, order_id, note, created_by)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-    [tenantId, productId, variantKey, delta, lv.qty, reason, orderId, note, createdBy]);
+    INSERT INTO stock_movements (tenant_id, product_id, variant_key, delta, qty_after, reason, order_id, note, created_by, created_by_user_id)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+    [tenantId, productId, variantKey, delta, lv.qty, reason, orderId, note, actorText(createdBy), actorId(createdBy)]);
   return { level: lv.qty, movement: mv };
 }
 const byKeyOrder = (a, b) => a.productId < b.productId ? -1 : a.productId > b.productId ? 1 : a.variantKey < b.variantKey ? -1 : a.variantKey > b.variantKey ? 1 : 0;
@@ -712,19 +742,19 @@ async function adjustStockTx(db, tenantId, body, createdBy = 'owner') {
     return { productId: p.id, variantKey, level: cur.qty, movement: null, unchanged: true };
   }
   const r = await applyStockDelta(db, tenantId, p.id, variantKey, delta, reason, { note, createdBy });
-  return { productId: p.id, variantKey, level: r.level, movement: mapMovementRow(r.movement), unchanged: false };
+  return { productId: p.id, variantKey, level: r.level, movement: await withName(db, tenantId, mapMovementRow(r.movement), BY_CREATED), unchanged: false };
 }
 
 function mapMovementRow(r) {
   return {
     id: r.id, productId: r.product_id, variantKey: r.variant_key, delta: r.delta, qtyAfter: r.qty_after, reason: r.reason,
     orderId: r.order_id, orderNumber: r.order_num === undefined || r.order_num === null ? null : (r.order_kind === 'quote' ? 'P-' : '#') + String(r.order_num).padStart(4, '0'),
-    note: r.note, createdBy: r.created_by, createdAt: r.created_at,
+    note: r.note, createdBy: r.created_by, createdByUserId: r.created_by_user_id || null, createdAt: r.created_at,
   };
 }
 
 module.exports = {
-  BadRequest, ensureStockExpensesSchema, DEFAULT_EXPENSE_CATEGORIES, MAX_EXPENSE_CATEGORIES, cleanExpenseCategories, getExpenseCategories,
+  BadRequest, actorText, actorId, attachByName, BY_CREATED, BY_EXPENSE, BY_CLOSING, withName, ensureStockExpensesSchema, DEFAULT_EXPENSE_CATEGORIES, MAX_EXPENSE_CATEGORIES, cleanExpenseCategories, getExpenseCategories,
   buildVariantKey, normVariantKey, productVariants,
   lockTenantForCash, businessDay, assertCashOpen, computeCashExpected, getCashDay, closeCashDay, reopenCashDay, mapClosing,
   mapExpenseRow, addExpenseTx, voidExpenseTx,
