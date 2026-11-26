@@ -222,6 +222,7 @@ async function validateTeamFks(pool) {
     }
   } finally {
     if (locked) await client.query('SELECT pg_advisory_unlock($1)', [TEAM_DDL_LOCK_KEY]).catch(() => {});
+    await client.query('RESET lock_timeout').catch(() => {}); // la conexión vuelve al pool sin el límite de esta tarea
     client.release();
   }
 }

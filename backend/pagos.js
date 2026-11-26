@@ -333,7 +333,7 @@ async function validateOrdersKindCheck(pool) {
   } catch (err) {
     console.error('⚠️  VALIDATE orders_kind_check (se reintentará en el próximo arranque):', err.message);
   } finally {
-    if (client) client.release();
+    if (client) { await client.query('RESET lock_timeout').catch(() => {}); client.release(); }
   }
 }
 

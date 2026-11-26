@@ -80,7 +80,7 @@ run(async () => {
   const prod = r.body;
   ok(r.status === 200 && prod.cost === 7.5, 'El dueño crea un producto con costo');
   r = await j('/api/catalog', { headers: seller.H });
-  ok(r.status === 200 && r.body.length === 1 && r.body[0].name === 'Camisa' && !('cost' in r.body[0]) && !JSON.stringify(r.body).includes('7.5'), 'Vendedor: el catálogo NO trae costo');
+  ok(r.status === 200 && r.body.length === 1 && r.body[0].name === 'Camisa' && !('cost' in r.body[0]) && !JSON.stringify(r.body).includes('"cost"'), 'Vendedor: el catálogo NO trae costo');
   r = await j('/api/catalog', { headers: manager.H });
   ok(r.body[0].cost === 7.5, 'Encargado: el catálogo trae el costo');
   r = await j('/api/stock?productId=' + prod.id, { headers: seller.H });
