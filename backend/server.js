@@ -5021,6 +5021,7 @@ var q=new URLSearchParams(location.search);
 if(t){q.set('token',t);location.replace('/app?'+q.toString())}else{location.replace('/central-registro.html')}
 </script>`;
 
+const appLogout = (code) => APP_LOGOUT.replace("'/central-registro.html'", () => JSON.stringify('/central-registro.html' + (['user_inactive', 'temp_password_expired', 'session_closed'].includes(code) ? '?aviso=' + code : '')));
 const APP_LOGOUT = `<!DOCTYPE html><meta charset="utf-8"><script>try{localStorage.removeItem('central_jwt')}catch(e){}location.replace('/central-registro.html')</script>`;
 
 app.get('/app', async (req, res) => {
@@ -5039,7 +5040,7 @@ app.get('/app', async (req, res) => {
   if (sess.fail) {
     if (sess.fail.status === 500) return res.status(503).send('Servicio no disponible, intenta en un momento');
     if (sess.expired) return res.type('html').send(buildExpiredPage(sess.tenantName));
-    return res.type('html').send(APP_LOGOUT);
+    return res.type('html').send(appLogout(sess.fail.body && sess.fail.body.error));
   }
   const tenant = { is_demo: sess.tenant.isDemo, expires_at: sess.tenant.expiresAt, business_name: sess.tenant.businessName, plan: sess.tenant.plan };
   const teamUser = { id: sess.user.id, name: sess.user.name, role: sess.user.role, mustChange: sess.user.must_change_password,

@@ -925,7 +925,7 @@
 
   .ssn-header { padding: 22px 18px 14px; border-bottom: 1px solid var(--border); }
   .ssn-title { font-family: 'Syne', sans-serif; font-size: 16px; font-weight: 800; }
-  .ssn-sub { font-size: 11.5px; color: var(--text3); margin-top: 2px; }
+  .ssn-sub { font-size: 11.5px; color: var(--text2); margin-top: 2px; }
 
   .ssn-list { padding: 10px 10px; flex: 1; }
   .ssn-group-label {
@@ -2159,25 +2159,34 @@
   .bcv-refresh-btn:hover { color: var(--yellow); transform: rotate(180deg); }
   /* ── Roles (Fase 4B): lo que el rol no puede hacer no se ofrece. El servidor además lo bloquea en cada ruta. ── */
   html.role-seller .role-manager, html.role-seller .role-owner, html.role-manager .role-owner { display: none !important; }
+  .who-side { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 62px; margin-top: 6px; line-height: 1.15; text-align: center; }
+  .who-n { font-size: 10.5px; font-weight: 600; color: var(--text); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .who-r { font-size: 10px; font-weight: 600; color: var(--text2); background: var(--surface2); border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px; }
+  .who-r-short { display: none; }
+  .msg-edge { text-align: center; padding: 8px; font-size: 12px; color: var(--text2); }
+  .team-empty { font-size: 12.5px; color: var(--text2); background: var(--surface2); border: 1px dashed var(--border2); border-radius: 12px; padding: 14px; margin: 8px 0; }
+  .team-keep-row:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .team-keep-row:has(input:disabled) { opacity: .55; cursor: not-allowed; }
+  .of-i-price input[readonly], #ofShipping:disabled, #ofDiscount:disabled { opacity: .7; cursor: not-allowed; }
   .who-chip { margin-left: 8px; font-size: 11px; font-weight: 600; color: var(--text2); background: var(--surface2); border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
   .team-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
-  .team-sub { font-size: 12px; color: var(--text3); }
+  .team-sub { font-size: 12px; color: var(--text2); }
   .team-warn { font-size: 12.5px; background: var(--yellow-dim); color: var(--text); border: 1px solid var(--border2); border-radius: 10px; padding: 10px 12px; margin: 8px 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .team-list { display: flex; flex-direction: column; gap: 8px; }
-  .team-row { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto auto; gap: 12px; align-items: center; background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; }
+  .team-row { display: grid; grid-template-columns: 40px minmax(0, 1fr) 190px 250px; gap: 12px; align-items: center; background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; }
   .team-row.off { opacity: .65; }
   .team-av { width: 36px; height: 36px; border-radius: 50%; background: var(--accent-glow); color: var(--accent2); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; }
   .team-name { font-weight: 700; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .team-you { color: var(--text3); font-weight: 500; font-size: 12px; }
-  .team-mail, .team-meta { font-size: 12px; color: var(--text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .team-you { color: var(--text2); font-weight: 500; font-size: 12px; }
+  .team-mail, .team-meta { font-size: 12px; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .team-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
   .team-role { font-size: 12.5px; font-weight: 600; color: var(--accent2); }
   .team-role-sel { width: auto; min-width: 120px; padding: 5px 8px; font-size: 12.5px; }
   .team-chips { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-  .team-chip { font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border2); color: var(--text2); }
-  .team-chip.ok { color: var(--green); border-color: var(--green); }
-  .team-chip.off { color: var(--red); border-color: var(--red); }
-  .team-chip.warn { color: var(--yellow); border-color: var(--yellow); }
+  .team-chip { font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border2); color: var(--text); }
+  .team-chip.ok { background: var(--green-dim); border-color: var(--green); }
+  .team-chip.off { background: var(--red-dim); border-color: var(--red); }
+  .team-chip.warn { background: var(--yellow-dim); border-color: var(--yellow); }
   .team-acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
   .team-act { font-size: 11.5px; padding: 5px 10px; }
   .team-act.danger { color: var(--red); }
@@ -2186,14 +2195,21 @@
   .team-temp { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 22px; font-weight: 700; letter-spacing: 1px; text-align: center; padding: 14px; margin: 10px 0; background: var(--surface2); border: 1px dashed var(--accent); border-radius: 12px; user-select: all; word-break: break-all; }
   .team-keep { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; margin: 8px 0; }
   .team-keep-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface2); font-size: 13px; cursor: pointer; }
-  .by-line { font-size: 11px; color: var(--text3); margin-top: 2px; }
+  @media (max-width: 900px) {
+    .team-row { grid-template-columns: 36px minmax(0, 1fr); }
+    .team-side { grid-column: 2; align-items: flex-start; }
+    .team-chips { justify-content: flex-start; }
+    .team-acts { grid-column: 1 / -1; justify-content: flex-start; }
+  }
   @media (max-width: 680px) {
     .team-row { grid-template-columns: 36px minmax(0, 1fr); }
     .team-side { grid-column: 2; align-items: flex-start; }
     .team-chips { justify-content: flex-start; }
     .team-acts { grid-column: 1 / -1; justify-content: flex-start; }
     .team-temp { font-size: 18px; }
-    .who-chip { display: none; }
+    .who-side { width: 56px; }
+    .who-n, .who-r-full { display: none; }
+    .who-r-short { display: inline; }
   }
 </style>
 </head>
@@ -2269,6 +2285,7 @@
       <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/></svg>
     </div>
     <div class="user-avatar">MR</div>
+    <div class="who-side" id="whoSide" title="" aria-label="Sesión iniciada"><span class="who-n" id="whoName"></span><span class="who-r"><span class="who-r-full" id="whoRole"></span><span class="who-r-short" id="whoRoleShort"></span></span></div>
   </aside>
 
   <div class="main">
@@ -2283,7 +2300,6 @@
             <div class="panel-title">
               Bandeja
               <span class="count-pill" id="convoCountPill">0</span>
-              <span class="who-chip" id="whoChip"></span>
             </div>
           </div>
           <div class="filter-tabs">
@@ -2865,7 +2881,7 @@
     <div class="of-picker" id="ofPicker"></div>
     <div style="display:flex;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
       <select class="form-input" id="ofAddProduct" style="flex:1;min-width:200px;" onchange="ofPickProduct(this)" aria-label="Añadir del catálogo"></select>
-      <button type="button" class="btn-ghost" style="font-size:12px;" onclick="ofAddFreeItem()">+ Artículo libre</button>
+      <button type="button" class="btn-ghost role-manager" style="font-size:12px;" onclick="ofAddFreeItem()">+ Artículo libre</button>
     </div>
 
     <div class="of-sec">Entrega y pago</div>
@@ -3631,22 +3647,33 @@ const TEAM_ME = (function () {
   return { id: t.id || null, name: String(t.name || ''), role: ['owner', 'manager', 'seller'].includes(t.role) ? t.role : 'seller',
     mustChange: !!t.mustChange, overLimitSince: t.overLimitSince || null };
 })();
+const IS_SELLER = TEAM_ME.role === 'seller';
 const ROLE_LABELS = { owner: 'Dueño', manager: 'Encargado', seller: 'Vendedor' };
 const ROLE_RANK = { seller: 1, manager: 2, owner: 3 };
 function roleAtLeast(min) { return (ROLE_RANK[TEAM_ME.role] || 0) >= (ROLE_RANK[min] || 99); }
 document.documentElement.classList.add('role-' + TEAM_ME.role);
 // La sesión terminó (usuario desactivado, contraseña cambiada en otro sitio…): se limpia y se vuelve al login
 let _sessionEnding = false;
-function sessionEnded(msg) {
+const SESSION_REASONS = { user_inactive: 'Tu usuario fue desactivado. Habla con el dueño del negocio.', temp_password_expired: 'La contraseña temporal caducó. Pide al dueño que genere una nueva.', session_closed: 'Tu sesión se cerró. Vuelve a iniciar sesión.' };
+function sessionEnded(msg, code) {
   if (_sessionEnding) return;
   _sessionEnding = true;
+  msg = msg || SESSION_REASONS[code];
   try { localStorage.removeItem('central_jwt'); localStorage.removeItem('central_auth'); localStorage.removeItem('central_tenant'); } catch (e) {}
   showToast(msg || 'Tu sesión se cerró. Vuelve a iniciar sesión.', 'error');
-  setTimeout(() => { location.href = '/central-registro.html'; }, 2200);
+  setTimeout(() => { location.href = '/central-registro.html' + (code ? '?aviso=' + encodeURIComponent(code) : ''); }, 2200);
 }
 
+// Mientras hay un cambio de contraseña o de perfil en curso, un session_closed no es una expulsión: el propio cambio cierra las demás sesiones
+let _credWrites = 0;
 async function apiJson(method, path, body) {
   let res;
+  const isCredWrite = method === 'PUT' && (path === '/api/tenant/password' || path === '/api/tenant/profile');
+  if (isCredWrite) _credWrites++;
+  try { return await apiJsonInner(method, path, body, res); }
+  finally { if (isCredWrite) setTimeout(() => { _credWrites--; }, 1500); }
+}
+async function apiJsonInner(method, path, body, res) {
   try {
     res = await fetch(BACKEND_URL + path, {
       method, headers: apiHeaders(), body: body === undefined ? undefined : JSON.stringify(body),
@@ -3657,9 +3684,9 @@ async function apiJson(method, path, body) {
   const data = await res.json().catch(() => null);
   if (!res.ok) {
     const code = data && data.error;
-    if (res.status === 401 && ['session_closed', 'user_inactive', 'temp_password_expired'].includes(code)) sessionEnded(data.message);
+    if (res.status === 401 && ['session_closed', 'user_inactive', 'temp_password_expired'].includes(code) && !(code === 'session_closed' && _credWrites > 0)) sessionEnded(data.message, code);
     if (res.status === 403 && code === 'must_change_password') showForcedPasswordChange();
-    const err = new Error(res.status === 403 && code === 'role_forbidden' ? 'Tu rol no permite esta acción' : ((data && (data.message || data.error)) || ('error ' + res.status)));
+    const err = new Error(res.status === 403 && code === 'role_forbidden' ? ((data && data.message) || 'Tu rol no permite esta acción') : ((data && (data.message || data.error)) || ('error ' + res.status)));
     err.status = res.status; err.code = code; err.data = data;
     throw err;
   }
@@ -5036,7 +5063,7 @@ async function loadOrderHistory(orderId) {
     if (seq !== _histSeq || currentDetailId !== orderId) return;
     const evs = (r.events || []).slice().reverse(); // lo más reciente arriba
     box.innerHTML = evs.length
-      ? evs.map(ev => '<div class="odm-hist-item"><div class="t">' + escHtml(fmtWhen(ev.createdAt)) + '</div><div class="x">' + describeOrderEvent(ev) + '</div>' + (ev.byName ? '<div class="by-line">Por: ' + escHtml(ev.byName) + '</div>' : '') + '</div>').join('')
+      ? evs.map(ev => '<div class="odm-hist-item"><div class="t">' + escHtml(fmtWhen(ev.createdAt)) + '</div><div class="x">' + describeOrderEvent(ev) + '</div>' + (ev.byName ? '<div class="pagr-sub">Por: ' + escHtml(ev.byName) + '</div>' : '') + '</div>').join('')
       : '<div style="font-size:12px;color:var(--text3);">Sin movimientos registrados.</div>';
   } catch (err) {
     if (seq !== _histSeq) return;
@@ -5160,7 +5187,9 @@ async function ofOpenInner(opts, opener) {
   ofEl('ofSendTicket').checked = true;
   ofApplyKind();
   ofRecalc();
-  ofEl('ofShipping').disabled = OF.locked; ofEl('ofDiscount').disabled = OF.locked;
+  // El vendedor no toca precios: descuento y envío de solo lectura (el envío solo se rellena al elegir una zona con costo)
+  ofEl('ofShipping').disabled = OF.locked || IS_SELLER; ofEl('ofDiscount').disabled = OF.locked || IS_SELLER;
+  ofEl('ofShipping').title = ofEl('ofDiscount').title = IS_SELLER ? 'Tu rol no permite cambiar precios, descuentos ni el envío' : '';
   ofEl('ofAddProduct').parentElement.style.display = OF.locked ? 'none' : '';
   ofEl('ofModal').classList.add('visible');
   OF.sig0 = ofSignature();
@@ -5259,6 +5288,7 @@ function ofZoneChange() {
   const z = zones.find(x => x.name === name);
   // Al elegir una zona con costo se rellena el envío; se puede editar después
   if (z && z.cost !== undefined) ofEl('ofShipping').value = Number(z.cost).toFixed(2);
+  else if (IS_SELLER) ofEl('ofShipping').value = ''; // sin costo configurado, el vendedor no pone envío
   ofRecalc();
 }
 
@@ -5451,7 +5481,7 @@ function ofRenderItems() {
       '<div class="pd-hint" id="ofStk' + i + '" aria-live="polite"></div>' +
     '</div>' +
     '<div class="of-i-qty"><div class="form-label of-i-lbl">Cant.</div><input class="form-input" type="number" min="1" step="1" value="' + it.qty + '" oninput="OF.items[' + i + '].qty=parseInt(this.value,10)||0;ofRecalc()" aria-label="Cantidad"></div>' +
-    '<div class="of-i-price"><div class="form-label of-i-lbl">Precio u.</div><input class="form-input" type="number" min="0" step="0.01" value="' + _round2(it.unitPrice) + '" oninput="OF.items[' + i + '].unitPrice=parseFloat(this.value)||0;ofRecalc()" aria-label="Precio unitario"></div>' +
+    '<div class="of-i-price"><div class="form-label of-i-lbl">Precio u.</div><input class="form-input" type="number" min="0" step="0.01" value="' + _round2(it.unitPrice) + '" oninput="OF.items[' + i + '].unitPrice=parseFloat(this.value)||0;ofRecalc()" aria-label="Precio unitario"' + (IS_SELLER ? ' readonly title="Tu rol no permite cambiar precios"' : '') + '></div>' +
     '<div id="ofLine' + i + '" class="of-i-line"></div>' +
     '<button type="button" class="of-x" onclick="ofRemoveItem(' + i + ')" aria-label="Quitar artículo" title="Quitar"><svg fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" style="width:14px;height:14px" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg></button>' +
     '</div>').join('');
@@ -6106,7 +6136,7 @@ function renderCaja(card, st) {
     html += '<div style="overflow-x:auto;"><table class="inf-table cash-rows"><thead><tr><th>Método · moneda</th><th style="text-align:right;">Esperado</th><th style="text-align:right;">Contado</th><th style="text-align:right;">Diferencia</th></tr></thead><tbody>' +
       c.lines.map(l => '<tr>' + nameTd(l) + '<td style="text-align:right;">' + sCur(l.expected, l.currency) + '</td><td style="text-align:right;">' + sCur(l.counted, l.currency) + '</td>' + diffTd(l.difference, l.currency) + '</tr>').join('') +
       '</tbody></table></div>';
-    html += '<div style="margin-top:10px;"><button type="button" class="btn-ghost" onclick="reopenCaja()">Reabrir caja…</button></div>';
+    html += '<div style="margin-top:10px;"><button type="button" class="btn-ghost role-owner" onclick="reopenCaja()">Reabrir caja…</button></div>';
   } else if (!rows.length) {
     html += '<div class="pagr-empty" style="padding:14px 6px;">Sin movimientos de caja ' + (st.day === st.today ? 'hoy' : 'este día') + '.</div>';
     if (!st.isFuture) html += '<div style="margin-top:6px;"><button type="button" class="btn-ghost" onclick="openCloseCaja()">Cerrar caja…</button></div>';
@@ -6499,7 +6529,8 @@ function cycleDelivery(el, orderId) {
 // Contadores de Pedidos y datos del día: los calcula el SERVIDOR sobre TODOS los pedidos (la lista cargada solo trae una página,
 // así que contar aquí daría cifras falsas). ordersCounts llega con la primera página y se refresca tras cada cambio.
 let ordersCounts = null;
-let _statsTimer = null, _lastStatsAt = 0;
+let _statsTimer = null, _lastStatsAt = 0, _statsSeq = 0;
+const _statsClientIds = new Set(); // fichas afectadas por escrituras desde la última actualización
 function paintOrderCounts() {
   const c = ordersCounts;
   if (!c) return;
@@ -6516,7 +6547,13 @@ function paintOrderCounts() {
     else { ppChange.textContent = 'Por cobrar ' + fmtMoney(c.owed); ppChange.className = 'stat-change sc-warn'; }
   }
   // Pedidos hoy / Ventas del día, comparados contra ayer (solo pedidos vigentes; el día es el del negocio)
+  const noTz = c.ordersToday === null || c.ordersToday === undefined;
   const todayCount = c.ordersToday || 0, yesterdayCount = c.ordersYesterday || 0, todaySales = c.salesToday || 0, yesterdaySales = c.salesYesterday || 0;
+  if (noTz) {
+    ['statPedidosHoy', 'statVentasHoy'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = '—'; });
+    ['statPedidosHoyChange', 'statVentasHoyChange'].forEach(id => { const el = document.getElementById(id); if (el) { el.textContent = 'Configura tu zona horaria'; el.className = 'stat-change sc-warn'; } });
+    return;
+  }
   const pedidosHoyEl = document.getElementById('statPedidosHoy');
   if (pedidosHoyEl) pedidosHoyEl.textContent = todayCount;
   const pedidosHoyChangeEl = document.getElementById('statPedidosHoyChange');
@@ -6541,18 +6578,19 @@ function scheduleOrderStatsRefresh() {
   _statsTimer = setTimeout(refreshOrderStats, 500);
 }
 async function refreshOrderStats() {
+  const seq = ++_statsSeq; // si hay una petición más nueva en vuelo, la respuesta vieja se descarta
+  const ids = [..._statsClientIds]; _statsClientIds.clear();
   try {
-    const [d] = await Promise.all([apiJson('GET', '/api/orders?limit=1'), refreshClientStats()]);
+    const [d] = await Promise.all([apiJson('GET', '/api/orders?limit=1&counts=1'), refreshClientStats(ids)]);
+    if (seq !== _statsSeq) return;
     if (d && d.counts) { ordersCounts = d.counts; _lastStatsAt = Date.now(); }
   } catch (e) { return; }
   paintOrderCounts();
   try { updateChatDebt(); } catch (e) {}
   if (document.getElementById('v-pagos')?.classList.contains('active')) renderPagosResumen();
 }
-function updateOrderCounts() {
-  paintOrderCounts();
-  scheduleOrderStatsRefresh();
-}
+// Solo repinta con lo que ya se tiene; pedir cifras nuevas al servidor es cosa de scheduleOrderStatsRefresh (tras ESCRITURAS)
+function updateOrderCounts() { paintOrderCounts(); }
 
 // Día de hoy (+offset) en la zona horaria del negocio, como AAAA-MM-DD
 // Día (AAAA-MM-DD) en que cae un instante, en la zona del negocio (sin zona: el día del dispositivo, solo para mostrar)
@@ -6768,8 +6806,8 @@ function patchOrder(orderId, fields, undo) {
     if (seq !== _patchSeq[orderId]) return false; // hay un cambio más nuevo en curso: él decide
     // Volver a lo que de verdad tiene el servidor; si tampoco se puede leer, deshacer este cambio
     try {
-      const list = await apiJson('GET', '/api/orders');
-      const fresh = Array.isArray(list) && list.find(x => x.id === realId);
+      const one = await apiJson('GET', '/api/orders?orderId=' + encodeURIComponent(realId));
+      const fresh = one && Array.isArray(one.orders) ? one.orders.find(x => x.id === realId) : (Array.isArray(one) && one.find(x => x.id === realId));
       if (!fresh) throw new Error('no encontrado');
       if (seq !== _patchSeq[orderId]) return false;
       storeServerOrder(fresh, 'replace');
@@ -6929,7 +6967,8 @@ function renderOrders() {
   if (ordersPage.cursor || ordersPage.loading) {
     const more = document.createElement('div');
     more.style.cssText = 'display:flex;justify-content:center;padding:14px;';
-    more.innerHTML = '<button type="button" class="btn-ghost" onclick="loadMoreOrders()"' + (ordersPage.loading ? ' disabled' : '') + '>' + (ordersPage.loading ? 'Cargando…' : 'Cargar más pedidos') + '</button>';
+    more.setAttribute('role', 'status'); more.setAttribute('aria-busy', ordersPage.loading ? 'true' : 'false');
+    more.innerHTML = '<button type="button" class="btn-ghost" id="moreOrdersBtn" onclick="loadMoreOrders()"' + (ordersPage.loading ? ' disabled' : '') + '>' + (ordersPage.loading ? 'Cargando…' : 'Cargar más pedidos') + '</button>';
     list.appendChild(more);
   }
   updateChatDebt();
@@ -6945,7 +6984,7 @@ function filterOrders(type, el) {
   el.classList.add('active'); el.setAttribute('aria-pressed', 'true');
   ordersPage.cursor = null; ordersPage.floor = 0;
   renderOrders();      // enseguida, con lo ya cargado
-  reloadOrdersView();  // y el servidor trae la primera página de esta pestaña
+  reloadOrdersView({ counts: true });  // y el servidor trae la primera página de esta pestaña, con sus contadores
 }
 
 function openTicketPreview(ticketId) {
@@ -7168,6 +7207,12 @@ async function loadTeamPanel() {
   let html = '<div class="team-head"><div><div class="s-card-title" style="margin-bottom:2px;">Usuarios activos: ' + d.activeCount + ' de ' + d.limit + '</div>' +
     '<div class="team-sub">Plan ' + escHtml(planName) + ': admite ' + d.limit + (d.limit === 1 ? ' usuario' : ' usuarios') + ' contando al dueño.</div></div>' +
     (canManage ? '<button class="btn-primary" id="teamAddBtn" onclick="openAddTeamUser()"' + (d.activeCount >= d.limit ? ' disabled title="Llegaste al límite de tu plan"' : '') + '>Añadir usuario</button>' : '') + '</div>';
+  if (canManage && d.activeCount >= d.limit && !d.overLimit) {
+    html += '<div class="team-warn" role="status">Llegaste al límite de tu plan. <button type="button" class="btn-ghost" onclick="goToPlanSettings()">Ver planes</button></div>';
+  }
+  if (canManage && d.users.length === 1) {
+    html += '<div class="team-empty">Por ahora solo estás tú. Añade a tu encargado o a tus vendedores: cada uno entra con su propio usuario y queda registrado quién hizo cada cosa.</div>';
+  }
   if (d.overLimit) {
     html += '<div class="team-warn" role="alert">Tu equipo supera el límite del plan. Elige a quién mantener antes del ' + escHtml(fmtWhen(d.overLimit.deadline)) +
       '; pasada esa fecha se desactivará a los usuarios más recientes. <button class="btn-ghost" onclick="openTeamLimitDialog()">Elegir ahora</button></div>';
@@ -7204,7 +7249,7 @@ function showTempPasswordDialog(name, email, password, expires) {
       '<div class="modal-title">Contraseña temporal de ' + escHtml(name) + '</div>' +
       '<div class="modal-sub">Compártela con ' + escHtml(name) + ' (' + escHtml(email) + '). Tendrá que cambiarla al entrar.' +
         (expires ? ' Caduca el ' + escHtml(fmtWhen(expires)) : '') + '</div>' +
-      '<div class="team-temp" id="teamTempPw" tabindex="0">' + escHtml(password) + '</div>' +
+      '<div class="team-temp" id="teamTempPw" tabindex="0" role="textbox" aria-readonly="true" aria-label="Contraseña temporal de ' + escHtml(name) + '">' + escHtml(password) + '</div>' +
       '<div class="team-warn" role="note">No se volverá a mostrar. Si se pierde, restablece la contraseña desde el equipo.</div>' +
       '<div class="modal-footer"><button class="btn-ghost" data-act="copy">Copiar</button><button class="btn-primary" data-act="done">Listo</button></div>',
       () => {}, '[data-act="copy"]');
@@ -7239,38 +7284,50 @@ async function openAddTeamUser() {
   }
 }
 
+// Mientras una petición del equipo va, todos sus botones quedan deshabilitados (un doble clic no crea dos contraseñas ni dos cambios)
+let _teamBusy = false;
+function setTeamBusy(on) {
+  _teamBusy = on;
+  document.querySelectorAll('#teamAddBtn, .team-act, .team-role-sel').forEach(b => { b.disabled = on; b.setAttribute('aria-busy', on ? 'true' : 'false'); });
+}
 async function changeTeamRole(id, sel) {
   const u = _teamData && _teamData.users.find(x => x.id === id);
-  if (!u) return;
+  if (!u || _teamBusy) return;
   const to = sel.value, label = { manager: 'Encargado', seller: 'Vendedor' }[to];
   const yes = await askConfirm({ title: 'Cambiar el rol de ' + u.name, text: 'Pasará a ser ' + label + '. El cambio vale de inmediato, sin que tenga que volver a entrar.', confirmLabel: 'Cambiar rol' });
   if (!yes) { sel.value = u.role; return; }
+  setTeamBusy(true);
   try { await apiJson('PATCH', '/api/team/' + encodeURIComponent(id), { role: to }); showToast('Rol actualizado'); }
   catch (err) { showToast('No se cambió el rol (' + err.message + ')', 'error'); }
+  finally { setTeamBusy(false); }
   loadTeamPanel();
 }
 
 async function toggleTeamUser(id, active) {
   const u = _teamData && _teamData.users.find(x => x.id === id);
-  if (!u) return;
+  if (!u || _teamBusy) return;
   const yes = await askConfirm(active
     ? { title: 'Reactivar a ' + u.name, text: 'Podrá volver a entrar con su contraseña. Cuenta en el límite de usuarios de tu plan.', confirmLabel: 'Reactivar' }
     : { title: 'Desactivar a ' + u.name, text: 'Su sesión se cierra ahora mismo y no podrá entrar. No se borra nada: sus pedidos y cobros siguen a su nombre.', confirmLabel: 'Desactivar', danger: true });
   if (!yes) return;
+  setTeamBusy(true);
   try { await apiJson('PATCH', '/api/team/' + encodeURIComponent(id), { active }); showToast(active ? 'Usuario reactivado' : 'Usuario desactivado'); }
   catch (err) { showToast((active ? 'No se reactivó' : 'No se desactivó') + ' (' + err.message + ')', 'error'); }
+  finally { setTeamBusy(false); }
   loadTeamPanel();
 }
 
 async function resetTeamPassword(id) {
   const u = _teamData && _teamData.users.find(x => x.id === id);
-  if (!u) return;
+  if (!u || _teamBusy) return;
   const yes = await askConfirm({ title: 'Restablecer la contraseña de ' + u.name, text: 'Se genera una contraseña temporal nueva y se cierra su sesión. La anterior deja de funcionar.', confirmLabel: 'Restablecer', danger: true });
   if (!yes) return;
-  try {
-    const r = await apiJson('POST', '/api/team/' + encodeURIComponent(id) + '/reset-password', {});
-    await showTempPasswordDialog(r.user.name, r.user.email, r.tempPassword, r.tempPasswordExpiresAt);
-  } catch (err) { showToast('No se restableció la contraseña (' + err.message + ')', 'error'); }
+  setTeamBusy(true);
+  let r = null;
+  try { r = await apiJson('POST', '/api/team/' + encodeURIComponent(id) + '/reset-password', {}); }
+  catch (err) { showToast('No se restableció la contraseña (' + err.message + ')', 'error'); }
+  finally { setTeamBusy(false); }
+  if (r) await showTempPasswordDialog(r.user.name, r.user.email, r.tempPassword, r.tempPasswordExpiresAt);
   loadTeamPanel();
 }
 
@@ -7352,18 +7409,20 @@ function showForcedPasswordChange() {
     () => {}, '.form-input');
   const err = d.ov.querySelector('[data-err]'), yes = d.ov.querySelector('[data-act="yes"]');
   d.ov.querySelector('[data-act="out"]').onclick = () => logout();
+  let busy = false;
   const submit = async () => {
+    if (busy) return; // doble Enter: una sola petición
     const v = {}; d.ov.querySelectorAll('[data-f]').forEach(i => { v[i.dataset.f] = i.value; });
     err.textContent = '';
     if (!v.cur) { err.textContent = 'Escribe la contraseña temporal'; return; }
     if (v.new1.length < 8) { err.textContent = 'La contraseña nueva debe tener al menos 8 caracteres'; return; }
     if (v.new1 !== v.new2) { err.textContent = 'Las contraseñas nuevas no coinciden'; return; }
     if (v.new1 === v.cur) { err.textContent = 'La contraseña nueva debe ser distinta de la temporal'; return; }
-    yes.disabled = true;
+    busy = true; yes.disabled = true;
     try {
       await apiJson('PUT', '/api/tenant/password', { currentPassword: v.cur, newPassword: v.new1 }); // guarda el token nuevo
       location.replace('/app');
-    } catch (e) { err.textContent = (e && e.message) || 'No se pudo cambiar'; yes.disabled = false; }
+    } catch (e) { err.textContent = (e && e.message) || 'No se pudo cambiar'; yes.disabled = false; busy = false; }
   };
   yes.onclick = submit;
   d.ov.querySelectorAll('.form-input').forEach(i => i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }));
@@ -8228,7 +8287,7 @@ async function loadCashClosedBox() {
   el.innerHTML = '<div class="s-row" style="flex-direction:column;align-items:stretch;gap:6px;"><div class="s-row-info"><div class="s-row-label">Días con la caja cerrada</div>' +
     '<div class="s-row-desc">Mientras un día siga cerrado no se pueden registrar ni anular pagos, reembolsos ni gastos de ese día. Reábrelo para seguir trabajando.</div></div>' +
     days.map(x => '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;"><span>' + escHtml(fmtDay(x.day)) + '</span>' +
-      '<button type="button" class="btn-ghost" style="font-size:11px;" onclick="reopenClosedDay(' + escJsAttr(x.day) + ')">Reabrir…</button></div>').join('') + '</div>';
+      '<button type="button" class="btn-ghost role-owner" style="font-size:11px;" onclick="reopenClosedDay(' + escJsAttr(x.day) + ')">Reabrir…</button></div>').join('') + '</div>';
 }
 async function reopenClosedDay(day) {
   const ok = await openFormDialog({
@@ -9358,7 +9417,7 @@ async function deleteClient() {
   if (!c) return;
   _deletingClient = true;
   try {
-    const n = orders.filter(o => o.clientId === c.id).length;
+    const n = clientOrderCount(c);
     const yes = await askConfirm({
       title: '¿Eliminar la ficha de ' + c.name + '?',
       text: n
@@ -9755,7 +9814,7 @@ async function renderInforme(tab) {
               const spent = clientTotalSpent(c);
               const platColor = c.channel==='wa'?'var(--wa)':'var(--ig)';
               const platLabel = c.channel==='wa'?'WhatsApp':'Instagram';
-              return `<tr><td class="bold">${escHtml(c.name)}${c.isVip?' ⭐':''}</td><td>${escHtml(c.phone||'—')}</td><td>${escHtml(c.ig||'—')}</td><td>${escHtml(c.city||'—')}</td><td><span style="font-size:10px;font-weight:700;color:${platColor};">● ${platLabel}</span></td><td>${c.orders.length}</td><td class="green">${spent>0?'$'+spent:'—'}</td></tr>`;
+              return `<tr><td class="bold">${escHtml(c.name)}${c.isVip?' ⭐':''}</td><td>${escHtml(c.phone||'—')}</td><td>${escHtml(c.ig||'—')}</td><td>${escHtml(c.city||'—')}</td><td><span style="font-size:10px;font-weight:700;color:${platColor};">● ${platLabel}</span></td><td>${clientOrderCount(c)}</td><td class="green">${spent>0?'$'+spent:'—'}</td></tr>`;
             }).join('')}
           </tbody>
         </table>
@@ -10399,16 +10458,17 @@ function removeLogoProfile() {
 let ordersPage = { cursor: null, floor: 0, seq: 0, loading: false };
 let ordersSearchText = '';
 let _ordersSearchTimer = null;
-function ordersViewQuery(cursor) {
+function ordersViewQuery(cursor, withCounts) {
   const q = new URLSearchParams();
   q.set('limit', '100');
+  if (withCounts) q.set('counts', '1'); // los contadores solo se piden al cargar y al cambiar de pestaña (no por cada letra buscada)
   const f = currentFilter;
   if (f === 'all') q.set('status', 'all');
   else if (f === 'quote') q.set('kind', 'quote');
   else if (f === 'cancelled') q.set('status', 'cancelled');
   else if (f === 'today' || f === 'tomorrow') q.set('deliveryDate', f);
   else q.set('status', f);
-  if (ordersSearchText) q.set('q', ordersSearchText);
+  if (ordersSearchText.length >= 2) q.set('q', ordersSearchText); // el servidor pide 2 caracteres como mínimo
   if (cursor) q.set('before', cursor);
   return q.toString();
 }
@@ -10430,9 +10490,10 @@ async function reloadOrdersView(opts) {
   const seq = ++ordersPage.seq;
   ordersPage.loading = true;
   try {
-    const d = await apiJson('GET', '/api/orders?' + ordersViewQuery());
+    let d = await apiJson('GET', '/api/orders?' + ordersViewQuery(null, !!(opts && opts.counts)));
+    if (Array.isArray(d)) d = { orders: d, nextCursor: null, counts: null }; // servidor anterior (solape del despliegue): una sola página
     if (seq !== ordersPage.seq) return true; // llegó una carga más nueva
-    if (!d || !Array.isArray(d.orders)) return false;
+    if (!d || !Array.isArray(d.orders)) { ordersPage.loading = false; showToast('El servidor respondió algo inesperado al cargar los pedidos', 'error'); return false; }
     if (initial) { orders.length = 0; Object.keys(orderExtras).forEach(k => delete orderExtras[k]); }
     d.orders.forEach(ro => storeServerOrder(ro, 'append'));
     ordersPage.cursor = d.nextCursor || null;
@@ -10452,27 +10513,38 @@ async function reloadOrdersView(opts) {
     return false;
   }
 }
-async function loadRealOrders() { return reloadOrdersView({ initial: true }); }
+async function loadRealOrders() { return reloadOrdersView({ initial: true, counts: true }); }
 async function loadMoreOrders() {
   if (ordersPage.loading || !ordersPage.cursor) return;
   const seq = ordersPage.seq;
   ordersPage.loading = true;
+  const hadFocus = document.activeElement && document.activeElement.id === 'moreOrdersBtn';
   renderOrders();
   try {
-    const d = await apiJson('GET', '/api/orders?' + ordersViewQuery(ordersPage.cursor));
+    let d = await apiJson('GET', '/api/orders?' + ordersViewQuery(ordersPage.cursor, false));
+    if (Array.isArray(d)) d = { orders: d, nextCursor: null };
     if (seq !== ordersPage.seq) return;
+    if (!d || !Array.isArray(d.orders)) throw new Error('respuesta inesperada');
     d.orders.forEach(ro => storeServerOrder(ro, 'append'));
     ordersPage.cursor = d.nextCursor || null;
     ordersPage.floor = d.orders.length ? new Date(d.orders[d.orders.length - 1].createdAt).getTime() : ordersPage.floor;
     relinkClientOrders();
   } catch (err) { showToast('No se pudieron cargar más pedidos (' + err.message + ')', 'error'); }
-  finally { if (seq === ordersPage.seq) { ordersPage.loading = false; renderOrders(); } }
+  finally {
+    if (seq === ordersPage.seq) {
+      ordersPage.loading = false; renderOrders();
+      // el foco vuelve al botón (si aún hay más) o a la lista: no se pierde en el <body>
+      const b = document.getElementById('moreOrdersBtn') || document.getElementById('ordersList');
+      if (hadFocus && b) { if (b.tagName !== 'BUTTON') b.tabIndex = -1; b.focus({ preventScroll: true }); }
+    }
+  }
 }
 function onOrdersSearch(v) {
   clearTimeout(_ordersSearchTimer);
   _ordersSearchTimer = setTimeout(() => {
     const t = String(v || '').trim();
     if (t === ordersSearchText) return;
+    if (t.length === 1) return; // el servidor busca desde 2 caracteres
     ordersSearchText = t;
     ordersPage.cursor = null; ordersPage.floor = 0;
     renderOrders();      // enseguida, con lo ya cargado
@@ -10485,8 +10557,13 @@ async function ensureClientOrders(clientId) {
   if (!isServerId(clientId) || _clientOrdersFetched.has(clientId)) return false;
   _clientOrdersFetched.add(clientId);
   try {
-    const d = await apiJson('GET', '/api/orders?limit=100&clientId=' + encodeURIComponent(clientId));
-    (d.orders || []).forEach(ro => storeServerOrder(ro, 'append'));
+    let cursor = null, pages = 0;
+    do { // todas las páginas del cliente (hasta 20 × 100), no solo la primera
+      let d = await apiJson('GET', '/api/orders?limit=100&clientId=' + encodeURIComponent(clientId) + (cursor ? '&before=' + encodeURIComponent(cursor) : ''));
+      if (Array.isArray(d)) d = { orders: d.filter(o => o.clientId === clientId), nextCursor: null };
+      (d.orders || []).forEach(ro => storeServerOrder(ro, 'append'));
+      cursor = d.nextCursor || null; pages++;
+    } while (cursor && pages < 20);
     relinkClientOrders();
     return true;
   } catch (err) { _clientOrdersFetched.delete(clientId); return false; }
@@ -10497,9 +10574,12 @@ function clientTotalSpent(c) {
   if (Number.isFinite(c.totalSpent)) return c.totalSpent;
   return (c.orders || []).reduce((sum, oid) => { const o = orders.find(x => x.id === oid); return sum + (o ? Number(o.total) || 0 : 0); }, 0);
 }
-async function refreshClientStats() {
+// Solo refresca las fichas indicadas (una petición por ficha), nunca la lista entera
+async function refreshClientStats(ids) {
+  const want = [...new Set((ids || []).filter(isServerId))].slice(0, 10);
+  if (!want.length) return;
   try {
-    const list = await apiJson('GET', '/api/clients');
+    const list = (await Promise.all(want.map(id => apiJson('GET', '/api/clients?clientId=' + encodeURIComponent(id))))).flat();
     if (!Array.isArray(list)) return;
     const by = new Map(list.map(c => [c.id, c]));
     clientsDB.forEach(c => {
@@ -10573,13 +10653,18 @@ async function loadRealConversations() {
 async function loadMoreConvos() {
   if (convoPage.loading || !convoPage.cursor) return;
   convoPage.loading = true;
+  const hadFocus = document.activeElement && document.activeElement.id === 'moreConvosBtn';
   renderInboxList();
   try {
     const d = await apiJson('GET', '/api/conversations?limit=100&before=' + encodeURIComponent(convoPage.cursor));
     ingestServerConvos(d.conversations || []);
     convoPage.cursor = d.nextCursor || null;
   } catch (err) { showToast('No se pudieron cargar más chats (' + err.message + ')', 'error'); }
-  finally { convoPage.loading = false; renderInboxList(); }
+  finally {
+    convoPage.loading = false; renderInboxList();
+    const b = document.getElementById('moreConvosBtn') || document.getElementById('convoList');
+    if (hadFocus && b) { if (b.tagName !== 'BUTTON') b.tabIndex = -1; b.focus({ preventScroll: true }); }
+  }
 }
 let _convoSearchTimer = null;
 function scheduleConvoServerSearch(q) {
@@ -10655,7 +10740,14 @@ applyPlanNavigation(activePlan);
 // Quién está conectado (cabecera) y, si debe elegir a quién mantener en el equipo, el diálogo obligatorio
 (function applyWhoAmI() {
   const label = (TEAM_ME.name ? TEAM_ME.name + ' · ' : '') + ROLE_LABELS[TEAM_ME.role];
-  const chip = document.getElementById('whoChip'); if (chip) { chip.textContent = label; chip.title = label; }
+  const ws = document.getElementById('whoSide');
+  if (ws) {
+    ws.title = label;
+    const first = String(TEAM_ME.name || '').trim().split(/s+/)[0] || '';
+    document.getElementById('whoName').textContent = first;
+    document.getElementById('whoRole').textContent = ROLE_LABELS[TEAM_ME.role];
+    document.getElementById('whoRoleShort').textContent = { owner: 'Dueño', manager: 'Enc.', seller: 'Vend.' }[TEAM_ME.role];
+  }
   const sub = document.querySelector('.ssn-sub'); if (sub) sub.textContent = label;
   const av = document.querySelector('.user-avatar'); if (av) av.title = label;
 })();
@@ -10855,7 +10947,8 @@ function renderInboxList() {
   if (convoPage.cursor || convoPage.loading) {
     const more = document.createElement('div');
     more.style.cssText = 'display:flex;justify-content:center;padding:12px;';
-    more.innerHTML = '<button type="button" class="btn-ghost" onclick="loadMoreConvos()"' + (convoPage.loading ? ' disabled' : '') + '>' + (convoPage.loading ? 'Cargando…' : 'Cargar más chats') + '</button>';
+    more.setAttribute('role', 'status'); more.setAttribute('aria-busy', convoPage.loading ? 'true' : 'false');
+    more.innerHTML = '<button type="button" class="btn-ghost" id="moreConvosBtn" onclick="loadMoreConvos()"' + (convoPage.loading ? ' disabled' : '') + '>' + (convoPage.loading ? 'Cargando…' : 'Cargar más chats') + '</button>';
     list.appendChild(more);
   }
   if (!Object.keys(convos).length) { currentConvo = null; document.getElementById('chatPanel')?.classList.add('is-empty'); }
@@ -10924,7 +11017,7 @@ function storeServerOrder(ro, mode) {
   if (idx >= 0) orders[idx] = order;
   else if (mode === 'prepend') orders.unshift(order);
   else orders.push(order);
-  if (mode !== 'append') { relinkClientOrders(); scheduleOrderStatsRefresh(); } // en la carga inicial se hace una vez al final; un cambio pide cifras nuevas al servidor
+  if (mode !== 'append') { if (ro.clientId) _statsClientIds.add(ro.clientId); relinkClientOrders(); scheduleOrderStatsRefresh(); } // en la carga inicial se hace una vez al final; un cambio pide cifras nuevas al servidor
   return order;
 }
 
