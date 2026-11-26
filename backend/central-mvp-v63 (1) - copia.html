@@ -10743,7 +10743,7 @@ applyPlanNavigation(activePlan);
   const ws = document.getElementById('whoSide');
   if (ws) {
     ws.title = label;
-    const first = String(TEAM_ME.name || '').trim().split(/s+/)[0] || '';
+    const first = String(TEAM_ME.name || '').trim().split(/ +/)[0] || '';
     document.getElementById('whoName').textContent = first;
     document.getElementById('whoRole').textContent = ROLE_LABELS[TEAM_ME.role];
     document.getElementById('whoRoleShort').textContent = { owner: 'Dueño', manager: 'Enc.', seller: 'Vend.' }[TEAM_ME.role];
