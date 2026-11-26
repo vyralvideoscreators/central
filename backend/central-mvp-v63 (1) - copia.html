@@ -2157,6 +2157,44 @@
   .bcv-refresh-btn { font-size: 10px; cursor: pointer; color: var(--text3);
     transition: transform 0.3s; }
   .bcv-refresh-btn:hover { color: var(--yellow); transform: rotate(180deg); }
+  /* ── Roles (Fase 4B): lo que el rol no puede hacer no se ofrece. El servidor además lo bloquea en cada ruta. ── */
+  html.role-seller .role-manager, html.role-seller .role-owner, html.role-manager .role-owner { display: none !important; }
+  .who-chip { margin-left: 8px; font-size: 11px; font-weight: 600; color: var(--text2); background: var(--surface2); border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+  .team-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .team-sub { font-size: 12px; color: var(--text3); }
+  .team-warn { font-size: 12.5px; background: var(--yellow-dim); color: var(--text); border: 1px solid var(--border2); border-radius: 10px; padding: 10px 12px; margin: 8px 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .team-list { display: flex; flex-direction: column; gap: 8px; }
+  .team-row { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto auto; gap: 12px; align-items: center; background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; }
+  .team-row.off { opacity: .65; }
+  .team-av { width: 36px; height: 36px; border-radius: 50%; background: var(--accent-glow); color: var(--accent2); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; }
+  .team-name { font-weight: 700; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .team-you { color: var(--text3); font-weight: 500; font-size: 12px; }
+  .team-mail, .team-meta { font-size: 12px; color: var(--text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .team-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+  .team-role { font-size: 12.5px; font-weight: 600; color: var(--accent2); }
+  .team-role-sel { width: auto; min-width: 120px; padding: 5px 8px; font-size: 12.5px; }
+  .team-chips { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .team-chip { font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border2); color: var(--text2); }
+  .team-chip.ok { color: var(--green); border-color: var(--green); }
+  .team-chip.off { color: var(--red); border-color: var(--red); }
+  .team-chip.warn { color: var(--yellow); border-color: var(--yellow); }
+  .team-acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .team-act { font-size: 11.5px; padding: 5px 10px; }
+  .team-act.danger { color: var(--red); }
+  .team-help-row { display: flex; gap: 10px; font-size: 12.5px; color: var(--text2); padding: 4px 0; }
+  .team-help-row b { min-width: 78px; color: var(--text); }
+  .team-temp { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 22px; font-weight: 700; letter-spacing: 1px; text-align: center; padding: 14px; margin: 10px 0; background: var(--surface2); border: 1px dashed var(--accent); border-radius: 12px; user-select: all; word-break: break-all; }
+  .team-keep { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; margin: 8px 0; }
+  .team-keep-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface2); font-size: 13px; cursor: pointer; }
+  .by-line { font-size: 11px; color: var(--text3); margin-top: 2px; }
+  @media (max-width: 680px) {
+    .team-row { grid-template-columns: 36px minmax(0, 1fr); }
+    .team-side { grid-column: 2; align-items: flex-start; }
+    .team-chips { justify-content: flex-start; }
+    .team-acts { grid-column: 1 / -1; justify-content: flex-start; }
+    .team-temp { font-size: 18px; }
+    .who-chip { display: none; }
+  }
 </style>
 </head>
 <body>
@@ -2214,13 +2252,13 @@
     <div class="nav-item" id="nav-clientes" data-tour="Clientes — fichas completas con historial, direcciones y notas de cada cliente" onclick="goView('clientes')" title="Clientes">
       <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/></svg>
     </div>
-    <div class="nav-item" id="nav-informes" data-tour="Informes — analiza tus ventas, pedidos y productos con gráficos. Descarga reportes en Excel" onclick="goView('informes')" title="Informes">
+    <div class="nav-item role-manager" id="nav-informes" data-tour="Informes — analiza tus ventas, pedidos y productos con gráficos. Descarga reportes en Excel" onclick="goView('informes')" title="Informes">
       <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/></svg>
     </div>
     <div class="nav-item" id="nav-pagos" data-tour="Pagos — valida Pago Móvil y Zelle automáticamente. Sin revisión manual" onclick="goView('pagos')" title="Pagos">
       <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z"/></svg>
     </div>
-    <div class="nav-item" id="nav-gastos" data-tour="Gastos — registra lo que gastas para vender; se descuenta de tu utilidad" onclick="goView('gastos')" title="Gastos y caja" role="button" tabindex="0">
+    <div class="nav-item role-manager" id="nav-gastos" data-tour="Gastos — registra lo que gastas para vender; se descuenta de tu utilidad" onclick="goView('gastos')" title="Gastos y caja" role="button" tabindex="0">
       <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z"/></svg>
     </div>
     <div class="sidebar-spacer"></div>
@@ -2245,6 +2283,7 @@
             <div class="panel-title">
               Bandeja
               <span class="count-pill" id="convoCountPill">0</span>
+              <span class="who-chip" id="whoChip"></span>
             </div>
           </div>
           <div class="filter-tabs">
@@ -2394,6 +2433,9 @@
         </div>
       </div>
 
+      <div class="ped-search" style="padding:0 20px 8px;">
+        <input type="search" id="ordersSearch" class="form-input" style="max-width:360px;" placeholder="Buscar por número, cliente o producto…" aria-label="Buscar pedidos" oninput="onOrdersSearch(this.value)" autocomplete="off">
+      </div>
       <div class="ped-filter-bar" role="group" aria-label="Filtrar pedidos">
         <button type="button" class="ped-filter-tab active" id="pft-all" aria-pressed="true" onclick="filterOrders('all',this)">Todos <span class="pft-count" id="count-all">0</span></button>
         <button type="button" class="ped-filter-tab" id="pft-to_deliver" aria-pressed="false" onclick="filterOrders('to_deliver',this)">Por entregar <span class="pft-count" id="count-to_deliver">5</span></button>
@@ -2688,44 +2730,48 @@
           <div class="ssn-sub" data-i18n="set_sub">Gestión de cuenta</div>
         </div>
         <div class="ssn-list">
-          <div class="ssn-group-label" data-i18n="set_g_biz">Mi Negocio</div>
-          <div class="ssn-item active" onclick="switchSettings('perfil',this)">
+          <div class="ssn-group-label role-manager" data-i18n="set_g_biz">Mi Negocio</div>
+          <div class="ssn-item active role-manager" onclick="switchSettings('perfil',this)">
             <div class="ssn-item-icon"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 21v-7.5a.75.75 0 01.75-.75h3a.75.75 0 01.75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349m-16.5 11.65V9.35m0 0a3.001 3.001 0 003.75-.615A2.993 2.993 0 009.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 002.25 1.016c.896 0 1.7-.393 2.25-1.016a3.001 3.001 0 003.75.614m-16.5 0a3.004 3.004 0 01-.621-4.72L4.318 3.44A1.5 1.5 0 015.378 3h13.243a1.5 1.5 0 011.06.44l1.19 1.189a3 3 0 01-.621 4.72m-13.5 8.65h3.75a.75.75 0 00.75-.75V13.5a.75.75 0 00-.75-.75H6.75a.75.75 0 00-.75.75v3.75c0 .415.336.75.75.75z"/></svg></div>
             <span data-i18n="set_perfil">Perfil del negocio</span>
           </div>
-          <div class="ssn-item" onclick="switchSettings('canales',this)">
+          <div class="ssn-item role-owner" onclick="switchSettings('canales',this)">
             <div class="ssn-item-icon"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z"/></svg></div>
             <span data-i18n="set_canales">Canales conectados</span>
           </div>
-          <div class="ssn-item" onclick="switchSettings('pagos',this)">
+          <div class="ssn-item role-manager" onclick="switchSettings('pagos',this)">
             <div class="ssn-item-icon"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z"/></svg></div>
             <span data-i18n="set_pagos">Métodos de pago</span>
           </div>
-          <div class="ssn-item" onclick="switchSettings('entrega',this)">
+          <div class="ssn-item role-manager" onclick="switchSettings('entrega',this)">
             <div class="ssn-item-icon"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12"/></svg></div>
             <span data-i18n="set_entrega">Opciones de entrega</span>
           </div>
-          <div class="ssn-item" onclick="switchSettings('impuesto',this)">
+          <div class="ssn-item role-manager" onclick="switchSettings('impuesto',this)">
             <div class="ssn-item-icon"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 14.25l6-6m4.5-3.493V21.75l-3.75-1.5-3.75 1.5-3.75-1.5-3.75 1.5V4.757c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0c1.1.128 1.907 1.077 1.907 2.185zM9.75 9h.008v.008H9.75V9zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm4.125 4.5h.008v.008h-.008V13.5zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/></svg></div>
             <span>Impuesto y zonas</span>
           </div>
 
-          <div class="ssn-group-label" style="margin-top:8px;" data-i18n="set_g_auto">Automatización</div>
-          <div class="ssn-item" onclick="switchSettings('respuestas',this)">
+          <div class="ssn-group-label role-manager" style="margin-top:8px;" data-i18n="set_g_auto">Automatización</div>
+          <div class="ssn-item role-manager" onclick="switchSettings('respuestas',this)">
             <div class="ssn-item-icon"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg></div>
             <span data-i18n="set_respuestas">Respuestas rápidas</span>
           </div>
-          <div class="ssn-item" onclick="switchSettings('horario',this)">
+          <div class="ssn-item role-manager" onclick="switchSettings('horario',this)">
             <div class="ssn-item-icon"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>
             <span data-i18n="set_horario">Horario de atención</span>
           </div>
 
           <div class="ssn-group-label" style="margin-top:8px;" data-i18n="set_g_cuenta">Cuenta</div>
+          <div class="ssn-item role-owner" id="ssn-equipo" style="display:none;" onclick="switchSettings('equipo',this)">
+            <div class="ssn-item-icon"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/></svg></div>
+            <span>Equipo</span>
+          </div>
           <div class="ssn-item" onclick="switchSettings('seguridad',this)">
             <div class="ssn-item-icon"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/></svg></div>
             <span data-i18n="set_seguridad">Seguridad y acceso</span>
           </div>
-          <div class="ssn-item" onclick="switchSettings('plan',this)">
+          <div class="ssn-item role-owner" onclick="switchSettings('plan',this)">
             <div class="ssn-item-icon"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z"/></svg></div>
             <span data-i18n="set_plan">Plan y facturación</span>
             <span class="ssn-badge" id="planNavBadge" style="background:var(--accent-glow);color:var(--accent2);">PRO</span>
@@ -2770,7 +2816,7 @@
           <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/></svg>
           Volver
         </div>
-        <button class="btn-primary" onclick="openCatCategoryModal()">
+        <button class="btn-primary role-manager" onclick="openCatCategoryModal()">
           <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="width:13px;height:13px"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
           Nueva categoría
         </button>
@@ -3174,7 +3220,7 @@
 
     <div class="pm-footer">
       <button class="btn-ghost" onclick="closeProfileModal()" style="margin-right:auto;">Cancelar</button>
-      <button class="btn-ghost" id="pmDeleteBtn" style="color:var(--red);" onclick="deleteClient()">
+      <button class="btn-ghost role-manager" id="pmDeleteBtn" style="color:var(--red);" onclick="deleteClient()">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:13px;height:13px"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>
         Eliminar
       </button>
@@ -3379,8 +3425,8 @@
       </div>
 
       <button class="btn-primary" id="odmConvertBtn" style="display:none;" onclick="convertQuote()">Convertir en pedido</button>
-      <button class="btn-ghost" id="odmReturnBtn" onclick="openReturnDialog()">Devolución</button>
-      <button class="btn-ghost" id="odmCancelBtn" style="color:var(--red);" onclick="openCancelDialog()">Anular</button>
+      <button class="btn-ghost role-manager" id="odmReturnBtn" onclick="openReturnDialog()">Devolución</button>
+      <button class="btn-ghost role-manager" id="odmCancelBtn" style="color:var(--red);" onclick="openCancelDialog()">Anular</button>
       <button class="btn-ghost" id="odmEditBtn" onclick="openOrderForm({mode:'edit'})">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:13px;height:13px"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"/></svg>
         Editar
@@ -3456,6 +3502,7 @@ async function verifySessionAndApplyTenant() {
     if (res.status === 403) {
       const body = await res.clone().json().catch(() => ({}));
       if (body.error === 'demo_expired') { location.replace('/app'); return; }
+      if (body.error === 'must_change_password') return; // la ventana de cambio de contraseña ya está abierta
     }
     if (res.status === 401 || res.status === 403) {
       localStorage.removeItem('central_jwt');
@@ -3568,6 +3615,28 @@ function apiAuthHeader() {
 
 // Llamada JSON a la API que falla de verdad: si la red cae o el servidor responde con error,
 // lanza un Error con el mensaje del servidor para poder avisar al usuario.
+// ══ Equipo y roles (Fase 4B) ══
+// El rol llega inyectado por el servidor en /app (lo lee de la base en cada carga); la interfaz oculta lo que el rol no puede hacer,
+// pero quien decide es el servidor: cada ruta devuelve 403 role_forbidden si el rol no alcanza.
+const TEAM_ME = (function () {
+  const t = window.__TEAM_USER__ || {};
+  return { id: t.id || null, name: String(t.name || ''), role: ['owner', 'manager', 'seller'].includes(t.role) ? t.role : 'seller',
+    mustChange: !!t.mustChange, overLimitSince: t.overLimitSince || null };
+})();
+const ROLE_LABELS = { owner: 'Dueño', manager: 'Encargado', seller: 'Vendedor' };
+const ROLE_RANK = { seller: 1, manager: 2, owner: 3 };
+function roleAtLeast(min) { return (ROLE_RANK[TEAM_ME.role] || 0) >= (ROLE_RANK[min] || 99); }
+document.documentElement.classList.add('role-' + TEAM_ME.role);
+// La sesión terminó (usuario desactivado, contraseña cambiada en otro sitio…): se limpia y se vuelve al login
+let _sessionEnding = false;
+function sessionEnded(msg) {
+  if (_sessionEnding) return;
+  _sessionEnding = true;
+  try { localStorage.removeItem('central_jwt'); localStorage.removeItem('central_auth'); localStorage.removeItem('central_tenant'); } catch (e) {}
+  showToast(msg || 'Tu sesión se cerró. Vuelve a iniciar sesión.', 'error');
+  setTimeout(() => { location.href = '/central-registro.html'; }, 2200);
+}
+
 async function apiJson(method, path, body) {
   let res;
   try {
@@ -3579,9 +3648,16 @@ async function apiJson(method, path, body) {
   }
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const err = new Error((data && (data.message || data.error)) || ('error ' + res.status));
-    err.status = res.status; err.code = data && data.error;
+    const code = data && data.error;
+    if (res.status === 401 && ['session_closed', 'user_inactive', 'temp_password_expired'].includes(code)) sessionEnded(data.message);
+    if (res.status === 403 && code === 'must_change_password') showForcedPasswordChange();
+    const err = new Error(res.status === 403 && code === 'role_forbidden' ? 'Tu rol no permite esta acción' : ((data && (data.message || data.error)) || ('error ' + res.status)));
+    err.status = res.status; err.code = code; err.data = data;
     throw err;
+  }
+  // Cambiar la contraseña (o el correo del dueño) cierra las sesiones anteriores: el servidor manda un token nuevo
+  if (data && data.token && method === 'PUT' && (path === '/api/tenant/password' || path === '/api/tenant/profile')) {
+    try { localStorage.setItem('central_jwt', data.token); } catch (e) {}
   }
   return data;
 }
@@ -3619,7 +3695,11 @@ function goView(v) {
   if (v === 'inbox')    document.getElementById('nav-inbox').classList.add('active');
   if (v === 'pedidos')  { document.getElementById('nav-pedidos').classList.add('active'); renderOrders(); }
   if (v === 'catalogo') { document.getElementById('nav-catalogo').classList.add('active'); renderCatalog(); loadStockLevels().then(ok => { if (ok && document.getElementById('v-catalogo').classList.contains('active')) renderCatalog(); }); }
-  if (v === 'ajustes')  { document.getElementById('nav-ajustes').classList.add('active'); switchSettings('perfil', document.querySelector('.ssn-item')); }
+  if (v === 'ajustes')  {
+    document.getElementById('nav-ajustes').classList.add('active');
+    if (roleAtLeast('manager')) switchSettings('perfil', document.querySelector('.ssn-item'));
+    else switchSettings('seguridad', document.querySelector('.ssn-item[onclick*="seguridad"]')); // el vendedor solo ve su cuenta
+  }
   if (v === 'clientes') { document.getElementById('nav-clientes').classList.add('active'); renderClients(); }
   if (v === 'informes') { document.getElementById('nav-informes').classList.add('active'); renderInforme('ventas'); }
   if (v === 'pagos')    { document.getElementById('nav-pagos').classList.add('active'); loadPagos(); }
@@ -3639,6 +3719,7 @@ function selectConvo(el, key) {
   }
   loadChat(key);
   showConvoHistory(key);
+  ensureConvoHistory(key);
 }
 
 let convoSearchQuery = '';
@@ -3646,6 +3727,7 @@ let convoSearchQuery = '';
 function filterConvoSearch(q) {
   convoSearchQuery = q.toLowerCase().trim();
   applyConvoFilters();
+  scheduleConvoServerSearch(q); // además de los cargados, el servidor busca en todos los chats
 }
 
 function applyConvoFilters() {
@@ -3777,6 +3859,7 @@ function loadChat(key) {
   // messages
   const list = document.getElementById('msgList');
   list.innerHTML = '';
+  if (c.hasMore) list.insertAdjacentHTML('afterbegin', '<div style="text-align:center;padding:8px;"><button type="button" class="btn-ghost" onclick="loadOlderMessages()">Cargar mensajes anteriores</button></div>');
   c.messages.forEach(m => {
     if (m.type === 'ticket') {
       renderTicketBubble(list, m, c);
@@ -4338,10 +4421,10 @@ function refreshAfterOrderChange(id) {
   if (convos[currentConvo] && hist && hist.style.display === 'flex') showConvoHistory(currentConvo);
 }
 
-// Saldo que debe cada cliente, a partir de los pedidos cargados ({ idDeFicha: saldo })
+// Saldo que debe cada cliente ({ idDeFicha: saldo }): lo calcula el servidor sobre TODOS sus pedidos (no sobre los cargados)
 function clientBalanceMap() {
   const m = {};
-  orders.forEach(o => { if (o.clientId && o.balance > 0) m[o.clientId] = (m[o.clientId] || 0) + o.balance; });
+  clientsDB.forEach(c => { if (Number(c.balance) > 0.004) m[c.id] = Number(c.balance); });
   return m;
 }
 function updateChatDebt() {
@@ -4811,15 +4894,15 @@ function renderOrderPayments() {
   const base = baseCurrency();
   box.innerHTML = _odmPayments.map(p => {
     const foreign = p.currency && p.currency !== base;
-    const sub = [p.reference ? 'Ref. ' + escHtml(p.reference) : '', p.note ? escHtml(p.note) : ''].filter(Boolean).join(' · ');
+    const sub = [p.reference ? 'Ref. ' + escHtml(p.reference) : '', p.note ? escHtml(p.note) : '', p.byName ? 'Por: ' + escHtml(p.byName) : ''].filter(Boolean).join(' · ');
     const st = t => p.voided ? '<span class="strike">' + t + '</span>' : t;
     return '<div class="odm-pay-item' + (p.voided ? ' voided' : '') + '">' +
       '<div class="opi-main"><div class="opi-title">' + st(escHtml(p.method)) + ' · ' + escHtml(fmtWhen(p.paidAt)) + '</div>' +
       (sub ? '<div class="opi-sub">' + sub + '</div>' : '') +
-      (p.voided ? '<div class="opi-void">Anulado' + (p.voidReason ? ': ' + escHtml(p.voidReason) : '') + '</div>' : '') + '</div>' +
+      (p.voided ? '<div class="opi-void">Anulado' + (p.voidedByName ? ' por ' + escHtml(p.voidedByName) : '') + (p.voidReason ? ': ' + escHtml(p.voidReason) : '') + '</div>' : '') + '</div>' +
       '<div class="opi-amt">' + st(fmtMoney(p.amountBase)) +
         (foreign ? '<small>' + (Number(p.amount) || 0).toFixed(2) + ' ' + escHtml(p.currency) + ' · tasa ' + escHtml(p.exchangeRate) + '</small>' : '') + '</div>' +
-      (p.voided ? '' : '<button class="btn-ghost odm-pay-void" onclick="voidPayment(' + escJsAttr(p.id) + ')">Anular</button>') +
+      (p.voided ? '' : '<button class="btn-ghost odm-pay-void role-manager" onclick="voidPayment(' + escJsAttr(p.id) + ')">Anular</button>') +
     '</div>';
   }).join('');
 }
@@ -4910,7 +4993,7 @@ async function loadOrderHistory(orderId) {
     if (seq !== _histSeq || currentDetailId !== orderId) return;
     const evs = (r.events || []).slice().reverse(); // lo más reciente arriba
     box.innerHTML = evs.length
-      ? evs.map(ev => '<div class="odm-hist-item"><div class="t">' + escHtml(fmtWhen(ev.createdAt)) + '</div><div class="x">' + describeOrderEvent(ev) + '</div></div>').join('')
+      ? evs.map(ev => '<div class="odm-hist-item"><div class="t">' + escHtml(fmtWhen(ev.createdAt)) + '</div><div class="x">' + describeOrderEvent(ev) + '</div>' + (ev.byName ? '<div class="by-line">Por: ' + escHtml(ev.byName) + '</div>' : '') + '</div>').join('')
       : '<div style="font-size:12px;color:var(--text3);">Sin movimientos registrados.</div>';
   } catch (err) {
     if (seq !== _histSeq) return;
@@ -5611,10 +5694,8 @@ function rebuildPagMethodSelect() {
 }
 // Por cobrar y entregados sin cobrar: salen de los pedidos cargados (pendiente = saldo mayor que 0)
 function renderPagosResumen() {
-  let pend = 0, pendN = 0, entSin = 0;
-  orders.forEach(o => {
-    if (o.balance > 0.004) { pend += o.balance; pendN++; if (o.delivery === 'delivered') entSin++; }
-  });
+  const cn = ordersCounts || {}; // lo calcula el servidor sobre todos los pedidos
+  const pend = cn.owed || 0, pendN = cn.pending_pay || 0, entSin = cn.delivered_unpaid || 0;
   const set = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
   set('pagPorCobrar', fmtMoney(pend)); set('pagPorCobrarN', pendN + (pendN === 1 ? ' pedido' : ' pedidos'));
   set('pagEntregadoSin', String(entSin));
@@ -5677,7 +5758,7 @@ async function loadPagos() {
     html += list.map(p => {
       const foreign = p.currency && p.currency !== base;
       const st = t => p.voided ? '<span class="strike">' + t + '</span>' : t;
-      const open = 'openPagoOrder(' + escJsAttr(p.orderNumber) + ')';
+      const open = 'openPagoOrder(' + escJsAttr(p.orderNumber) + ',' + escJsAttr(p.orderId) + ')';
       const refund = p.kind === 'refund', fromCredit = p.method === 'Saldo a favor';
       return '<div class="pagr-row' + (p.voided ? ' voided' : '') + '" role="button" tabindex="0" onclick="' + open + '" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();' + open + '}"' +
         (p.voided && p.voidReason ? ' title="' + escHtml('Anulado: ' + p.voidReason) + '"' : '') + '>' +
@@ -5685,7 +5766,7 @@ async function loadPagos() {
         '<div style="font-weight:700;color:var(--text3);">' + escHtml(p.orderNumber) + '</div>' +
         '<div>' + escHtml(p.clientName || '—') + '</div>' +
         '<div>' + st(escHtml(p.method)) + (refund ? '<div class="pagr-sub" style="color:var(--red);">Reembolso</div>' : fromCredit ? '<div class="pagr-sub">Saldo a favor: no suma al cobrado</div>' : '') + '</div>' +
-        '<div>' + escHtml((refund ? p.note : p.reference) || '—') + '</div>' +
+        '<div>' + escHtml((refund ? p.note : p.reference) || '—') + (p.byName ? '<div class="pagr-sub">Por: ' + escHtml(p.byName) + '</div>' : '') + '</div>' +
         '<div class="amt"' + (refund ? ' style="color:var(--red);"' : '') + '>' + st(fmtSigned(p.amountBase)) + (foreign ? '<div class="pagr-sub">' + (Number(p.amount) || 0).toFixed(2) + ' ' + escHtml(p.currency) + '</div>' : '') +
           (p.voided ? '<div class="pagr-void-tag">Anulado</div>' : '') + '</div>' +
       '</div>';
@@ -5694,9 +5775,16 @@ async function loadPagos() {
   html += '</div>';
   body.innerHTML = html;
 }
-function openPagoOrder(num) {
-  if (orders.some(o => o.id === num)) openOrderDetail(num);
-  else showToast('Ese pedido no está en la lista cargada. Recarga la página.', 'error');
+async function openPagoOrder(num, orderId) {
+  if (orders.some(o => o.id === num)) return openOrderDetail(num);
+  if (!isServerId(orderId)) { showToast('No se encontró ese pedido', 'error'); return; }
+  try { // no estaba entre los cargados (la lista es paginada): se pide ese pedido
+    const d = await apiJson('GET', '/api/orders?orderId=' + encodeURIComponent(orderId));
+    (d.orders || []).forEach(ro => storeServerOrder(ro, 'append'));
+    relinkClientOrders();
+    if (orders.some(o => o.id === num)) openOrderDetail(num);
+    else showToast('No se encontró ese pedido', 'error');
+  } catch (err) { showToast('No se pudo abrir el pedido (' + err.message + ')', 'error'); }
 }
 
 // ══ Fase 4A: Gastos, cierre de caja, existencias y utilidad ══════════════════════════════
@@ -5797,7 +5885,7 @@ async function loadGastos() {
         '<div class="g-date">' + escHtml(fmtDay(e.spentOn)) + '</div>' +
         '<div class="g-cat" style="font-weight:600;">' + st(escHtml(e.category)) + '</div>' +
         '<div class="g-met">' + escHtml(e.method) + '</div>' +
-        '<div class="g-note" title="' + escHtml(e.note || '') + '">' + escHtml(e.note || '—') + '</div>' +
+        '<div class="g-note" title="' + escHtml(e.note || '') + '">' + escHtml(e.note || '—') + (e.byName ? '<div class="pagr-sub">Por: ' + escHtml(e.byName) + (e.voided && e.voidedByName ? ' · anulado por ' + escHtml(e.voidedByName) : '') + '</div>' : '') + '</div>' +
         '<div class="amt">' + st(fmtMoney(e.amountBase)) + (foreign ? '<div class="pagr-sub">' + (Number(e.amount) || 0).toFixed(2) + ' ' + escHtml(e.currency) + '</div>' : '') +
           (e.voided ? '<div class="pagr-void-tag">Anulado</div>' + (e.voidReason ? '<div class="gas-void-reason">' + escHtml(e.voidReason) + '</div>' : '') : '') + '</div>' +
         '<div class="gas-act">' + (e.voided ? '' : '<button type="button" class="gas-link" onclick="voidExpense(' + escJsAttr(e.id) + ')" aria-label="' + escHtml('Anular gasto de ' + e.category + ' del ' + fmtDay(e.spentOn)) + '">Anular</button>') + '</div>' +
@@ -5969,7 +6057,7 @@ function renderCaja(card, st) {
     '<label for="cajaDayInput" class="pagr-sub">Día</label><input type="date" id="cajaDayInput" class="form-input" style="padding:5px 8px;font-size:12px;width:136px;" value="' + escHtml(st.day) + '" max="' + escHtml(st.today) + '" onchange="setCajaDay(this.value)">' +
     '<span class="pag-badge' + (closed ? '' : ' pag-badge-warn') + '">' + (closed ? 'Cerrada' : 'Abierta') + '</span></span></div>';
   if (closed && c) {
-    html += '<div class="pagr-sub" style="margin-bottom:6px;">Cerrada el ' + escHtml(fmtWhen(c.closedAt)) + (c.note ? ' · ' + escHtml(c.note) : '') +
+    html += '<div class="pagr-sub" style="margin-bottom:6px;">Cerrada el ' + escHtml(fmtWhen(c.closedAt)) + (c.byName ? ' por ' + escHtml(c.byName) : '') + (c.note ? ' · ' + escHtml(c.note) : '') +
       ' — mientras esté cerrada no se pueden registrar ni anular pagos, reembolsos ni gastos de este día.' +
       (c.differentLines ? ' Hay ' + c.differentLines + (c.differentLines === 1 ? ' fila con diferencia.' : ' filas con diferencia.') : ' Todo cuadró.') + '</div>';
     html += '<div style="overflow-x:auto;"><table class="inf-table cash-rows"><thead><tr><th>Método · moneda</th><th style="text-align:right;">Esperado</th><th style="text-align:right;">Contado</th><th style="text-align:right;">Diferencia</th></tr></thead><tbody>' +
@@ -5990,7 +6078,7 @@ function renderCaja(card, st) {
   const past = (st.history || []).filter(h => h.status === 'reopened');
   if (past.length) {
     html += '<div class="cash-hist" style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px;"><details><summary>Cierres reabiertos de este día (' + past.length + ')</summary>' +
-      past.map(h => '<div style="margin-top:8px;"><div class="pagr-sub">Cerrada el ' + escHtml(fmtWhen(h.closedAt)) + ' · reabierta el ' + escHtml(fmtWhen(h.reopenedAt)) + (h.reopenReason ? ' — ' + escHtml(h.reopenReason) : '') + '</div>' +
+      past.map(h => '<div style="margin-top:8px;"><div class="pagr-sub">Cerrada el ' + escHtml(fmtWhen(h.closedAt)) + (h.byName ? ' por ' + escHtml(h.byName) : '') + ' · reabierta el ' + escHtml(fmtWhen(h.reopenedAt)) + (h.reopenedByName ? ' por ' + escHtml(h.reopenedByName) : '') + (h.reopenReason ? ' — ' + escHtml(h.reopenReason) : '') + '</div>' +
         '<div style="overflow-x:auto;"><table class="inf-table cash-rows"><thead><tr><th>Método · moneda</th><th style="text-align:right;">Esperado</th><th style="text-align:right;">Contado</th><th style="text-align:right;">Diferencia</th></tr></thead><tbody>' +
         (h.lines || []).map(l => '<tr>' + nameTd(l) + '<td style="text-align:right;">' + sCur(l.expected, l.currency) + '</td><td style="text-align:right;">' + sCur(l.counted, l.currency) + '</td>' + diffTd(l.difference, l.currency) + '</tr>').join('') +
         '</tbody></table></div></div>').join('') + '</details></div>';
@@ -6122,6 +6210,7 @@ const stockCls = n => n <= 0 ? 'stk-neg' : '';
 const STOCK_REASON_ES = { sale: 'Venta', cancel: 'Pedido anulado', return: 'Devolución', edit: 'Pedido editado', adjust_in: 'Entrada', adjust_out: 'Salida', count: 'Recuento' };
 
 async function openStockDialog(prodId) {
+  if (!roleAtLeast('manager')) return; // el vendedor ve las existencias pero no las ajusta
   if (_stockDlgOpen) return;
   _stockDlgOpen = true;
   const p = findCatalogProduct(prodId);
@@ -6170,7 +6259,7 @@ async function openStockDialog(prodId) {
       box.innerHTML = h.movements.length
         ? '<div style="max-height:220px;overflow-y:auto;"><table class="inf-table"><thead><tr><th>Fecha</th><th>Variante</th><th>Cambio</th><th>Quedó</th><th>Motivo</th></tr></thead><tbody>' +
           h.movements.map(m => '<tr><td>' + escHtml(fmtWhen(m.createdAt)) + '</td><td>' + escHtml(names.get(m.variantKey) || m.variantKey || 'Total') + '</td><td class="bold ' + (m.delta < 0 ? 'stk-neg' : '') + '">' + (m.delta > 0 ? '+' : '') + m.delta + '</td><td class="' + stockCls(m.qtyAfter) + '">' + m.qtyAfter + '</td><td>' +
-            escHtml(STOCK_REASON_ES[m.reason] || 'Movimiento') + (m.orderNumber ? ' ' + escHtml(m.orderNumber) : '') + (m.note ? ' · ' + escHtml(m.note) : '') + '</td></tr>').join('') +
+            escHtml(STOCK_REASON_ES[m.reason] || 'Movimiento') + (m.orderNumber ? ' ' + escHtml(m.orderNumber) : '') + (m.note ? ' · ' + escHtml(m.note) : '') + (m.byName ? ' · por ' + escHtml(m.byName) : '') + '</td></tr>').join('') +
           '</tbody></table></div>' + (h.truncated ? '<div class="pagr-sub" style="margin-top:4px;">Se muestran los últimos ' + h.limit + ' movimientos.</div>' : '')
         : '<div class="pagr-sub">Todavía no hay movimientos.</div>';
     } catch (err) { box.innerHTML = '<div style="color:var(--red);font-size:12.5px;">No se pudo cargar el historial (' + escHtml(err.message) + ')</div>'; }
@@ -6364,49 +6453,27 @@ function cycleDelivery(el, orderId) {
   openStatusPicker(orderId);
 }
 
-function updateOrderCounts() {
-  const counts = { to_deliver: 0, preparing: 0, on_the_way: 0, delivered: 0, not_delivered: 0, pending_pay: 0, quote: 0, cancelled: 0, today: 0, tomorrow: 0 };
-  let owed = 0;
-  const today = bizDayIso(0), tomorrow = bizDayIso(1);
-  orders.forEach(o => {
-    if (o.cancelled) { counts.cancelled++; return; }
-    if (o.kind === 'quote') { counts.quote++; return; }
-    counts[o.delivery] = (counts[o.delivery] || 0) + 1;
-    if (o.balance > 0.004) { counts.pending_pay++; owed += o.balance; }
-    if (o.deliveryDate && today && o.delivery !== 'delivered') { if (o.deliveryDate === today) counts.today++; else if (o.deliveryDate === tomorrow) counts.tomorrow++; }
-  });
+// Contadores de Pedidos y datos del día: los calcula el SERVIDOR sobre TODOS los pedidos (la lista cargada solo trae una página,
+// así que contar aquí daría cifras falsas). ordersCounts llega con la primera página y se refresca tras cada cambio.
+let ordersCounts = null;
+let _statsTimer = null, _lastStatsAt = 0;
+function paintOrderCounts() {
+  const c = ordersCounts;
+  if (!c) return;
   const setN = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-  ['to_deliver', 'preparing', 'on_the_way', 'delivered', 'not_delivered', 'quote', 'cancelled', 'today', 'tomorrow'].forEach(k => setN('count-' + k, counts[k]));
+  ['all', 'to_deliver', 'preparing', 'on_the_way', 'delivered', 'not_delivered', 'quote', 'cancelled', 'today', 'tomorrow'].forEach(k => setN('count-' + k, c[k] || 0));
   // "Por entregar" cuenta todo lo que aún no llegó al cliente (por entregar + preparando + en camino)
-  setN('statToDeliver', counts.to_deliver + counts.preparing + counts.on_the_way);
-  setN('statDelivered', counts.delivered);
-  setN('statNotDelivered', counts.not_delivered);
-  setN('statPendingPay', counts.pending_pay);
+  setN('statToDeliver', (c.to_deliver || 0) + (c.preparing || 0) + (c.on_the_way || 0));
+  setN('statDelivered', c.delivered || 0);
+  setN('statNotDelivered', c.not_delivered || 0);
+  setN('statPendingPay', c.pending_pay || 0);
   const ppChange = document.getElementById('statPendingPayChange');
-  if (counts.pending_pay === 0) {
-    ppChange.textContent = 'Todo cobrado';
-    ppChange.className = 'stat-change sc-up';
-  } else {
-    ppChange.textContent = 'Por cobrar ' + fmtMoney(owed);
-    ppChange.className = 'stat-change sc-warn';
+  if (ppChange) {
+    if (!c.pending_pay) { ppChange.textContent = 'Todo cobrado'; ppChange.className = 'stat-change sc-up'; }
+    else { ppChange.textContent = 'Por cobrar ' + fmtMoney(c.owed); ppChange.className = 'stat-change sc-warn'; }
   }
-
-  // Total de pedidos (tab "Todos"): sin presupuestos ni anulados
-  setN('count-all', orders.filter(o => o.kind === 'order' && !o.cancelled).length);
-
-  // Pedidos hoy / Ventas del día, comparados contra ayer — con datos reales (solo pedidos vigentes)
-  const todayIso = bizToday(), yesterdayIso = bizDayIso(-1) || new Date(Date.parse(todayIso) - 86400000).toISOString().slice(0, 10);
-  const isSameDay = (d1, iso) => bizDayOf(d1) === iso;
-
-  let todayCount = 0, todaySales = 0, yesterdayCount = 0, yesterdaySales = 0;
-  orders.forEach(o => {
-    if (!o.createdAt || o.kind !== 'order' || o.cancelled) return;
-    const d = new Date(o.createdAt);
-    const price = Number(o.total) || 0;
-    if (isSameDay(d, todayIso)) { todayCount++; todaySales += price; }
-    else if (isSameDay(d, yesterdayIso)) { yesterdayCount++; yesterdaySales += price; }
-  });
-
+  // Pedidos hoy / Ventas del día, comparados contra ayer (solo pedidos vigentes; el día es el del negocio)
+  const todayCount = c.ordersToday || 0, yesterdayCount = c.ordersYesterday || 0, todaySales = c.salesToday || 0, yesterdaySales = c.salesYesterday || 0;
   const pedidosHoyEl = document.getElementById('statPedidosHoy');
   if (pedidosHoyEl) pedidosHoyEl.textContent = todayCount;
   const pedidosHoyChangeEl = document.getElementById('statPedidosHoyChange');
@@ -6415,7 +6482,6 @@ function updateOrderCounts() {
     pedidosHoyChangeEl.textContent = (diff >= 0 ? '↑ +' : '↓ ') + diff + ' vs ayer';
     pedidosHoyChangeEl.className = 'stat-change ' + (diff >= 0 ? 'sc-up' : 'sc-red');
   }
-
   const ventasHoyEl = document.getElementById('statVentasHoy');
   if (ventasHoyEl) ventasHoyEl.textContent = '$' + todaySales.toFixed(0);
   const ventasHoyChangeEl = document.getElementById('statVentasHoyChange');
@@ -6424,6 +6490,25 @@ function updateOrderCounts() {
     ventasHoyChangeEl.textContent = (diffSales >= 0 ? '↑ +$' : '↓ -$') + Math.abs(diffSales).toFixed(0) + ' vs ayer';
     ventasHoyChangeEl.className = 'stat-change ' + (diffSales >= 0 ? 'sc-up' : 'sc-red');
   }
+}
+// Pide al servidor contadores y saldos al día (con un pequeño retraso para agrupar cambios seguidos)
+function scheduleOrderStatsRefresh() {
+  if (Date.now() - _lastStatsAt < 1500) return; // acaban de llegar con la página cargada
+  clearTimeout(_statsTimer);
+  _statsTimer = setTimeout(refreshOrderStats, 500);
+}
+async function refreshOrderStats() {
+  try {
+    const [d] = await Promise.all([apiJson('GET', '/api/orders?limit=1'), refreshClientStats()]);
+    if (d && d.counts) { ordersCounts = d.counts; _lastStatsAt = Date.now(); }
+  } catch (e) { return; }
+  paintOrderCounts();
+  try { updateChatDebt(); } catch (e) {}
+  if (document.getElementById('v-pagos')?.classList.contains('active')) renderPagosResumen();
+}
+function updateOrderCounts() {
+  paintOrderCounts();
+  scheduleOrderStatsRefresh();
 }
 
 // Día de hoy (+offset) en la zona horaria del negocio, como AAAA-MM-DD
@@ -6747,7 +6832,11 @@ function renderOrders() {
   if (document.getElementById('v-pagos')?.classList.contains('active')) renderPagosResumen();
   const list = document.getElementById('ordersList');
   list.innerHTML = '';
-  const filtered = orders.filter(o => orderMatchesFilter(o, currentFilter));
+  const filtered = orders.filter(o => orderMatchesFilter(o, currentFilter) && orderMatchesSearch(o) && orderInLoadedRange(o))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)); // la caché mezcla páginas y pedidos pedidos aparte
+  if (!filtered.length && !ordersPage.loading) {
+    list.innerHTML = '<div class="pagr-empty" style="padding:28px;">' + (ordersSearchText ? 'Ningún pedido coincide con la búsqueda.' : 'No hay pedidos en esta pestaña.') + '</div>';
+  }
   filtered.forEach(o => {
     const ex = orderExtras[o.id] || { emoji:'📦' };
     const row = document.createElement('div');
@@ -6794,6 +6883,12 @@ function renderOrders() {
     row.onclick = () => openOrderDetail(o.id);
     list.appendChild(row);
   });
+  if (ordersPage.cursor || ordersPage.loading) {
+    const more = document.createElement('div');
+    more.style.cssText = 'display:flex;justify-content:center;padding:14px;';
+    more.innerHTML = '<button type="button" class="btn-ghost" onclick="loadMoreOrders()"' + (ordersPage.loading ? ' disabled' : '') + '>' + (ordersPage.loading ? 'Cargando…' : 'Cargar más pedidos') + '</button>';
+    list.appendChild(more);
+  }
   updateChatDebt();
 }
 
@@ -6805,7 +6900,9 @@ function filterOrders(type, el) {
   currentFilter = type;
   document.querySelectorAll('.ped-filter-tab').forEach(t => { t.classList.remove('active'); t.setAttribute('aria-pressed', 'false'); });
   el.classList.add('active'); el.setAttribute('aria-pressed', 'true');
-  renderOrders();
+  ordersPage.cursor = null; ordersPage.floor = 0;
+  renderOrders();      // enseguida, con lo ya cargado
+  reloadOrdersView();  // y el servidor trae la primera página de esta pestaña
 }
 
 function openTicketPreview(ticketId) {
@@ -6847,6 +6944,10 @@ function showConvoHistory(key) {
   const c = convos[key];
   const clientName = c ? c.name : '';
   const linked = c ? findClientForConvo(c) : null;
+  if (linked && isServerId(linked.id)) { // el historial del cliente se pide por ficha (la lista de pedidos es paginada)
+    const n0 = orders.filter(o => o.clientId === linked.id).length;
+    ensureClientOrders(linked.id).then(done => { if (done && currentConvo === key && orders.filter(o => o.clientId === linked.id).length !== n0) showConvoHistory(key); });
+  }
   const clientOrders = linked ? orders.filter(o => o.clientId === linked.id) : [];
 
   document.getElementById('op-empty').style.display = 'none';
@@ -6991,6 +7092,238 @@ function openFormDialog(opts) {
     // Enter envía el formulario desde un campo de texto; en una lista desplegable o un texto de varias líneas no
     d.ov.querySelectorAll('.form-input').forEach(i => i.addEventListener('keydown', e => { if (e.key === 'Enter' && i.tagName !== 'SELECT' && i.tagName !== 'TEXTAREA') { e.preventDefault(); submit(); } }));
   });
+}
+
+// ══════════════════════════════════════════════════════════════
+// EQUIPO (Fase 4B): Ajustes → Equipo, contraseña temporal, límite del plan
+// ══════════════════════════════════════════════════════════════
+let _teamData = null;
+const ROLE_HELP = {
+  manager: 'Todo menos equipo, plan y facturación, canales, reabrir caja, cambiar el correo de acceso y la moneda base.',
+  seller: 'Chats, clientes, pedidos, presupuestos y cobros. No ve costos, informes, gastos ni ajustes, y no anula ni borra.',
+};
+function teamInitials(n) { return String(n || '?').trim().split(/\s+/).map(w => w[0] || '').join('').slice(0, 2).toUpperCase() || '?'; }
+
+// Pantalla de Ajustes → Equipo
+async function loadTeamPanel() {
+  const card = document.getElementById('teamCard');
+  if (!card) return;
+  card.innerHTML = '<div class="pagr-empty" style="padding:14px;">Cargando equipo…</div>';
+  let d;
+  try { d = await apiJson('GET', '/api/team'); }
+  catch (err) {
+    if (!document.getElementById('teamCard')) return;
+    card.innerHTML = '<div style="font-size:12.5px;color:var(--red);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
+      (err.code === 'plan_required' ? 'El equipo está disponible desde el plan Pro.' : 'No se pudo cargar el equipo (' + escHtml(err.message) + ')') +
+      (err.code === 'plan_required' ? '' : ' <button class="btn-ghost" onclick="loadTeamPanel()">Reintentar</button>') + '</div>';
+    return;
+  }
+  _teamData = d;
+  if (!document.getElementById('teamCard')) return;
+  const canManage = d.canManage !== false;
+  const planName = { basic: 'Básico', pro: 'Pro', business: 'Business' }[d.plan] || d.plan;
+  let html = '<div class="team-head"><div><div class="s-card-title" style="margin-bottom:2px;">Usuarios activos: ' + d.activeCount + ' de ' + d.limit + '</div>' +
+    '<div class="team-sub">Plan ' + escHtml(planName) + ': admite ' + d.limit + (d.limit === 1 ? ' usuario' : ' usuarios') + ' contando al dueño.</div></div>' +
+    (canManage ? '<button class="btn-primary" id="teamAddBtn" onclick="openAddTeamUser()"' + (d.activeCount >= d.limit ? ' disabled title="Llegaste al límite de tu plan"' : '') + '>Añadir usuario</button>' : '') + '</div>';
+  if (d.overLimit) {
+    html += '<div class="team-warn" role="alert">Tu equipo supera el límite del plan. Elige a quién mantener antes del ' + escHtml(fmtWhen(d.overLimit.deadline)) +
+      '; pasada esa fecha se desactivará a los usuarios más recientes. <button class="btn-ghost" onclick="openTeamLimitDialog()">Elegir ahora</button></div>';
+  }
+  html += '<div class="team-list">' + d.users.map(u => {
+    const you = u.id === TEAM_ME.id;
+    const roleCtl = u.isOwner || !canManage
+      ? '<span class="team-role">' + escHtml(u.roleLabel) + '</span>'
+      : '<select class="s-input team-role-sel" aria-label="Rol de ' + escHtml(u.name) + '" onchange="changeTeamRole(' + escJsAttr(u.id) + ', this)">' +
+        d.roles.map(r => '<option value="' + escHtml(r.role) + '"' + (r.role === u.role ? ' selected' : '') + '>' + escHtml(r.label) + '</option>').join('') + '</select>';
+    const chips = (u.active ? '<span class="team-chip ok">Activo</span>' : '<span class="team-chip off">Desactivado</span>') +
+      (u.mustChangePassword ? '<span class="team-chip warn" title="Aún no cambió la contraseña temporal">Contraseña temporal</span>' : '');
+    const acts = u.isOwner || !canManage ? '' :
+      '<button class="btn-ghost team-act" onclick="resetTeamPassword(' + escJsAttr(u.id) + ')">Restablecer contraseña</button>' +
+      (u.active ? '<button class="btn-ghost team-act danger" onclick="toggleTeamUser(' + escJsAttr(u.id) + ', false)">Desactivar</button>'
+                : '<button class="btn-ghost team-act" onclick="toggleTeamUser(' + escJsAttr(u.id) + ', true)">Reactivar</button>');
+    return '<div class="team-row' + (u.active ? '' : ' off') + '"><div class="team-av" aria-hidden="true">' + escHtml(teamInitials(u.name)) + '</div>' +
+      '<div class="team-main"><div class="team-name">' + escHtml(u.name) + (you ? ' <span class="team-you">(tú)</span>' : '') + '</div>' +
+      '<div class="team-mail">' + escHtml(u.email) + '</div>' +
+      '<div class="team-meta">' + (u.lastLoginAt ? 'Último acceso: ' + escHtml(fmtWhen(u.lastLoginAt)) : 'Aún no ha entrado') + '</div></div>' +
+      '<div class="team-side">' + roleCtl + '<div class="team-chips">' + chips + '</div></div>' +
+      '<div class="team-acts">' + acts + '</div></div>';
+  }).join('') + '</div>' +
+    '<div class="team-roles-help"><div class="s-card-title" style="margin:14px 0 6px;">Qué puede hacer cada rol</div>' +
+    '<div class="team-help-row"><b>Encargado</b><span>' + escHtml(ROLE_HELP.manager) + '</span></div>' +
+    '<div class="team-help-row"><b>Vendedor</b><span>' + escHtml(ROLE_HELP.seller) + '</span></div></div>';
+  card.innerHTML = html;
+}
+
+// Contraseña temporal: se muestra UNA vez
+function showTempPasswordDialog(name, email, password, expires) {
+  return new Promise(resolve => {
+    const d = _openDialog(
+      '<div class="modal-title">Contraseña temporal de ' + escHtml(name) + '</div>' +
+      '<div class="modal-sub">Compártela con ' + escHtml(name) + ' (' + escHtml(email) + '). Tendrá que cambiarla al entrar' +
+        (expires ? ' y caduca el ' + escHtml(fmtWhen(expires)) : '') + '.</div>' +
+      '<div class="team-temp" id="teamTempPw" tabindex="0">' + escHtml(password) + '</div>' +
+      '<div class="team-warn" role="note">No se volverá a mostrar. Si se pierde, restablece la contraseña desde el equipo.</div>' +
+      '<div class="modal-footer"><button class="btn-ghost" data-act="copy">Copiar</button><button class="btn-primary" data-act="done">Listo</button></div>',
+      () => {}, '[data-act="copy"]');
+    d.ov.querySelector('[data-act="copy"]').onclick = async () => {
+      try { await navigator.clipboard.writeText(password); showToast('Contraseña copiada'); }
+      catch (e) { const el = d.ov.querySelector('#teamTempPw'); const r = document.createRange(); r.selectNodeContents(el); const s = window.getSelection(); s.removeAllRanges(); s.addRange(r); showToast('Selecciónala y cópiala con Ctrl+C', 'error'); }
+    };
+    d.ov.querySelector('[data-act="done"]').onclick = () => { d.close(); resolve(true); };
+  });
+}
+
+async function openAddTeamUser() {
+  let created = null;
+  const ok = await openFormDialog({
+    title: 'Añadir usuario',
+    sub: 'Recibirá una contraseña temporal que verás una sola vez.',
+    confirmLabel: 'Crear usuario',
+    fields: [
+      { id: 'name', label: 'Nombre', type: 'text', autocomplete: 'off' },
+      { id: 'email', label: 'Correo (será su usuario de acceso)', type: 'email', autocomplete: 'off' },
+      { id: 'role', label: 'Rol', type: 'select', value: 'seller', options: [{ value: 'seller', label: 'Vendedor' }, { value: 'manager', label: 'Encargado' }] },
+    ],
+    onSubmit: async v => {
+      if (!v.name.trim()) throw new Error('Escribe el nombre');
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email.trim())) throw new Error('Escribe un correo válido');
+      created = await apiJson('POST', '/api/team', { name: v.name.trim(), email: v.email.trim(), role: v.role });
+    },
+  });
+  if (ok && created) {
+    await showTempPasswordDialog(created.user.name, created.user.email, created.tempPassword, created.tempPasswordExpiresAt);
+    loadTeamPanel();
+  }
+}
+
+async function changeTeamRole(id, sel) {
+  const u = _teamData && _teamData.users.find(x => x.id === id);
+  if (!u) return;
+  const to = sel.value, label = { manager: 'Encargado', seller: 'Vendedor' }[to];
+  const yes = await askConfirm({ title: 'Cambiar el rol de ' + u.name, text: 'Pasará a ser ' + label + '. El cambio vale de inmediato, sin que tenga que volver a entrar.', confirmLabel: 'Cambiar rol' });
+  if (!yes) { sel.value = u.role; return; }
+  try { await apiJson('PATCH', '/api/team/' + encodeURIComponent(id), { role: to }); showToast('Rol actualizado'); }
+  catch (err) { showToast('No se cambió el rol (' + err.message + ')', 'error'); }
+  loadTeamPanel();
+}
+
+async function toggleTeamUser(id, active) {
+  const u = _teamData && _teamData.users.find(x => x.id === id);
+  if (!u) return;
+  const yes = await askConfirm(active
+    ? { title: 'Reactivar a ' + u.name, text: 'Podrá volver a entrar con su contraseña. Cuenta en el límite de usuarios de tu plan.', confirmLabel: 'Reactivar' }
+    : { title: 'Desactivar a ' + u.name, text: 'Su sesión se cierra ahora mismo y no podrá entrar. No se borra nada: sus pedidos y cobros siguen a su nombre.', confirmLabel: 'Desactivar', danger: true });
+  if (!yes) return;
+  try { await apiJson('PATCH', '/api/team/' + encodeURIComponent(id), { active }); showToast(active ? 'Usuario reactivado' : 'Usuario desactivado'); }
+  catch (err) { showToast((active ? 'No se reactivó' : 'No se desactivó') + ' (' + err.message + ')', 'error'); }
+  loadTeamPanel();
+}
+
+async function resetTeamPassword(id) {
+  const u = _teamData && _teamData.users.find(x => x.id === id);
+  if (!u) return;
+  const yes = await askConfirm({ title: 'Restablecer la contraseña de ' + u.name, text: 'Se genera una contraseña temporal nueva y se cierra su sesión. La anterior deja de funcionar.', confirmLabel: 'Restablecer', danger: true });
+  if (!yes) return;
+  try {
+    const r = await apiJson('POST', '/api/team/' + encodeURIComponent(id) + '/reset-password', {});
+    await showTempPasswordDialog(r.user.name, r.user.email, r.tempPassword, r.tempPasswordExpiresAt);
+  } catch (err) { showToast('No se restableció la contraseña (' + err.message + ')', 'error'); }
+  loadTeamPanel();
+}
+
+// Elegir a quién mantener cuando hay más usuarios que los del plan. users = [{id,name,role}] (sin el dueño); limit incluye al dueño.
+// mandatory: no se puede cerrar sin elegir. Resuelve la lista elegida (o null si se cancela).
+function chooseKeepUsers(users, limit, opts) {
+  opts = opts || {};
+  return new Promise(resolve => {
+    const maxKeep = Math.max(0, limit - 1);
+    const d = _openDialog(
+      '<div class="modal-title">' + escHtml(opts.title || 'Elige a quién mantener') + '</div>' +
+      '<div class="modal-sub">' + escHtml(opts.sub || ('Tu plan admite ' + limit + (limit === 1 ? ' usuario' : ' usuarios') + ' contando contigo. Elige hasta ' + maxKeep + '; los demás se desactivan (no se borra nada).')) + '</div>' +
+      '<div class="team-keep" id="teamKeepList">' + users.map((u, i) =>
+        '<label class="team-keep-row"><input type="checkbox" data-id="' + escHtml(u.id) + '"' + (i < maxKeep ? ' checked' : '') + '> <span><b>' + escHtml(u.name) + '</b> · ' +
+        escHtml(({ manager: 'Encargado', seller: 'Vendedor' })[u.role] || u.role) + '</span></label>').join('') + '</div>' +
+      '<div class="dlg-error" data-err role="alert"></div>' +
+      '<div class="modal-footer">' + (opts.mandatory ? '' : '<button class="btn-ghost" data-act="no">Cancelar</button>') +
+      '<button class="btn-primary" data-act="yes">' + escHtml(opts.confirmLabel || 'Confirmar') + '</button></div>',
+      () => { if (!opts.mandatory) { d.close(); resolve(null); } }, 'input[type=checkbox]');
+    const boxes = [...d.ov.querySelectorAll('input[type=checkbox]')];
+    const err = d.ov.querySelector('[data-err]');
+    const refresh = () => {
+      const n = boxes.filter(b => b.checked).length;
+      boxes.forEach(b => { b.disabled = !b.checked && n >= maxKeep; });
+      err.textContent = n > maxKeep ? 'Elige como máximo ' + maxKeep : '';
+    };
+    boxes.forEach(b => b.addEventListener('change', refresh));
+    refresh();
+    const no = d.ov.querySelector('[data-act="no"]');
+    if (no) no.onclick = () => { d.close(); resolve(null); };
+    const yes = d.ov.querySelector('[data-act="yes"]');
+    yes.onclick = async () => {
+      const keep = boxes.filter(b => b.checked).map(b => b.dataset.id);
+      if (opts.onConfirm) {
+        yes.disabled = true; err.textContent = '';
+        try { await opts.onConfirm(keep); d.close(); resolve(keep); }
+        catch (e) { err.textContent = (e && e.message) || 'No se pudo guardar'; yes.disabled = false; }
+      } else { d.close(); resolve(keep); }
+    };
+  });
+}
+
+// Diálogo obligatorio del dueño: el equipo supera el límite del plan
+let _teamLimitOpen = false;
+async function openTeamLimitDialog() {
+  if (_teamLimitOpen || TEAM_ME.role !== 'owner') return;
+  _teamLimitOpen = true;
+  try {
+    const d = await apiJson('GET', '/api/team');
+    if (!d.overLimit) { loadTeamPanel(); return; }
+    const users = d.users.filter(u => !u.isOwner && u.active);
+    await chooseKeepUsers(users, d.limit, {
+      mandatory: true, confirmLabel: 'Mantener a los elegidos',
+      title: 'Tu equipo supera el límite de tu plan',
+      sub: 'Tu plan admite ' + d.limit + (d.limit === 1 ? ' usuario' : ' usuarios') + ' contando contigo. Elige a quién mantener antes del ' + fmtWhen(d.overLimit.deadline) +
+        ' (hasta entonces todos siguen entrando); los demás se desactivan, no se borran.',
+      onConfirm: async keep => { await apiJson('POST', '/api/team/resolve-limit', { keepUserIds: keep }); },
+    });
+    TEAM_ME.overLimitSince = null;
+    showToast('Equipo actualizado');
+    if (window._settingsPanel === 'equipo') loadTeamPanel();
+  } catch (err) { showToast('No se pudo cargar el equipo (' + err.message + ')', 'error'); }
+  finally { _teamLimitOpen = false; }
+}
+
+// Cambio obligatorio de la contraseña temporal: no se puede cerrar ni usar la app antes
+let _forcedPwOpen = false;
+function showForcedPasswordChange() {
+  if (_forcedPwOpen) return;
+  _forcedPwOpen = true;
+  const fseq = ++_dlgSeq;
+  const d = _openDialog(
+    '<div class="modal-title">Cambia tu contraseña temporal</div>' +
+    '<div class="modal-sub">Por seguridad, antes de empezar elige una contraseña propia de al menos 8 caracteres.</div>' +
+    [['cur', 'Contraseña temporal', 'current-password'], ['new1', 'Contraseña nueva', 'new-password'], ['new2', 'Repetir contraseña nueva', 'new-password']].map(f =>
+      '<div class="form-field"><label class="form-label" for="fpw-' + fseq + f[0] + '">' + f[1] + '</label><input class="form-input" id="fpw-' + fseq + f[0] + '" data-f="' + f[0] + '" type="password" autocomplete="' + f[2] + '"></div>').join('') +
+    '<div class="dlg-error" data-err role="alert"></div>' +
+    '<div class="modal-footer"><button class="btn-ghost" data-act="out">Cerrar sesión</button><button class="btn-primary" data-act="yes">Cambiar contraseña</button></div>',
+    () => {}, '.form-input');
+  const err = d.ov.querySelector('[data-err]'), yes = d.ov.querySelector('[data-act="yes"]');
+  d.ov.querySelector('[data-act="out"]').onclick = () => logout();
+  const submit = async () => {
+    const v = {}; d.ov.querySelectorAll('[data-f]').forEach(i => { v[i.dataset.f] = i.value; });
+    err.textContent = '';
+    if (!v.cur) { err.textContent = 'Escribe la contraseña temporal'; return; }
+    if (v.new1.length < 8) { err.textContent = 'La contraseña nueva debe tener al menos 8 caracteres'; return; }
+    if (v.new1 !== v.new2) { err.textContent = 'Las contraseñas nuevas no coinciden'; return; }
+    if (v.new1 === v.cur) { err.textContent = 'La contraseña nueva debe ser distinta de la temporal'; return; }
+    yes.disabled = true;
+    try {
+      await apiJson('PUT', '/api/tenant/password', { currentPassword: v.cur, newPassword: v.new1 }); // guarda el token nuevo
+      location.replace('/app');
+    } catch (e) { err.textContent = (e && e.message) || 'No se pudo cambiar'; yes.disabled = false; }
+  };
+  yes.onclick = submit;
+  d.ov.querySelectorAll('.form-input').forEach(i => i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }));
 }
 
 // Cambiar contraseña (Ajustes → Seguridad)
@@ -7247,11 +7580,11 @@ function renderCatalog() {
           <div class="pc-sizes">${sizePills}</div>
           ${stockMetaHtml(p)}
           <div class="pc-footer">
-            <div class="pc-edit-btn" onclick="openEditProduct('${cat.key}','${p.id}')">
+            <div class="pc-edit-btn role-manager" onclick="openEditProduct('${cat.key}','${p.id}')">
               <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125"/></svg>
               Editar
             </div>
-            <div class="pc-delete-btn" onclick="deleteProduct('${cat.key}','${p.id}')">
+            <div class="pc-delete-btn role-manager" onclick="deleteProduct('${cat.key}','${p.id}')">
               <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>
               Eliminar
             </div>
@@ -7954,7 +8287,7 @@ const settingsPanels = {
           <div class="s-row-label">Correo electrónico</div>
           <div class="s-row-desc">Para notificaciones y soporte</div>
         </div>
-        <div class="s-row-action"><input class="s-input" id="s-input-email" value="${escHtml(businessProfile.email)}" type="text"></div>
+        <div class="s-row-action"><input class="s-input" id="s-input-email" value="${escHtml(businessProfile.email)}" type="text"${TEAM_ME.role === 'owner' ? '' : ' disabled title="Solo el dueño cambia el correo de acceso"'}></div>
       </div>
     </div>
 
@@ -8072,7 +8405,7 @@ const settingsPanels = {
     ];
     const saved = _getPayData();
     const cur = baseCurrency();
-    const canChangeCur = !!(tenantSettings && tenantSettings.canChangeBaseCurrency);
+    const canChangeCur = !!(tenantSettings && tenantSettings.canChangeBaseCurrency) && TEAM_ME.role === 'owner'; // la moneda base es del dueño
     const curList = (tenantSettings && tenantSettings.currencies && tenantSettings.currencies.length) ? tenantSettings.currencies : [cur];
     const methods = DEFAULTS.map(m => ({ ...m, on: saved[m.id]?.on ?? m.on, data: { ...m.data, ...(saved[m.id]?.data || {}) } }));
 
@@ -8312,6 +8645,12 @@ const settingsPanels = {
     </div>`}
   `,
 
+  equipo: () => `
+    <div class="sc-title">Equipo</div>
+    <div class="sc-sub">Las personas que usan CENTRAL en tu negocio y lo que puede hacer cada una</div>
+    <div class="s-card" id="teamCard"><div class="pagr-empty" style="padding:14px;">Cargando equipo…</div></div>
+  `,
+
   plan: () => `
     <div class="sc-title">Plan y facturación</div>
     <div class="sc-sub">Gestiona tu suscripción a CENTRAL</div>
@@ -8484,13 +8823,19 @@ function pendingPlanBanner() {
     </div>`;
 }
 
-async function startCheckout(plan) {
+async function startCheckout(plan, keepUserIds) {
   try {
     if (!window.__DEMO_MODE__) showToast('Abriendo el pago…');
     const res  = await fetch(BACKEND_URL + '/api/billing/create-checkout', {
-      method: 'POST', headers: apiHeaders(), body: JSON.stringify({ plan }),
+      method: 'POST', headers: apiHeaders(), body: JSON.stringify(keepUserIds ? { plan, keepUserIds } : { plan }),
     });
     const data = await res.json();
+    // Bajar de plan con más usuarios de los que caben: el dueño elige a quién mantener y se repite la petición
+    if (res.status === 400 && data.error === 'keep_users_required') {
+      const keep = await chooseKeepUsers(data.users || [], data.limit, { confirmLabel: 'Bajar de plan y mantener a los elegidos' });
+      if (keep) return startCheckout(plan, keep);
+      return;
+    }
     if (!res.ok) { showToast('⚠ ' + (data.message || data.error || 'Error al iniciar pago')); return; }
     if (data.demo) {
       showToast('✓ ' + (data.message || 'Plan cambiado'));
@@ -8677,6 +9022,7 @@ function switchSettings(panel, el) {
     if (panel === 'canales') loadCanalWaStatus();
     if (panel === 'pagos' || panel === 'entrega' || panel === 'impuesto') loadTenantSettings(); // refresca, p. ej., si ya se puede cambiar la moneda base
     if (panel === 'plan')    loadBillingStatus();
+    if (panel === 'equipo')  loadTeamPanel();
   }
 }
 
@@ -8714,15 +9060,12 @@ function renderClients() {
       const platLabel = c.channel === 'wa' ? 'WhatsApp' : c.channel === 'ig' ? 'Instagram' : 'WA+IG';
       const contact   = c.phone || c.ig || c.email || '—';
       const location  = [c.city, c.zone].filter(Boolean).join(', ') || '—';
-      const totalSpent = c.orders.reduce((sum, oid) => {
-        const o = orders.find(o => o.id === oid);
-        return sum + (o ? Number(o.total) || 0 : 0); // total efectivo: sin lo devuelto
-      }, 0);
+      const totalSpent = clientTotalSpent(c); // total efectivo (sin lo devuelto), calculado por el servidor
       const debt = debtMap[c.id] || 0;
       const tags = [
         c.isVip    ? `<span class="cc-tag vip">⭐ VIP</span>` : '',
         c.isNew    ? `<span class="cc-tag new">Nuevo</span>` : '',
-        c.orders.length > 1 ? `<span class="cc-tag recurrent">Recurrente</span>` : '',
+        clientOrderCount(c) > 1 ? `<span class="cc-tag recurrent">Recurrente</span>` : '',
       ].filter(Boolean).join('') || `<span class="cc-tag">${escHtml(c.pay || '—')}</span>`;
       // Un solo dato de saldo por fila: si debe, lo que debe; si no, lo que tiene a favor
       const saldo = debt > 0.004 ? `<span class="cc-tag debt">Debe ${fmtMoney(debt)}</span>`
@@ -8739,7 +9082,7 @@ function renderClients() {
           <span style="width:7px;height:7px;border-radius:50%;background:${platColor};display:inline-block;flex-shrink:0;"></span>
           <span style="font-size:11.5px;color:var(--text2);">${platLabel}</span>
         </div>
-        <div class="cr-orders">${c.orders.length}</div>
+        <div class="cr-orders">${clientOrderCount(c)}</div>
         <div class="cr-spent">${totalSpent > 0 ? '$' + totalSpent : '—'}</div>
         <div class="cr-saldo">${saldo}</div>
         <div class="cr-tags">${tags}</div>
@@ -8840,7 +9183,7 @@ function populateProfileModal(client) {
   document.getElementById('pmName').textContent = client.name || 'Nuevo cliente';
 
   const platLabel = client.channel === 'wa' ? '📱 WhatsApp' : client.channel === 'ig' ? '📸 Instagram' : '📱📸 WA + IG';
-  const tags = [client.isVip ? '⭐ VIP' : '', client.orders.length > 0 ? `${client.orders.length} pedido(s)` : ''].filter(Boolean).join(' · ');
+  const tags = [client.isVip ? '⭐ VIP' : '', clientOrderCount(client) > 0 ? `${clientOrderCount(client)} pedido(s)` : ''].filter(Boolean).join(' · ');
   const pmDebt = clientBalanceMap()[client.id] || 0;
   document.getElementById('pmSub').innerHTML = `<span>${platLabel}</span>${tags ? `<span style="color:var(--text3)">·</span><span style="color:var(--text2)">${tags}</span>` : ''}` +
     (pmDebt > 0.004 ? `<span style="color:var(--text3)">·</span><span class="cc-tag debt">Debe ${fmtMoney(pmDebt)}</span>` : '') +
@@ -8878,7 +9221,11 @@ function populateProfileModal(client) {
   // order history
   const histEl = document.getElementById('pmOrderHistory');
   const histSection = document.getElementById('pmHistorySection');
-  if (client.orders.length === 0) {
+  if (isServerId(client.id)) { // sus pedidos se piden por ficha (la lista general es paginada)
+    const n0 = client.orders.length;
+    ensureClientOrders(client.id).then(done => { if (done && client.orders.length !== n0 && currentClientId === client.id) populateProfileModal(client); });
+  }
+  if (client.orders.length === 0 && clientOrderCount(client) === 0) {
     histSection.style.display = 'none';
   } else {
     histSection.style.display = 'flex';
@@ -9362,7 +9709,7 @@ async function renderInforme(tab) {
           <thead><tr><th>Cliente</th><th>Teléfono</th><th>Instagram</th><th>Ciudad</th><th>Canal</th><th>Pedidos</th><th>Gastado</th></tr></thead>
           <tbody>
             ${clientsDB.map(c=>{
-              const spent = c.orders.reduce((s,oid)=>{ const o=orders.find(o=>o.id===oid); return s+(o?parseFloat((o.price+'').replace(/[^0-9.]/g,''))||0:0); },0);
+              const spent = clientTotalSpent(c);
               const platColor = c.channel==='wa'?'var(--wa)':'var(--ig)';
               const platLabel = c.channel==='wa'?'WhatsApp':'Instagram';
               return `<tr><td class="bold">${escHtml(c.name)}${c.isVip?' ⭐':''}</td><td>${escHtml(c.phone||'—')}</td><td>${escHtml(c.ig||'—')}</td><td>${escHtml(c.city||'—')}</td><td><span style="font-size:10px;font-weight:700;color:${platColor};">● ${platLabel}</span></td><td>${c.orders.length}</td><td class="green">${spent>0?'$'+spent:'—'}</td></tr>`;
@@ -9492,7 +9839,7 @@ async function downloadExcel() {
   if (infTab === 'ventas') {
     csv = 'Métrica,Valor\nVentas totales,$' + d.ventas + '\nPedidos,' + d.pedidos + '\nTicket promedio,$' + (d.pedidos ? (d.ventas/d.pedidos).toFixed(0) : 0) + '\nTasa entrega,' + (d.pedidos ? Math.round(d.entregados/d.pedidos*100) : 0) + '%\n\nProducto,Unidades,Ingresos,Margen %\n' + d.topProducts.map(p=>p.join(',')).join('\n');
   } else if (infTab === 'clientes') {
-    csv = 'Nombre,Teléfono,Instagram,Ciudad,Canal,Pedidos\n' + clientsDB.map(c=>[c.name,c.phone,c.ig,c.city,c.channel==='wa'?'WhatsApp':'Instagram',c.orders.length].join(',')).join('\n');
+    csv = 'Nombre,Teléfono,Instagram,Ciudad,Canal,Pedidos\n' + clientsDB.map(c=>[c.name,c.phone,c.ig,c.city,c.channel==='wa'?'WhatsApp':'Instagram',clientOrderCount(c)].join(',')).join('\n');
   } else if (infTab === 'pedidos') {
     csv = 'Métrica,Valor\nTotal pedidos,' + d.pedidos + '\nEntregados,' + d.entregados + '\nPendientes,' + d.pendientes + '\nCancelados,' + d.cancelados;
   } else {
@@ -9537,6 +9884,8 @@ function applyPlanNavigation(plan) {
     if (!el) return;
     el.style.display = allowed.includes(id) ? '' : 'none';
   });
+  const eq = document.getElementById('ssn-equipo'); // Equipo: solo el dueño y solo en Pro / Business
+  if (eq) eq.style.display = p === 'basic' ? 'none' : '';
   updatePlanBadge(p);
 }
 
@@ -9687,7 +10036,7 @@ function exportClientesExcel() {
     c.zone || '',
     c.address || '',
     c.channel === 'wa' ? 'WhatsApp' : c.channel === 'ig' ? 'Instagram' : '',
-    (c.orders || []).length,
+    clientOrderCount(c),
     c.isVip ? 'Sí' : 'No',
   ]);
   const csv = [headers, ...rows].map(r => r.map(csvCell).join(',')).join('\n');
@@ -10000,6 +10349,227 @@ function removeLogoProfile() {
   showToast('Logo eliminado');
 }
 
+// ── Pedidos paginados (Fase 4B) ──
+// `orders` es una caché: la primera página (100) de la pestaña y la búsqueda actuales, las siguientes con «Cargar más» y lo que se
+// haya pedido a propósito (pedidos de un cliente, un pedido abierto desde Pagos). Los contadores y las cifras del día NO se
+// calculan aquí: vienen del servidor (ordersCounts).
+let ordersPage = { cursor: null, floor: 0, seq: 0, loading: false };
+let ordersSearchText = '';
+let _ordersSearchTimer = null;
+function ordersViewQuery(cursor) {
+  const q = new URLSearchParams();
+  q.set('limit', '100');
+  const f = currentFilter;
+  if (f === 'all') q.set('status', 'all');
+  else if (f === 'quote') q.set('kind', 'quote');
+  else if (f === 'cancelled') q.set('status', 'cancelled');
+  else if (f === 'today' || f === 'tomorrow') q.set('deliveryDate', f);
+  else q.set('status', f);
+  if (ordersSearchText) q.set('q', ordersSearchText);
+  if (cursor) q.set('before', cursor);
+  return q.toString();
+}
+// Coincidencia de la búsqueda con un pedido ya cargado (el servidor hace lo mismo sobre todos)
+function orderMatchesSearch(o) {
+  const t = ordersSearchText.toLowerCase();
+  if (!t) return true;
+  const num = t.replace(/^#/, '');
+  return String(o.client || '').toLowerCase().includes(t) || String(o.product || '').toLowerCase().includes(t)
+    || String(o.id || '').toLowerCase().includes(num) || (o.items || []).some(it => String(it.name || '').toLowerCase().includes(t));
+}
+// Sin cursor pendiente se ve todo lo cargado; con él, solo hasta donde llega lo ya traído (sin huecos ni pedidos sueltos más antiguos)
+function orderInLoadedRange(o) {
+  return !ordersPage.cursor || !ordersPage.floor || !o.createdAt || new Date(o.createdAt).getTime() >= ordersPage.floor;
+}
+// Trae la primera página de la vista actual (pestaña + búsqueda). initial: vacía la caché antes (carga de la app).
+async function reloadOrdersView(opts) {
+  const initial = !!(opts && opts.initial);
+  const seq = ++ordersPage.seq;
+  ordersPage.loading = true;
+  try {
+    const d = await apiJson('GET', '/api/orders?' + ordersViewQuery());
+    if (seq !== ordersPage.seq) return true; // llegó una carga más nueva
+    if (!d || !Array.isArray(d.orders)) return false;
+    if (initial) { orders.length = 0; Object.keys(orderExtras).forEach(k => delete orderExtras[k]); }
+    d.orders.forEach(ro => storeServerOrder(ro, 'append'));
+    ordersPage.cursor = d.nextCursor || null;
+    ordersPage.floor = d.orders.length ? new Date(d.orders[d.orders.length - 1].createdAt).getTime() : 0;
+    if (d.counts) { ordersCounts = d.counts; _lastStatsAt = Date.now(); }
+    relinkClientOrders();
+    ordersPage.loading = false;
+    renderOrders();
+    console.log('✓ Pedidos cargados:', d.orders.length, ordersPage.cursor ? '(hay más)' : '');
+    return true;
+  } catch (err) {
+    if (seq !== ordersPage.seq) return true;
+    ordersPage.loading = false;
+    console.warn('No se pudo cargar pedidos:', err.message);
+    if (initial) notifyLoadError('los pedidos');
+    else showToast('No se pudieron cargar los pedidos (' + err.message + ')', 'error');
+    return false;
+  }
+}
+async function loadRealOrders() { return reloadOrdersView({ initial: true }); }
+async function loadMoreOrders() {
+  if (ordersPage.loading || !ordersPage.cursor) return;
+  const seq = ordersPage.seq;
+  ordersPage.loading = true;
+  renderOrders();
+  try {
+    const d = await apiJson('GET', '/api/orders?' + ordersViewQuery(ordersPage.cursor));
+    if (seq !== ordersPage.seq) return;
+    d.orders.forEach(ro => storeServerOrder(ro, 'append'));
+    ordersPage.cursor = d.nextCursor || null;
+    ordersPage.floor = d.orders.length ? new Date(d.orders[d.orders.length - 1].createdAt).getTime() : ordersPage.floor;
+    relinkClientOrders();
+  } catch (err) { showToast('No se pudieron cargar más pedidos (' + err.message + ')', 'error'); }
+  finally { if (seq === ordersPage.seq) { ordersPage.loading = false; renderOrders(); } }
+}
+function onOrdersSearch(v) {
+  clearTimeout(_ordersSearchTimer);
+  _ordersSearchTimer = setTimeout(() => {
+    const t = String(v || '').trim();
+    if (t === ordersSearchText) return;
+    ordersSearchText = t;
+    ordersPage.cursor = null; ordersPage.floor = 0;
+    renderOrders();      // enseguida, con lo ya cargado
+    reloadOrdersView();  // y el servidor busca en TODOS los pedidos
+  }, 350);
+}
+// Los pedidos de un cliente se piden aparte (por ficha): su historial no depende de qué página esté cargada
+const _clientOrdersFetched = new Set();
+async function ensureClientOrders(clientId) {
+  if (!isServerId(clientId) || _clientOrdersFetched.has(clientId)) return false;
+  _clientOrdersFetched.add(clientId);
+  try {
+    const d = await apiJson('GET', '/api/orders?limit=100&clientId=' + encodeURIComponent(clientId));
+    (d.orders || []).forEach(ro => storeServerOrder(ro, 'append'));
+    relinkClientOrders();
+    return true;
+  } catch (err) { _clientOrdersFetched.delete(clientId); return false; }
+}
+// Cifras por ficha que calcula el servidor (compras vigentes, total comprado, saldo, saldo a favor)
+function clientOrderCount(c) { return Number.isFinite(c.orderCount) ? c.orderCount : (c.orders || []).length; }
+function clientTotalSpent(c) {
+  if (Number.isFinite(c.totalSpent)) return c.totalSpent;
+  return (c.orders || []).reduce((sum, oid) => { const o = orders.find(x => x.id === oid); return sum + (o ? Number(o.total) || 0 : 0); }, 0);
+}
+async function refreshClientStats() {
+  try {
+    const list = await apiJson('GET', '/api/clients');
+    if (!Array.isArray(list)) return;
+    const by = new Map(list.map(c => [c.id, c]));
+    clientsDB.forEach(c => {
+      const s = by.get(c.id);
+      if (!s) return;
+      c.balance = Number(s.balance) || 0; c.credit = Number(s.credit) || 0;
+      c.orderCount = Number(s.ordersCount) || 0; c.totalSpent = Number(s.totalSpent) || 0;
+    });
+    if (document.getElementById('v-clientes')?.classList.contains('active')) renderClients();
+  } catch (e) {}
+}
+
+// ── Chats paginados (Fase 4B): 100 por página con «Cargar más»; la búsqueda también pregunta al servidor ──
+let convoPage = { cursor: null, loading: false };
+function ingestServerConvos(list) {
+  list.forEach(rc => {
+    const key = rc.waId;
+    if (convos[key]) return; // lo que ya está en pantalla no se pisa
+    const isIg = (rc.platform === 'ig') || key.startsWith('ig_');
+    convos[key] = {
+      name: rc.name || rc.waId,
+      initials: (rc.name || rc.waId).split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase(),
+      platform: isIg ? 'ig' : 'wa',
+      avatarGrad: isIg ? 'linear-gradient(135deg,#E1306C,#fd1d1d)' : 'linear-gradient(135deg,#25D366,#128C7E)',
+      online: isIg ? 'Instagram DM' : 'WhatsApp real',
+      orderNum: '', orderProd: '', orderProdName: '', orderProdDetail: '', orderPrice: '',
+      quickReplies: ['¡Hola! ¿En qué te puedo ayudar?', 'Gracias por escribirnos 😊'],
+      messages: (rc.messages || []).map(mapServerMessage),
+      isReal: true,
+      waId: rc.waId,
+      igSenderId: isIg ? rc.igSenderId || key.replace('ig_','') : null,
+      ts: rc.lastMessageAt ? new Date(rc.lastMessageAt).getTime() : 0,
+    };
+  });
+}
+async function loadRealConversations() {
+  try {
+    const d = await apiJson('GET', '/api/conversations?limit=100');
+    const list = Array.isArray(d) ? d : (d && d.conversations);
+    if (!Array.isArray(list)) {
+      console.log('Respuesta inesperada del backend de conversaciones');
+      return false;
+    }
+    convoPage.cursor = Array.isArray(d) ? null : (d.nextCursor || null);
+    ingestServerConvos(list);
+    usingRealBackend = true;
+    renderInboxList();
+    console.log('✓ Conversaciones reales cargadas:', list.length);
+    return true;
+  } catch (err) {
+    console.warn('No se pudieron cargar las conversaciones:', err.message);
+    notifyLoadError('las conversaciones');
+    return false;
+  }
+}
+async function loadMoreConvos() {
+  if (convoPage.loading || !convoPage.cursor) return;
+  convoPage.loading = true;
+  renderInboxList();
+  try {
+    const d = await apiJson('GET', '/api/conversations?limit=100&before=' + encodeURIComponent(convoPage.cursor));
+    ingestServerConvos(d.conversations || []);
+    convoPage.cursor = d.nextCursor || null;
+  } catch (err) { showToast('No se pudieron cargar más chats (' + err.message + ')', 'error'); }
+  finally { convoPage.loading = false; renderInboxList(); }
+}
+let _convoSearchTimer = null;
+function scheduleConvoServerSearch(q) {
+  clearTimeout(_convoSearchTimer);
+  const t = String(q || '').trim();
+  if (t.length < 2) return;
+  _convoSearchTimer = setTimeout(async () => {
+    try {
+      const d = await apiJson('GET', '/api/conversations?limit=100&q=' + encodeURIComponent(t));
+      const before = Object.keys(convos).length;
+      ingestServerConvos(d.conversations || []);
+      if (Object.keys(convos).length !== before) renderInboxList();
+    } catch (e) {}
+  }, 400);
+}
+// Al abrir un chat se piden sus últimos 50 mensajes; al subir, los anteriores de 50 en 50
+async function ensureConvoHistory(key) {
+  const c = convos[key];
+  if (!c || !c.isReal || !c.waId || c.histInit) return;
+  c.histInit = true;
+  try {
+    const d = await apiJson('GET', '/api/conversations/' + encodeURIComponent(c.waId) + '?limit=50');
+    const srv = (d.messages || []).map(mapServerMessage);
+    const ids = new Set(srv.map(m => m.id));
+    const local = c.messages.filter(m => !m.id || !ids.has(m.id)); // tickets y envíos aún sin id del servidor
+    c.messages = srv.concat(local);
+    c.hasMore = !!d.hasMore; c.msgBefore = d.nextBefore || null;
+    if (currentConvo === key) loadChat(key);
+  } catch (e) { c.histInit = false; }
+}
+async function loadOlderMessages() {
+  const key = currentConvo, c = convos[key];
+  if (!c || !c.isReal || !c.hasMore || !c.msgBefore || c.loadingOlder) return;
+  c.loadingOlder = true;
+  const list = document.getElementById('msgList');
+  const prevH = list.scrollHeight;
+  try {
+    const d = await apiJson('GET', '/api/conversations/' + encodeURIComponent(c.waId) + '?limit=50&before=' + encodeURIComponent(c.msgBefore));
+    const have = new Set(c.messages.map(m => m.id).filter(Boolean));
+    const older = (d.messages || []).map(mapServerMessage).filter(m => !have.has(m.id));
+    c.messages = older.concat(c.messages);
+    c.hasMore = !!d.hasMore; c.msgBefore = d.nextBefore || null;
+    if (currentConvo === key) { loadChat(key); list.scrollTop = list.scrollHeight - prevH; } // se queda donde estaba, no salta al final
+  } catch (err) { showToast('No se pudieron cargar mensajes anteriores (' + err.message + ')', 'error'); }
+  finally { c.loadingOlder = false; }
+}
+document.getElementById('msgList').addEventListener('scroll', function () { if (this.scrollTop < 40) loadOlderMessages(); });
+
 // ─── INIT ─────────────────────────────────────────
 applyPlanNavigation(activePlan);
 
@@ -10008,19 +10578,31 @@ applyPlanNavigation(activePlan);
   try { applyBrandingGlobal(); } catch(e) {}
 })();
 // El historial de la conversación necesita pedidos y fichas de cliente: se esperan los dos
-const ordersReady = loadRealOrders().then(() => loadRealClients()).then(r => { updateChatDebt(); return r; });
-loadRealConversations().then(() => {
+// Quién está conectado (cabecera) y, si debe elegir a quién mantener en el equipo, el diálogo obligatorio
+(function applyWhoAmI() {
+  const label = (TEAM_ME.name ? TEAM_ME.name + ' · ' : '') + ROLE_LABELS[TEAM_ME.role];
+  const chip = document.getElementById('whoChip'); if (chip) { chip.textContent = label; chip.title = label; }
+  const sub = document.querySelector('.ssn-sub'); if (sub) sub.textContent = label;
+  const av = document.querySelector('.user-avatar'); if (av) av.title = label;
+})();
+if (TEAM_ME.mustChange) showForcedPasswordChange();
+else if (TEAM_ME.role === 'owner' && TEAM_ME.overLimitSince) setTimeout(openTeamLimitDialog, 600);
+const ordersReady = TEAM_ME.mustChange ? Promise.resolve(false) : loadRealOrders().then(() => loadRealClients()).then(r => { updateChatDebt(); return r; });
+(TEAM_ME.mustChange ? Promise.resolve() : loadRealConversations()).then(() => {
   const firstKey = Object.keys(convos)[0];
   if (firstKey) {
     loadChat(firstKey);
+    ensureConvoHistory(firstKey);
     // El historial del cliente depende de los pedidos: esperar a que carguen
     ordersReady.finally(() => showConvoHistory(convos[currentConvo] ? currentConvo : firstKey));
   }
 });
-loadRealCatalog();
-loadStockLevels().then(ok => { if (ok) { try { renderCatalog(); } catch (e) {} } });
-loadAutoReplyConfig();
-loadTenantSettings();
+if (!TEAM_ME.mustChange) {
+  loadRealCatalog();
+  loadStockLevels().then(ok => { if (ok) { try { renderCatalog(); } catch (e) {} } });
+  if (roleAtLeast('manager')) loadAutoReplyConfig();
+  loadTenantSettings();
+}
 // Venía de registrarse con un plan de pago: abre Ajustes → Plan una sola vez, con el aviso de pago
 try {
   const pp = sessionStorage.getItem('central_pending_plan');
@@ -10196,6 +10778,12 @@ function renderInboxList() {
     `;
     list.appendChild(div);
   });
+  if (convoPage.cursor || convoPage.loading) {
+    const more = document.createElement('div');
+    more.style.cssText = 'display:flex;justify-content:center;padding:12px;';
+    more.innerHTML = '<button type="button" class="btn-ghost" onclick="loadMoreConvos()"' + (convoPage.loading ? ' disabled' : '') + '>' + (convoPage.loading ? 'Cargando…' : 'Cargar más chats') + '</button>';
+    list.appendChild(more);
+  }
   if (!Object.keys(convos).length) { currentConvo = null; document.getElementById('chatPanel')?.classList.add('is-empty'); }
   applyConvoFilters();
   updateInboxCount();
@@ -10262,7 +10850,7 @@ function storeServerOrder(ro, mode) {
   if (idx >= 0) orders[idx] = order;
   else if (mode === 'prepend') orders.unshift(order);
   else orders.push(order);
-  if (mode !== 'append') relinkClientOrders(); // en la carga inicial se hace una vez al final
+  if (mode !== 'append') { relinkClientOrders(); scheduleOrderStatsRefresh(); } // en la carga inicial se hace una vez al final; un cambio pide cifras nuevas al servidor
   return order;
 }
 
@@ -10278,28 +10866,6 @@ function notifyLoadError(what) {
     showToast('⚠ Error al cargar ' + what + '. Revisa tu conexión y recarga la página.');
     _loadErrors.clear();
   }, 400);
-}
-
-async function loadRealOrders() {
-  try {
-    const res = await fetch(BACKEND_URL + '/api/orders', { headers: apiAuthHeader() });
-    if (!res.ok) throw new Error('Backend respondió ' + res.status);
-    const realOrders = await res.json();
-    if (!Array.isArray(realOrders)) return false;
-
-    orders.length = 0;
-    Object.keys(orderExtras).forEach(k => delete orderExtras[k]);
-
-    realOrders.forEach(ro => storeServerOrder(ro, 'append'));
-
-    renderOrders();
-    console.log('✓ Pedidos reales cargados:', realOrders.length);
-    return true;
-  } catch (err) {
-    console.warn('No se pudo cargar pedidos reales:', err.message);
-    notifyLoadError('los pedidos');
-    return false;
-  }
 }
 
 // ── Pedidos ↔ fichas de cliente (por id, nunca por nombre) ──
@@ -10319,6 +10885,8 @@ function clientFromServer(rc) {
     grad: CLIENT_GRADS[clientsDB.length % CLIENT_GRADS.length], orders: [],
     isNew: (Date.now() - new Date(rc.createdAt).getTime()) < 7 * 24 * 60 * 60 * 1000,
     isVip: !!rc.isVip, createdAt: rc.createdAt, credit: Number(rc.credit) || 0,
+    // Cifras que calcula el servidor sobre TODOS sus pedidos (la lista de pedidos cargada es solo una página)
+    balance: Number(rc.balance) || 0, orderCount: Number(rc.ordersCount) || 0, totalSpent: Number(rc.totalSpent) || 0,
   };
 }
 
@@ -10494,54 +11062,6 @@ function attachMessageMedia(el, m) {
 // ─────────────────────────────────────────────────────────────
 // CARGA INICIAL — conversaciones reales desde backend
 // ─────────────────────────────────────────────────────────────
-async function loadRealConversations() {
-  try {
-    const res = await fetch(BACKEND_URL + '/api/conversations', { headers: apiAuthHeader() });
-    if (!res.ok) throw new Error('Backend respondió ' + res.status);
-    const realConvos = await res.json();
-
-    if (!Array.isArray(realConvos)) {
-      console.log('Respuesta inesperada del backend — usando datos de ejemplo');
-      return false;
-    }
-
-
-    if (realConvos.length === 0) {
-      console.log('Sin conversaciones reales aún');
-      usingRealBackend = true;
-      renderInboxList();
-      return true;
-    }
-
-    realConvos.forEach(rc => {
-      const key = rc.waId;
-      const isIg = (rc.platform === 'ig') || key.startsWith('ig_');
-      convos[key] = {
-        name: rc.name || rc.waId,
-        initials: (rc.name || rc.waId).split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase(),
-        platform: isIg ? 'ig' : 'wa',
-        avatarGrad: isIg ? 'linear-gradient(135deg,#E1306C,#fd1d1d)' : 'linear-gradient(135deg,#25D366,#128C7E)',
-        online: isIg ? 'Instagram DM' : 'WhatsApp real',
-        orderNum: '', orderProd: '', orderProdName: '', orderProdDetail: '', orderPrice: '',
-        quickReplies: ['¡Hola! ¿En qué te puedo ayudar?', 'Gracias por escribirnos 😊'],
-        messages: rc.messages.map(mapServerMessage),
-        isReal: true,
-        waId: rc.waId,
-        igSenderId: isIg ? rc.igSenderId || key.replace('ig_','') : null,
-      };
-    });
-
-    usingRealBackend = true;
-    renderInboxList();
-    console.log('✓ Conversaciones reales cargadas:', realConvos.length);
-    return true;
-  } catch (err) {
-    console.warn('No se pudo conectar al backend real, usando datos de ejemplo:', err.message);
-    notifyLoadError('las conversaciones');
-    return false;
-  }
-}
-
 // ─────────────────────────────────────────────────────────────
 // WEBSOCKET REALTIME — mensajes entrantes en tiempo real
 // ─────────────────────────────────────────────────────────────
@@ -10622,6 +11142,12 @@ async function loadRealConversations() {
             bumpConvoToTop(data.waId);
             if (currentConvo === data.waId) loadChat(data.waId);
           }
+        }
+
+        if (data.type === 'role_changed') {
+          // El dueño le cambió el rol: el menú y los botones se rehacen con el rol nuevo, sin volver a entrar
+          showToast('Tu rol cambió. Actualizando la pantalla…');
+          setTimeout(() => location.replace('/app'), 900);
         }
 
         if (data.type === 'auth_error') {

@@ -737,6 +737,10 @@ async function ordersFilter(tenantId, q) {
     P.push(tz); const zi = P.length;
     w.push(`o.kind = 'order' AND o.delivery_status NOT IN ('cancelled', 'delivered') AND o.delivery_date = ((now() AT TIME ZONE $${zi})::date + ${q.deliveryDate === 'tomorrow' ? 1 : 0})`);
   }
+  if (q.orderId !== undefined && q.orderId !== '') {
+    if (!UUID_RE.test(String(q.orderId))) throw new BadRequest('orderId inválido');
+    P.push(String(q.orderId)); w.push(`o.id = $${P.length}`);
+  }
   if (q.clientId !== undefined && q.clientId !== '') {
     if (!UUID_RE.test(String(q.clientId))) throw new BadRequest('clientId inválido');
     P.push(String(q.clientId)); w.push(`o.client_id = $${P.length}`);
@@ -769,6 +773,7 @@ async function ordersCounts(tenantId) {
       COUNT(*) FILTER (WHERE o.kind = 'quote' AND o.delivery_status <> 'cancelled')::int AS quote,
       COUNT(*) FILTER (WHERE o.delivery_status = 'cancelled')::int AS cancelled,
       COUNT(*) FILTER (WHERE ${live} AND ${OWED} > 0.004)::int AS pending_pay,
+      COUNT(*) FILTER (WHERE ${live} AND o.delivery_status = 'delivered' AND ${OWED} > 0.004)::int AS delivered_unpaid,
       COALESCE(SUM(${OWED}) FILTER (WHERE ${live} AND ${OWED} > 0.004), 0)::float AS owed,
       COUNT(*) FILTER (WHERE ${live} AND $2::text IS NOT NULL AND o.delivery_status <> 'delivered' AND o.delivery_date = (now() AT TIME ZONE $2)::date)::int AS today,
       COUNT(*) FILTER (WHERE ${live} AND $2::text IS NOT NULL AND o.delivery_status <> 'delivered' AND o.delivery_date = (now() AT TIME ZONE $2)::date + 1)::int AS tomorrow,
@@ -779,7 +784,7 @@ async function ordersCounts(tenantId) {
     FROM orders o WHERE o.tenant_id = $1`, [tenantId, tz]);
   return {
     all: r.all, to_deliver: r.to_deliver, preparing: r.preparing, on_the_way: r.on_the_way, delivered: r.delivered, not_delivered: r.not_delivered,
-    quote: r.quote, cancelled: r.cancelled, pending_pay: r.pending_pay, owed: money2(r.owed), today: r.today, tomorrow: r.tomorrow,
+    quote: r.quote, cancelled: r.cancelled, pending_pay: r.pending_pay, delivered_unpaid: r.delivered_unpaid, owed: money2(r.owed), today: r.today, tomorrow: r.tomorrow,
     ordersToday: r.orders_today, salesToday: money2(r.sales_today), ordersYesterday: r.orders_yesterday, salesYesterday: money2(r.sales_yesterday),
   };
 }
@@ -1773,6 +1778,9 @@ function mapClientRow(r) {
     // Saldo por cobrar (moneda base): Σ (total − cobrado) de sus pedidos con saldo
     balance:           money2(r.balance),
     ordersWithBalance: Number(r.orders_with_balance) || 0,
+    // Compras vigentes (sin presupuestos ni anulados) y total comprado (efectivo): lo calcula el servidor, no la lista cargada
+    ordersCount:       Number(r.orders_count) || 0,
+    totalSpent:        money2(r.total_spent),
     // Saldo a favor (moneda base): lo que el negocio le debe al cliente (devoluciones dejadas como crédito)
     credit:            money2(r.credit),
     createdAt:      r.created_at,
@@ -1784,8 +1792,15 @@ function mapClientRow(r) {
 // Presupuestos y pedidos anulados no cuentan; el total es el EFECTIVO (menos notas de crédito). $2 = id de un
 // cliente (o NULL para todos).
 const CLIENT_BALANCE_SQL = `
-    SELECT c.*, COALESCE(b.balance, 0) AS balance, COALESCE(b.n, 0) AS orders_with_balance, COALESCE(cr.credit, 0) AS credit
+    SELECT c.*, COALESCE(b.balance, 0) AS balance, COALESCE(b.n, 0) AS orders_with_balance, COALESCE(cr.credit, 0) AS credit,
+      COALESCE(oc.n, 0) AS orders_count, COALESCE(oc.spent, 0) AS total_spent
     FROM clients c
+    LEFT JOIN (
+      SELECT client_id, COUNT(*) AS n, SUM(total_price - credited_total) AS spent
+      FROM orders WHERE tenant_id = $1 AND client_id IS NOT NULL AND kind = 'order' AND delivery_status <> 'cancelled'
+        AND ($2::uuid IS NULL OR client_id = $2::uuid)
+      GROUP BY client_id
+    ) oc ON oc.client_id = c.id
     LEFT JOIN (
       SELECT client_id, SUM(total_price - credited_total - amount_paid) AS balance, COUNT(*) AS n
       FROM orders WHERE tenant_id = $1 AND client_id IS NOT NULL AND kind = 'order' AND delivery_status <> 'cancelled'
@@ -3210,7 +3225,7 @@ app.get('/api/conversations/:waId', requireAuth, async (req, res) => {
 app.get('/api/orders', requireAuth, async (req, res) => {
   try {
     const q = req.query;
-    const paged = ['limit', 'before', 'status', 'kind', 'deliveryDate', 'q', 'clientId'].some(k => q[k] !== undefined);
+    const paged = ['limit', 'before', 'status', 'kind', 'deliveryDate', 'q', 'clientId', 'orderId'].some(k => q[k] !== undefined);
     if (!paged) return res.json(await dbGetOrders(req.tenant.tenantId)); // compatibilidad: sin parámetros, el arreglo de siempre (1000 más recientes)
     res.json(await dbListOrders(req.tenant.tenantId, q));
   } catch (err) { sendApiError(res, err, 'Pedidos'); }
