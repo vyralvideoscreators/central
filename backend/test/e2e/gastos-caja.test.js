@@ -2,6 +2,8 @@
 const { ok, j, send, reg, db: dbConnect, run } = require('../helpers/harness');
 const post = (H, u, b) => send(H, 'POST', u, b);
 const TZ = 'America/Caracas';
+// Lo contado en el formato nuevo: una fila por método y moneda (USD = moneda base de estos negocios)
+const C = (o) => Object.entries(o).map(([method, amount]) => ({ method, currency: /m[oó]vil/i.test(method) ? 'VES' : 'USD', amount }));
 const CLOSED = /La caja del \d\d\/\d\d está cerrada/;
 
 run(async () => {
@@ -95,33 +97,33 @@ run(async () => {
   r = await post(A.H, `/api/orders/${o2.id}/returns`, { reason: 'Devolvió uno', amount: 10, resolution: 'refund', refundMethod: 'Efectivo' });
   ok(r.status === 200, 'Devolución con reembolso de 10 en efectivo (antes de cerrar)');
   r = await j(`/api/cash/${today}`, { headers: A.H });
-  const byM = Object.fromEntries(r.body.expected.map(m => [m.method, m]));
+  const byM = Object.fromEntries(r.body.rows.map(m => [m.method, m]));
   ok(r.status === 200 && r.body.status === 'open' && r.body.day === today && r.body.isFuture === false, 'GET caja de hoy: abierta');
   // Efectivo: cobros 60+80 = 140, reembolsos 10, gastos 20 → 110. Zelle: 30. Pago Móvil: gasto 10 → −10
-  ok(byM['Efectivo'] && byM['Efectivo'].cobrado === 140 && byM['Efectivo'].reembolsado === 10 && byM['Efectivo'].gastos === 20 && byM['Efectivo'].esperado === 110, 'Esperado en Efectivo = 140 − 10 − 20 = 110');
-  ok(byM['Zelle'] && byM['Zelle'].esperado === 30, 'Esperado en Zelle = 30');
-  ok(byM['Pago Móvil'] && byM['Pago Móvil'].esperado === -10 && r.body.expectedTotal === 130, 'Pago Móvil: solo un gasto de 10 (−10); total 130');
-  ok(!r.body.expected.some(m => m.method === 'Saldo a favor'), 'El saldo a favor no entra en la caja');
+  ok(byM['Efectivo'] && byM['Efectivo'].cobrado === 140 && byM['Efectivo'].reembolsado === 10 && byM['Efectivo'].gastos === 20 && byM['Efectivo'].expected === 110 && byM['Efectivo'].currency === 'USD', 'Esperado en Efectivo = 140 − 10 − 20 = 110');
+  ok(byM['Zelle'] && byM['Zelle'].expected === 30, 'Esperado en Zelle = 30');
+  ok(byM['Pago Móvil'] && byM['Pago Móvil'].expected === -400 && byM['Pago Móvil'].currency === 'VES' && r.body.expectedBase === 130, 'Pago Móvil: solo un gasto de 400 VES (−400 en VES, 10 en base); total en base 130');
+  ok(!r.body.rows.some(m => m.method === 'Saldo a favor'), 'El saldo a favor no entra en la caja');
   r = await j(`/api/cash/${yesterday}`, { headers: A.H });
-  ok(r.body.expected.length === 0 || r.body.expected.every(m => m.method !== 'Efectivo' || m.esperado === 0), 'Ayer: sin movimientos de caja (el gasto de ayer está anulado)');
+  ok(r.body.rows.length === 0 || r.body.rows.every(m => m.method !== 'Efectivo' || m.expected === 0), 'Ayer: sin movimientos de caja (el gasto de ayer está anulado)');
   r = await j('/api/cash/2026-13-45', { headers: A.H });
   ok(r.status === 400, 'Día inválido → 400');
 
   // ── Cerrar ──
-  r = await post(A.H, `/api/cash/${tomorrow}/close`, { counted: {} });
+  r = await post(A.H, `/api/cash/${tomorrow}/close`, { counted: [] });
   ok(r.status === 400 && /futuro/.test(r.body.error), 'No se puede cerrar un día futuro');
-  r = await post(A.H, `/api/cash/${today}/close`, { counted: { Efectivo: 110 } });
+  r = await post(A.H, `/api/cash/${today}/close`, { counted: C({ Efectivo: 110 }) });
   ok(r.status === 400 && /Falta contar/.test(r.body.error), 'Falta contar un método con movimiento → 400');
-  r = await post(A.H, `/api/cash/${today}/close`, { counted: { Efectivo: -1, Zelle: 30, 'Pago móvil': 0 } });
+  r = await post(A.H, `/api/cash/${today}/close`, { counted: C({ Efectivo: -1, Zelle: 30, 'Pago móvil': 0 }) });
   ok(r.status === 400, 'Importe contado negativo → 400');
-  r = await post(A.H, `/api/cash/${today}/close`, { counted: { Efectivo: 108.5, Zelle: 30, 'Pago móvil': 0 }, note: 'Faltó cambio' });
+  r = await post(A.H, `/api/cash/${today}/close`, { counted: C({ Efectivo: 108.5, Zelle: 30, 'Pago móvil': 0 }), note: 'Faltó cambio' });
   ok(r.status === 200 && r.body.status === 'closed', 'Caja cerrada');
   const cl = r.body.closing;
   const lineE = cl.lines.find(l => l.method === 'Efectivo'), lineP = cl.lines.find(l => l.method === 'Pago Móvil');
   ok(lineE.expected === 110 && lineE.counted === 108.5 && lineE.difference === -1.5, 'Diferencia de Efectivo = −1.50');
-  ok(lineP.expected === -10 && lineP.counted === 0 && lineP.difference === 10, 'Pago Móvil: esperado −10, contado 0');
-  ok(cl.totalDifference === 8.5 && cl.note === 'Faltó cambio', 'Diferencia total y nota guardadas');
-  r = await post(A.H, `/api/cash/${today}/close`, { counted: { Efectivo: 110, Zelle: 30, 'Pago Móvil': -10 } });
+  ok(lineP.currency === 'VES' && lineP.expected === -400 && lineP.counted === 0 && lineP.difference === 400, 'Pago Móvil (VES): esperado −400, contado 0');
+  ok(cl.differentLines === 2 && cl.note === 'Faltó cambio', 'Diferencia total y nota guardadas');
+  r = await post(A.H, `/api/cash/${today}/close`, { counted: C({ Efectivo: 110, Zelle: 30, 'Pago Móvil': -10 }) });
   ok(r.status === 400 && /ya está cerrada/.test(r.body.error), 'Cerrar el mismo día dos veces → 400');
   ok((await db.query('SELECT COUNT(*)::int n FROM cash_closings WHERE tenant_id=$1', [A.id])).rows[0].n === 1, '… y no queda una segunda fila');
 
@@ -159,7 +161,7 @@ run(async () => {
 
   // ── Aislamiento del cierre ──
   r = await j(`/api/cash/${today}`, { headers: B.H });
-  ok(r.body.status === 'open' && r.body.expected.length === 0 && r.body.history.length === 0, 'El otro negocio ve su caja abierta y vacía');
+  ok(r.body.status === 'open' && r.body.rows.length === 0 && r.body.history.length === 0, 'El otro negocio ve su caja abierta y vacía');
   const ob = await newOrder(B.H, 10);
   r = await pay(B.H, ob.id, { amount: 10, method: 'Efectivo' });
   ok(r.status === 200, 'El otro negocio sigue cobrando');
@@ -176,9 +178,9 @@ run(async () => {
   ok(r.status === 400 && /no está cerrada/.test(r.body.error), 'Reabrir un día abierto → 400');
   r = await pay(A.H, o3.id, { amount: 10, method: 'Efectivo' });
   ok(r.status === 200, 'Reabierta la caja, cobrar vuelve a funcionar');
-  r = await post(A.H, `/api/cash/${today}/close`, { counted: { Efectivo: 120, Zelle: 30, 'Pago móvil': -10 } });
+  r = await post(A.H, `/api/cash/${today}/close`, { counted: C({ Efectivo: 120, Zelle: 30, 'Pago móvil': -10 }) });
   ok(r.status === 400, 'Contado negativo en un método (−10) → 400');
-  r = await post(A.H, `/api/cash/${today}/close`, { counted: { Efectivo: 120, Zelle: 30, 'Pago móvil': 0 } });
+  r = await post(A.H, `/api/cash/${today}/close`, { counted: C({ Efectivo: 120, Zelle: 30, 'Pago móvil': 0 }) });
   ok(r.status === 200 && r.body.history.length === 2 && r.body.closing.lines.find(l => l.method === 'Efectivo').expected === 120, 'Se vuelve a cerrar con el cobro nuevo (esperado 120): dos filas de historial');
   r = await j(`/api/cash?from=${yesterday}&to=${today}`, { headers: A.H });
   ok(r.status === 200 && r.body.closings.length === 2 && r.body.closings.filter(c => c.status === 'closed').length === 1, 'GET /api/cash lista los cierres (uno vigente, uno reabierto)');
@@ -187,13 +189,13 @@ run(async () => {
   // ── Cerrar y cobrar a la vez: o bien el cobro entra en lo esperado, o el cobro es rechazado ──
   const o5 = await newOrder(A.H, 500);
   const [rc, rp] = await Promise.all([
-    post(A.H, `/api/cash/${today}/close`, { counted: { Efectivo: 9999, Zelle: 9999, 'Pago móvil': 0 } }),
+    post(A.H, `/api/cash/${today}/close`, { counted: C({ Efectivo: 9999, Zelle: 9999, 'Pago móvil': 0 }) }),
     pay(A.H, o5.id, { amount: 77, method: 'Efectivo' }),
   ]);
   const closing = (await db.query(`SELECT expected FROM cash_closings WHERE tenant_id=$1 AND day=$2 AND reopened_at IS NULL`, [A.id, today])).rows[0];
   const paidNow = Number((await db.query(`SELECT COALESCE(SUM(amount_base),0) s FROM payments WHERE tenant_id=$1 AND method='Efectivo' AND voided_at IS NULL AND paid_at >= (($2::date)::timestamp AT TIME ZONE $3)`, [A.id, today, TZ])).rows[0].s);
   const refundedNow = Number((await db.query(`SELECT COALESCE(SUM(amount_base),0) s FROM refunds WHERE tenant_id=$1 AND method='Efectivo'`, [A.id])).rows[0].s);
-  const expCash = closing ? Number(closing.expected.Efectivo) : null;
+  const expCash = closing ? Number(closing.expected['Efectivo|USD']) : null;
   ok(rc.status === 200 && closing, 'Cerrar a la vez que se cobra: la caja queda cerrada');
   ok((rp.status === 200 && expCash === paidNow - refundedNow - 20) || (rp.status === 400 && CLOSED.test(rp.body.error) && expCash === paidNow - refundedNow - 20),
     'El cobro simultáneo o entra en el esperado o es rechazado: nunca queda fuera del cierre (esperado ' + expCash + ', cobros ' + paidNow + ')');

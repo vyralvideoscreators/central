@@ -80,14 +80,11 @@ run(async () => {
   r = await j("/api/reports?period=hoy';DROP", { headers: A.H });
   ok(r.status === 400, 'period desconocido → 400');
 
-  // Negocio sin zona guardada: usa la del navegador (tz) si es válida, si no la por defecto
+  // La zona es SOLO la de la ubicación del negocio: el tz del navegador se ignora (sea válido o no)
   r = await j('/api/reports?period=hoy&tz=Asia/Tokyo', { headers: Bt.H });
-  ok(r.body.timezone === 'Asia/Tokyo', 'Sin zona guardada: usa la del navegador');
-  const Ct = await reg('Informes C');
-  await db.query("UPDATE tenants SET plan='pro' WHERE id=$1", [Ct.id]);
-  r = await j('/api/reports?period=hoy&tz=Nada/Inventada', { headers: Ct.H });
-  await db.query('DELETE FROM tenants WHERE id=$1', [Ct.id]);
-  ok(r.body.timezone === 'America/Caracas', 'Zona inválida: usa la por defecto');
+  ok(r.status === 200 && r.body.timezone === TZ, 'El tz del navegador se ignora: manda la zona del negocio');
+  r = await j('/api/reports?period=hoy&tz=Nada/Inventada', { headers: Bt.H });
+  ok(r.status === 200 && r.body.timezone === TZ, 'Un tz inválido tampoco rompe nada');
   r = await j('/api/reports?period=año', { headers: Bt.H });
   ok(r.body.ventas === 99999 && r.body.pedidos === 1, 'Cada negocio ve solo lo suyo');
 

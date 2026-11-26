@@ -21,11 +21,11 @@ const j = (u, o = {}) => fetch(BASE + u, o).then(async r => ({ status: r.status,
 const send = (H, method, u, body) => j(u, { method, headers: H, body: JSON.stringify(body) });
 
 // Registra un negocio nuevo y devuelve { id, token, H } (H = cabeceras con JSON + token)
-async function reg(name) {
+async function reg(name, opts = {}) {
   const email = name.replace(/\W/g, '').toLowerCase() + Date.now() + Math.floor(Math.random() * 1e6) + '@test.local';
   const r = await j('/api/tenant/register', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ businessName: name, email, password: 'password123' }),
+    body: JSON.stringify({ businessName: name, email, password: 'password123', country: opts.country === undefined ? 'Venezuela' : opts.country }),
   });
   if (!r.body || !r.body.token) throw new Error('No se pudo registrar el negocio de prueba: ' + JSON.stringify(r.body));
   return { id: r.body.tenant.id, email, token: r.body.token,

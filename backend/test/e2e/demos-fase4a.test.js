@@ -38,7 +38,7 @@ run(async () => {
   const today = (await j('/api/cash/' + new Date().toISOString().slice(0, 10), { headers: H })).body.today;
   r = await j('/api/cash/' + today, { headers: H });
   ok(r.status === 200 && r.body.status === 'open', 'Demo: GET /api/cash/:day');
-  const counted = Object.fromEntries(r.body.expected.map(m => [m.method, Math.max(0, m.esperado)]));
+  const counted = r.body.rows.map(m => ({ method: m.method, currency: m.currency, amount: Math.max(0, m.expected) }));
   r = await post(H, `/api/cash/${today}/close`, { counted });
   ok(r.status === 200 && r.body.status === 'closed', 'Demo: cerrar la caja de hoy');
   r = await post(H, `/api/cash/${today}/reopen`, { reason: 'prueba' });

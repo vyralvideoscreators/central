@@ -70,9 +70,9 @@ run(async () => {
   await db.query("UPDATE tenants SET plan='pro' WHERE id = ANY($1)", [[tzb.id]]);
   r = await j('/api/reports?period=hoy&tz=Asia/Tokyo', { headers: tzb.H });
   const saved = (await db.query('SELECT timezone FROM tenants WHERE id=$1', [tzb.id])).rows[0].timezone;
-  ok(r.body.timezone === 'Asia/Tokyo' && saved === 'Asia/Tokyo', 'Sin zona: guarda la del navegador como la del negocio');
+  ok(r.body.timezone === 'America/Caracas' && saved === 'America/Caracas', 'La zona sale del país (Venezuela); el tz del navegador no se guarda');
   r = await j('/api/reports?period=hoy&tz=Europe/Madrid', { headers: tzb.H });
-  ok(r.body.timezone === 'Asia/Tokyo', 'Después usa siempre la guardada (no la del equipo que abre)');
+  ok(r.body.timezone === 'America/Caracas', 'Siempre la del negocio (no la del equipo que abre)');
 
   for (const t of [A.id, tzb.id]) await db.query('DELETE FROM tenants WHERE id=$1', [t]);
   await db.end();

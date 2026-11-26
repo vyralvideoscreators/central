@@ -45,7 +45,7 @@ run(async () => {
   ok((await login(newEmail, 'nuevaClave456')).status === 200, 'Login con el correo nuevo');
 
   // Los demás campos no piden contraseña; repetir el mismo correo tampoco
-  r = await send(A.H, 'PUT', '/api/tenant/profile', { business_name: 'Clave A2', country: 'VE' });
+  r = await send(A.H, 'PUT', '/api/tenant/profile', { business_name: 'Clave A2', country: 'Venezuela' });
   ok(r.status === 200 && r.body.tenant.business_name === 'Clave A2', 'Cambiar nombre del negocio sin contraseña → 200');
   r = await send(A.H, 'PUT', '/api/tenant/profile', { business_name: 'Clave A3', email: newEmail });
   ok(r.status === 200, 'Enviar el mismo correo (sin cambio) no pide contraseña');
