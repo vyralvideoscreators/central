@@ -11,6 +11,11 @@ run(async () => {
   // Cambio correcto
   let r = await send(A.H, 'PUT', '/api/tenant/password', { currentPassword: 'password123', newPassword: 'nuevaClave456' });
   ok(r.status === 200 && r.body.success === true, 'Cambio de contraseña → 200');
+  // La sesión anterior se cierra (token_version) y la respuesta trae el token nuevo
+  const oldAuth = A.H.Authorization;
+  ok(!!r.body.token, 'El cambio de contraseña devuelve un token nuevo');
+  ok((await j('/api/tenant/profile', { headers: { Authorization: oldAuth } })).status === 401, 'El token anterior ya no vale tras cambiar la contraseña');
+  A.H.Authorization = 'Bearer ' + r.body.token;
   r = await login(A.email, 'nuevaClave456');
   ok(r.status === 200 && !!r.body.token, 'Login con la contraseña nueva');
   r = await login(A.email, 'password123');
@@ -42,6 +47,8 @@ run(async () => {
   ok(r.status === 400, 'Correo inválido → 400');
   r = await send(A.H, 'PUT', '/api/tenant/profile', { email: newEmail.toUpperCase(), currentPassword: 'nuevaClave456' });
   ok(r.status === 200 && r.body.tenant.email === newEmail, 'Cambiar correo con la contraseña correcta → 200 (en minúsculas)');
+  ok(!!r.body.token, 'Cambiar el correo del dueño devuelve un token nuevo');
+  A.H.Authorization = 'Bearer ' + r.body.token;
   ok((await login(newEmail, 'nuevaClave456')).status === 200, 'Login con el correo nuevo');
 
   // Los demás campos no piden contraseña; repetir el mismo correo tampoco

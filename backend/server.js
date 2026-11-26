@@ -69,6 +69,20 @@ function pwFailed(tenantId) {
   else rec.count++;
 }
 setInterval(() => { const n = Date.now(); for (const [k, v] of pwFailures) if (n > v.reset) pwFailures.delete(k); }, 10 * 60000).unref();
+// Freno de login por USUARIO (además del de IP): 8 contraseñas erróneas en 15 min → 429. Un acierto lo reinicia.
+const userLoginFailures = new Map();
+const USER_LOGIN_MAX = 8;
+function loginBlocked(userId) {
+  const rec = userLoginFailures.get(userId);
+  return !!(rec && Date.now() <= rec.reset && rec.count >= USER_LOGIN_MAX);
+}
+function loginFailed(userId) {
+  const now = Date.now();
+  const rec = userLoginFailures.get(userId);
+  if (!rec || now > rec.reset) userLoginFailures.set(userId, { count: 1, reset: now + 15 * 60000 });
+  else rec.count++;
+}
+setInterval(() => { const n = Date.now(); for (const [k, v] of userLoginFailures) if (n > v.reset) userLoginFailures.delete(k); }, 10 * 60000).unref();
 // Comprueba la contraseña actual con el freno. Devuelve null si es correcta, o [status, mensaje].
 async function checkCurrentPassword(tenantId, pw, hash) {
   // Comprobar y apuntar el intento es síncrono (antes de cualquier await): peticiones en paralelo no pueden
@@ -1843,6 +1857,15 @@ function closeTenantSockets(tenantId) {
   tenantClients.delete(String(tenantId));
 }
 
+// Cierra los sockets abiertos de UN usuario (se desactiva, cambia de rol o de clave).
+function closeUserSockets(tenantId, userId) {
+  const clients = tenantClients.get(String(tenantId));
+  if (!clients || !userId) return;
+  for (const ws of [...clients]) {
+    if (ws.userId === userId) { try { ws.close(); } catch {} clients.delete(ws); }
+  }
+}
+
 // Un socket solo recibe datos después de autenticarse, y solo los de su negocio.
 wss.on('connection', (ws) => {
   let tenantId = null;
@@ -1866,11 +1889,10 @@ wss.on('connection', (ws) => {
     }
     try {
       if (dbReady) {
-        const { rows } = await pool.query('SELECT active, expires_at FROM tenants WHERE id = $1', [decoded.tenantId]);
-        const t = rows[0];
-        if (!t || !t.active || (t.expires_at && new Date(t.expires_at) <= new Date())) {
-          return rejectSocket('Cuenta no disponible');
-        }
+        // Mismas comprobaciones que requireAuth: cuenta activa, usuario activo y sesión vigente (token_version)
+        const sess = await resolveSession(decoded);
+        if (sess.fail || sess.user.must_change_password) return rejectSocket(sess.fail ? 'Sesión no válida' : 'Cambia tu contraseña primero');
+        ws.userId = sess.user.id;
       }
       if (ws.readyState !== 1) return;
       tenantId = String(decoded.tenantId);
@@ -1900,6 +1922,63 @@ wss.on('connection', (ws) => {
 // ══════════════════════════════════════════════════════════════
 // JWT MIDDLEWARE
 // ══════════════════════════════════════════════════════════════
+// Firma el token de sesión de un usuario del equipo. El rol del token es solo informativo: el servidor lo lee SIEMPRE de la base.
+function signUserToken(u) {
+  return jwt.sign({ tenantId: u.tenant_id, userId: u.id, role: u.role, tv: u.token_version, email: u.email }, JWT_SECRET, { expiresIn: '30d' });
+}
+const SESSION_CLOSED = { status: 401, body: { error: 'session_closed', message: 'Tu sesión se cerró. Vuelve a iniciar sesión.' } };
+
+// Valida una sesión (HTTP, WebSocket y /app): cuenta activa y vigente, usuario activo, token_version al día, plan y límite de equipo.
+// Un token antiguo (sin userId) vale como el dueño del negocio hasta que caduque. Devuelve { fail: {status, body} } o { tenant, user }.
+async function resolveSession(decoded) {
+  if (!decoded || !decoded.tenantId || typeof decoded.tenantId !== 'string' || !UUID_RE.test(decoded.tenantId)) return { fail: { status: 401, body: { error: 'Token inválido o expirado' } } };
+  const uid = decoded.userId === undefined || decoded.userId === null ? null : String(decoded.userId);
+  if (uid !== null && !UUID_RE.test(uid)) return { fail: { status: 401, body: { error: 'Token inválido o expirado' } } };
+  let row;
+  try {
+    ({ rows: [row] } = await pool.query(`
+      SELECT t.active, t.expires_at, t.is_demo, t.plan, t.business_name, t.team_over_limit_since,
+             u.id AS uid, u.name AS uname, u.email AS uemail, u.role AS urole, u.active AS uactive, u.token_version AS utv,
+             u.must_change_password AS umust, u.temp_password_expires_at AS utemp,
+             (SELECT count(*)::int FROM team_users a WHERE a.tenant_id = t.id AND a.active) AS active_users
+      FROM tenants t
+      LEFT JOIN team_users u ON u.tenant_id = t.id AND (CASE WHEN $2::uuid IS NULL THEN u.role = 'owner' ELSE u.id = $2::uuid END)
+      WHERE t.id = $1`, [decoded.tenantId, uid]));
+  } catch (err) { return { fail: { status: 500, body: { error: 'Error validando la cuenta' } } }; }
+  // Revalidar en cada petición que la cuenta siga activa — para que una suspensión desde Central Admin bloquee el acceso
+  // al instante, no solo en el próximo login.
+  if (!row || !row.active) return { fail: { status: 403, body: { error: 'Tu cuenta ha sido suspendida. Contacta soporte.' }, suspended: true } };
+  if (row.expires_at && new Date(row.expires_at) <= new Date()) {
+    return { fail: { status: 403, body: { error: 'demo_expired', message: 'El período de demo ha finalizado. Contacta a Magic Design para activar tu cuenta.' } }, expired: true, tenantName: row.business_name };
+  }
+  if (!row.uid) return { fail: SESSION_CLOSED };
+  if (!row.uactive) return { fail: { status: 401, body: { error: 'user_inactive', message: 'Tu usuario fue desactivado. Habla con el dueño del negocio.' } } };
+  if (uid !== null && Number(decoded.tv) !== row.utv) return { fail: SESSION_CLOSED };
+  if (row.umust && row.utemp && new Date(row.utemp) <= new Date()) {
+    return { fail: { status: 401, body: { error: 'temp_password_expired', message: 'La contraseña temporal caducó. Pide al dueño que genere una nueva.' } } };
+  }
+  // Más usuarios activos que los del plan (bajada de plan): se marca el plazo de 3 días; pasado el plazo se desactivan los más recientes
+  const over = row.active_users > team.planLimit(row.plan);
+  try {
+    if (over && !row.team_over_limit_since) {
+      await pool.query('UPDATE tenants SET team_over_limit_since = now() WHERE id = $1 AND team_over_limit_since IS NULL', [decoded.tenantId]);
+      row.team_over_limit_since = new Date();
+    } else if (!over && row.team_over_limit_since) {
+      await pool.query('UPDATE tenants SET team_over_limit_since = NULL WHERE id = $1', [decoded.tenantId]);
+      row.team_over_limit_since = null;
+    } else if (over && Date.now() >= new Date(row.team_over_limit_since).getTime() + team.OVER_LIMIT_GRACE_DAYS * 86400000) {
+      await enforceTeamLimit(decoded.tenantId);
+      const { rows: [again] } = await pool.query('SELECT active FROM team_users WHERE id = $1', [row.uid]);
+      if (!again || !again.active) return { fail: { status: 401, body: { error: 'user_inactive', message: 'Tu usuario fue desactivado al bajar el plan. Habla con el dueño del negocio.' } } };
+      row.team_over_limit_since = null;
+    }
+  } catch (err) { console.error('Límite de equipo:', err.message); }
+  return {
+    tenant: { active: row.active, isDemo: !!row.is_demo, plan: row.plan, businessName: row.business_name, expiresAt: row.expires_at, overLimitSince: row.team_over_limit_since },
+    user: { id: row.uid, name: row.uname, email: row.uemail, role: row.urole, must_change_password: !!row.umust },
+  };
+}
+
 async function requireAuth(req, res, next) {
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith('Bearer ')) {
@@ -1912,24 +1991,22 @@ async function requireAuth(req, res, next) {
     return res.status(401).json({ error: 'Token inválido o expirado' });
   }
   if (!decoded.tenantId) return res.status(401).json({ error: 'Token inválido o expirado' });
-  // Revalidar en cada petición que la cuenta siga activa — para que una suspensión
-  // desde Central Admin bloquee el acceso al instante, no solo en el próximo login.
-  if (dbReady && decoded.tenantId) {
-    try {
-      const { rows } = await pool.query(
-        'SELECT active, expires_at, is_demo, plan FROM tenants WHERE id = $1',
-        [decoded.tenantId]
-      );
-      if (!rows[0] || !rows[0].active) {
-        return res.status(403).json({ error: 'Tu cuenta ha sido suspendida. Contacta soporte.' });
-      }
-      if (rows[0].expires_at && new Date(rows[0].expires_at) <= new Date()) {
-        return res.status(403).json({ error: 'demo_expired', message: 'El período de demo ha finalizado. Contacta a Magic Design para activar tu cuenta.' });
-      }
-      decoded.isDemo = !!rows[0].is_demo;
-      decoded.plan = rows[0].plan; // plan real de la base (no el del JWT)
-    } catch (err) {
-      return res.status(500).json({ error: 'Error validando la cuenta' });
+  if (dbReady) {
+    const sess = await resolveSession(decoded);
+    if (sess.fail) return res.status(sess.fail.status).json(sess.fail.body);
+    decoded.isDemo = sess.tenant.isDemo;
+    decoded.plan = sess.tenant.plan; // plan real de la base (no el del JWT)
+    decoded.role = sess.user.role;   // el rol sale SIEMPRE de la base, nunca del token
+    req.user = { id: sess.user.id, role: sess.user.role, name: sess.user.name, email: sess.user.email };
+    // Contraseña temporal: solo se puede cambiar la contraseña hasta que lo haga
+    const key = req.method + ' ' + (req.route?.path || req.path);
+    if (sess.user.must_change_password && key !== 'PUT /api/tenant/password') {
+      return res.status(403).json({ error: 'must_change_password', message: 'Cambia tu contraseña temporal para continuar.' });
+    }
+    // Rol: cada ruta tiene un rol mínimo; una ruta sin clasificar solo la usa el dueño
+    const min = team.ROUTE_MIN_ROLE[key] || 'owner';
+    if (!team.roleAtLeast(sess.user.role, min)) {
+      return res.status(403).json({ error: 'role_forbidden', message: 'Tu rol no permite esta acción.' });
     }
   }
   req.tenant = decoded;
@@ -1940,6 +2017,27 @@ async function requireAuth(req, res, next) {
     if (blocked) return res.status(blocked.status).json(blocked.body);
   }
   next();
+}
+
+// Desactiva a los usuarios más recientes hasta quedar en el límite del plan (nunca al dueño; nada se borra). Idempotente y
+// segura entre réplicas: bloquea la fila del negocio.
+async function enforceTeamLimit(tenantId) {
+  const dropped = await inTx(async (c) => {
+    const { rows: [t] } = await c.query('SELECT plan FROM tenants WHERE id = $1 FOR UPDATE', [tenantId]);
+    if (!t) return [];
+    const limit = team.planLimit(t.plan);
+    const { rows: act } = await c.query(
+      `SELECT id FROM team_users WHERE tenant_id = $1 AND active ORDER BY (role = 'owner') DESC, created_at, id`, [tenantId]);
+    const drop = act.slice(limit).map(r => r.id);
+    if (drop.length) {
+      await c.query(`UPDATE team_users SET active = false, deactivated_at = now(), token_version = token_version + 1
+        WHERE tenant_id = $1 AND id = ANY($2::uuid[]) AND role <> 'owner'`, [tenantId, drop]);
+    }
+    await c.query('UPDATE tenants SET team_over_limit_since = NULL WHERE id = $1', [tenantId]);
+    return drop;
+  });
+  for (const id of dropped) closeUserSockets(tenantId, id);
+  return dropped;
 }
 
 // ── Aislamiento de cuentas demo ────────────────────────────────
@@ -2472,7 +2570,9 @@ app.post('/api/tenant/register', async (req, res) => {
     `, [businessName, fullName || null, email, hash, 'basic', countryCanon || (country ? String(country).trim().slice(0, 80) : null),
          whatsappNumber || null, ops.defaultTimezoneFor(countryCanon)]);
     const tenant = rows[0];
-    const token  = jwt.sign({ tenantId: tenant.id, email: tenant.email }, JWT_SECRET, { expiresIn: '30d' });
+    // El trigger de la base ya creó al dueño en team_users (espejo del negocio)
+    const { rows: [owner] } = await pool.query("SELECT * FROM team_users WHERE tenant_id = $1 AND role = 'owner'", [tenant.id]);
+    const token  = signUserToken(owner);
     if (process.env.RESEND_API_KEY) {
       sendWelcomeEmail(tenant.email, tenant.business_name).catch(err =>
         console.error('[EMAIL] Bienvenida no enviada:', err.message)
@@ -2483,6 +2583,7 @@ app.post('/api/tenant/register', async (req, res) => {
       token,
       requestedPlan,
       tenant: { id: tenant.id, businessName: tenant.business_name, fullName: tenant.full_name, email: tenant.email, plan: tenant.plan, country: tenant.country },
+      user: { id: owner.id, name: owner.name, email: owner.email, role: owner.role, mustChangePassword: false },
     });
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ error: 'Este correo ya está registrado', field: 'email' });
@@ -2497,20 +2598,35 @@ app.post('/api/tenant/login', async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
 
   try {
-    const { rows } = await pool.query('SELECT * FROM tenants WHERE lower(email) = $1 ORDER BY created_at LIMIT 1', [email]);
-    const tenant = rows[0];
-    if (!tenant) return res.status(401).json({ error: 'Correo o contraseña incorrectos' });
-    if (!tenant.active) return res.status(403).json({ error: 'Tu cuenta ha sido suspendida. Contacta soporte.' });
-    const valid = await bcrypt.compare(password, tenant.password_hash);
+    // Cada persona del negocio (dueño incluido) es una fila de team_users; el correo es único en toda la base
+    const { rows } = await pool.query(`
+      SELECT u.*, t.business_name, t.full_name AS tenant_full_name, t.plan, t.country, t.active AS tenant_active, t.expires_at
+      FROM team_users u JOIN tenants t ON t.id = u.tenant_id WHERE lower(u.email) = $1 LIMIT 1`, [email]);
+    const u = rows[0];
+    if (!u) return res.status(401).json({ error: 'Correo o contraseña incorrectos' });
+    if (!u.tenant_active) return res.status(403).json({ error: 'Tu cuenta ha sido suspendida. Contacta soporte.' });
+    // Freno por usuario además del de IP: el intento se cuenta ANTES de comparar (peticiones en paralelo no lo esquivan)
+    if (loginBlocked(u.id)) return res.status(429).json({ error: 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.' });
+    loginFailed(u.id);
+    const valid = typeof password === 'string' && await bcrypt.compare(password, u.password_hash);
     if (!valid)  return res.status(401).json({ error: 'Correo o contraseña incorrectos' });
-    if (tenant.expires_at && new Date(tenant.expires_at) <= new Date()) {
+    userLoginFailures.delete(u.id);
+    if (!u.active) return res.status(403).json({ error: 'user_inactive', message: 'Tu usuario fue desactivado. Habla con el dueño del negocio.' });
+    if (u.expires_at && new Date(u.expires_at) <= new Date()) {
       return res.status(403).json({ error: 'demo_expired', message: 'Tu período de demo ha finalizado. Escríbenos a info@magicdesignllc.com para activar tu cuenta.' });
     }
-    const token = jwt.sign({ tenantId: tenant.id, email: tenant.email }, JWT_SECRET, { expiresIn: '30d' });
+    if (u.must_change_password && u.temp_password_expires_at && new Date(u.temp_password_expires_at) <= new Date()) {
+      return res.status(401).json({ error: 'temp_password_expired', message: 'La contraseña temporal caducó. Pide al dueño que genere una nueva.' });
+    }
+    await pool.query('UPDATE team_users SET last_login_at = now() WHERE id = $1', [u.id]);
+    const token = signUserToken(u);
+    const isOwner = u.role === 'owner';
     res.json({
       success: true,
       token,
-      tenant: { id: tenant.id, businessName: tenant.business_name, fullName: tenant.full_name, email: tenant.email, plan: tenant.plan, country: tenant.country },
+      mustChangePassword: !!u.must_change_password,
+      tenant: { id: u.tenant_id, businessName: u.business_name, fullName: isOwner ? u.tenant_full_name : u.name, email: u.email, plan: u.plan, country: u.country },
+      user: { id: u.id, name: u.name, email: u.email, role: u.role, mustChangePassword: !!u.must_change_password },
     });
   } catch (err) {
     res.status(500).json({ error: 'Error al iniciar sesión', details: err.message });
@@ -2651,16 +2767,28 @@ app.put('/api/tenant/password', requireAuth, async (req, res) => {
   if (newPassword.length < 8) return res.status(400).json({ error: 'La contraseña nueva debe tener al menos 8 caracteres' });
   if (pwTooLong(newPassword)) return res.status(400).json({ error: PW_TOO_LONG_MSG });
   try {
-    const { rows } = await pool.query('SELECT password_hash FROM tenants WHERE id = $1', [req.tenant.tenantId]);
+    // Cada usuario cambia SU contraseña. La del dueño vive en tenants (fuente; un trigger la copia a team_users y sube su
+    // token_version); la de los demás en team_users.
+    const isOwner = req.user.role === 'owner';
+    const { rows } = isOwner
+      ? await pool.query('SELECT password_hash FROM tenants WHERE id = $1', [req.tenant.tenantId])
+      : await pool.query('SELECT password_hash FROM team_users WHERE id = $1 AND tenant_id = $2', [req.user.id, req.tenant.tenantId]);
     if (!rows[0]) return res.status(404).json({ error: 'Tenant no encontrado' });
-    const bad = await checkCurrentPassword(req.tenant.tenantId, currentPassword, rows[0].password_hash);
+    const bad = await checkCurrentPassword(isOwner ? req.tenant.tenantId : 'u:' + req.user.id, currentPassword, rows[0].password_hash);
     if (bad) return res.status(bad[0]).json({ error: bad[1] });
     if (newPassword === currentPassword) {
       return res.status(400).json({ error: 'La contraseña nueva debe ser distinta de la actual' });
     }
     const hash = await bcrypt.hash(newPassword, 10);
-    await pool.query('UPDATE tenants SET password_hash = $1 WHERE id = $2', [hash, req.tenant.tenantId]);
-    res.json({ success: true });
+    if (isOwner) await pool.query('UPDATE tenants SET password_hash = $1 WHERE id = $2', [hash, req.tenant.tenantId]);
+    else {
+      await pool.query(`UPDATE team_users SET password_hash = $1, must_change_password = false, temp_password_expires_at = NULL,
+        token_version = token_version + 1 WHERE id = $2 AND tenant_id = $3`, [hash, req.user.id, req.tenant.tenantId]);
+    }
+    // Las sesiones anteriores (otros dispositivos) quedan cerradas; esta recibe un token nuevo
+    const { rows: [u] } = await pool.query('SELECT * FROM team_users WHERE id = $1', [req.user.id]);
+    closeUserSockets(req.tenant.tenantId, req.user.id);
+    res.json({ success: true, token: signUserToken(u) });
   } catch (err) {
     console.error('password change error:', err);
     res.status(500).json({ error: 'Error al cambiar la contraseña' });
@@ -2698,7 +2826,14 @@ async function applyTenantLocation(db, tenantId, { country, timezone }) {
 
 app.put('/api/tenant/profile', requireAuth, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
-  const allowed = req.tenant.isDemo
+  // El correo de acceso (y la clave) del negocio son del dueño: un encargado puede editar el resto del perfil
+  if (req.user.role !== 'owner' && req.body && req.body.email !== undefined) {
+    const { rows: [cur] } = await pool.query('SELECT email FROM tenants WHERE id = $1', [req.tenant.tenantId]);
+    if (!cur || normEmail(req.body.email) !== normEmail(cur.email)) {
+      return res.status(403).json({ error: 'role_forbidden', message: 'Solo el dueño puede cambiar el correo de acceso.' });
+    }
+  }
+  const allowed = req.tenant.isDemo || req.user.role !== 'owner'
     ? ['business_name', 'full_name', 'whatsapp_number']
     : ['business_name', 'full_name', 'email', 'whatsapp_number'];
   const wantsLocation = req.body && (req.body.country !== undefined || req.body.timezone !== undefined);
@@ -2746,7 +2881,16 @@ app.put('/api/tenant/profile', requireAuth, async (req, res) => {
     }
     await txc.query('COMMIT');
     if (!rows[0]) return res.status(404).json({ error: 'Tenant no encontrado' });
-    res.json({ success: true, tenant: { ...rows[0], ...locationOf(rows[0]) } });
+    const out = { success: true, tenant: { ...rows[0], ...locationOf(rows[0]) } };
+    // Cambiar el correo del dueño cierra sus sesiones anteriores (token_version): esta recibe un token nuevo
+    if (req.user.role === 'owner') {
+      const { rows: [ou] } = await pool.query('SELECT * FROM team_users WHERE id = $1', [req.user.id]);
+      if (ou && ou.token_version !== req.tenant.tv) {
+        out.token = signUserToken(ou);
+        if (req.tenant.userId) closeUserSockets(req.tenant.tenantId, ou.id);
+      }
+    }
+    res.json(out);
   } catch (err) {
     if (txc) await txc.query('ROLLBACK').catch(() => {});
     if (err instanceof BadRequest) return res.status(400).json(badRequestBody(err));
@@ -4293,20 +4437,16 @@ app.get('/app', async (req, res) => {
   if (!decoded.tenantId) return res.type('html').send(APP_LOGOUT);
 
   if (!dbReady) return res.status(503).send('Servicio no disponible, intenta en un momento');
-  let tenant = null;
-  {
-    try {
-      const { rows } = await pool.query(
-        'SELECT active, expires_at, is_demo, business_name, plan FROM tenants WHERE id = $1',
-        [decoded.tenantId]
-      );
-      tenant = rows[0];
-    } catch { return res.status(503).send('Servicio no disponible, intenta en un momento'); }
-    if (!tenant || !tenant.active) return res.type('html').send(APP_LOGOUT);
-    if (tenant.expires_at && new Date(tenant.expires_at) <= new Date()) {
-      return res.type('html').send(buildExpiredPage(tenant.business_name));
-    }
+  // Mismas comprobaciones que la API (cuenta, usuario activo, token_version): un usuario desactivado no recibe la app
+  const sess = await resolveSession(decoded);
+  if (sess.fail) {
+    if (sess.fail.status === 500) return res.status(503).send('Servicio no disponible, intenta en un momento');
+    if (sess.expired) return res.type('html').send(buildExpiredPage(sess.tenantName));
+    return res.type('html').send(APP_LOGOUT);
   }
+  const tenant = { is_demo: sess.tenant.isDemo, expires_at: sess.tenant.expiresAt, business_name: sess.tenant.businessName, plan: sess.tenant.plan };
+  const teamUser = { id: sess.user.id, name: sess.user.name, role: sess.user.role, mustChange: sess.user.must_change_password,
+    overLimitSince: sess.user.role === 'owner' && sess.tenant.overLimitSince ? new Date(sess.tenant.overLimitSince).toISOString() : null };
 
   let html;
   try { html = fs.readFileSync(SPA_FILE, 'utf8'); }
@@ -4314,7 +4454,7 @@ app.get('/app', async (req, res) => {
 
   // El plan va en la página: el menú sale correcto desde el primer instante, sin esperar al perfil
   const plan = ['basic', 'pro', 'business'].includes(tenant.plan) ? tenant.plan : 'basic';
-  let inject = `<script>(function(){var u=new URL(location.href);if(u.searchParams.has('token')){try{localStorage.setItem('central_jwt',u.searchParams.get('token'))}catch(e){}u.searchParams.delete('token');history.replaceState(null,'',u.pathname+(u.search||''))}})();window.__TENANT_PLAN__=${JSON.stringify(plan)};</script>`;
+  let inject = `<script>(function(){var u=new URL(location.href);if(u.searchParams.has('token')){try{localStorage.setItem('central_jwt',u.searchParams.get('token'))}catch(e){}u.searchParams.delete('token');history.replaceState(null,'',u.pathname+(u.search||''))}})();window.__TENANT_PLAN__=${JSON.stringify(plan)};window.__TEAM_USER__=${JSON.stringify(teamUser).replace(/</g, () => String.fromCharCode(92) + 'u003c')};</script>`;
   if (tenant?.is_demo) {
     // Las demos no reciben las conversaciones de ejemplo originales escritas en la app
     html = html.replace(/const convos = \{\r?\n[\s\S]*?\r?\n\};\r?\n/, 'const convos = {};\n')

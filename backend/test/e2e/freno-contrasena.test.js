@@ -34,6 +34,7 @@ run(async () => {
   ok(r.status === 401, 'Otro negocio: fallo → 401 (no 429)');
   r = await send(B.H, 'PUT', '/api/tenant/password', { currentPassword: 'password123', newPassword: 'otraClave789' });
   ok(r.status === 200, 'Otro negocio: cambio correcto → 200');
+  B.H.Authorization = 'Bearer ' + r.body.token;
 
   // En paralelo: 20 intentos a la vez no pueden pasar todos antes de contarse
   const P = await reg('Freno P');
@@ -51,6 +52,7 @@ run(async () => {
   ok(r.status === 400, '37 "ñ" (74 bytes) → 400');
   r = await send(B.H, 'PUT', '/api/tenant/password', { currentPassword: 'otraClave789', newPassword: 'b'.repeat(72) });
   ok(r.status === 200, 'Clave de 72 bytes → 200');
+  B.H.Authorization = 'Bearer ' + r.body.token;
   r = await j('/api/tenant/register', { method: 'POST', headers: JSONH,
     body: JSON.stringify({ businessName: 'Larga', email: 'larga' + Date.now() + '@test.local', password: long }) });
   ok(r.status === 400 && r.body.field === 'password', 'Registro con clave de 73 bytes → 400');
