@@ -161,6 +161,13 @@ run(async () => {
   const ip = '10.77.0.9';
   const em = 'freno' + Date.now() + '@test.local';
   const OH = authH((await login(O.email, 'password456')).body.token);
+  // ── El WebSocket se revalida solo: un usuario desactivado a la fuerza (sin pasar por la ruta) pierde su socket ──
+  const vendedor = await makeUser({ id: O.id, H: OH }, 'seller', 'Revalida');
+  const sockV = await openWs(vendedor.token);
+  ok(sockV.msgs.some(m => m.type === 'init') && !sockV.msgs.some(m => m.conversations), 'El WebSocket recibe init sin las conversaciones');
+  await c.query('UPDATE team_users SET active = false WHERE id = $1', [vendedor.id]);
+  ok(await waitFor(() => sockV.closed(), 6000), 'El servidor revalida y cierra el socket del usuario desactivado');
+
   r = await send(OH, 'POST', '/api/team', { name: 'Freno', email: em, role: 'seller' });
   const tempF = r.body.tempPassword;
   let blocked = null;

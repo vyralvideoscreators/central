@@ -29,6 +29,7 @@ function serverEnv({ port, dbUrl, metaLog }) {
     ADMIN_EMAIL: 'admin@test.local', ADMIN_PASSWORD: 'adminpass',
     DEMO_CREATION_KEY: '0123456789abcdef0123456789abcdef01234567',
     META_LOG: metaLog || '',
+    WS_REVALIDATE_MS: '1000', // el servidor revalida los WebSocket cada segundo (en producción, cada 3 min)
     // Vacías a propósito: dotenv no las rellena desde un .env local y nada sale a servicios reales
     RESEND_API_KEY: '', RESEND_FROM: '', STRIPE_SECRET_KEY: '', STRIPE_WEBHOOK_SECRET: '',
     STRIPE_PRICE_PRO: '', STRIPE_PRICE_BUSINESS: '',
