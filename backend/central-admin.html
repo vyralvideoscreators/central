@@ -236,7 +236,12 @@ tbody td { padding: 11px 14px; vertical-align: middle; }
 .demo-actions button { padding: 5px 9px; border-radius: 6px; font-size: 11.5px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: transparent; color: var(--text2); white-space: nowrap; }
 .demo-actions button:hover { background: var(--surface); color: var(--text); }
 .demo-actions button.danger:hover { color: var(--red); border-color: rgba(239,68,68,.35); }
-.cred-box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; font-size: 13px; line-height: 1.9; margin-bottom: 6px; }
+.cred-box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; font-size: 13px; line-height: 1.9; margin-bottom: 6px; overflow-wrap: anywhere; word-break: break-word; }
+.cred-user { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 6px 0; border-top: 1px solid var(--border); line-height: 1.5; }
+.cred-user > div { min-width: 0; }
+.cred-user .cred-line2 { display: block; color: var(--text2); }
+.cred-copy { flex: none; background: var(--surface); border: 1px solid var(--border2); color: var(--text); border-radius: 8px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
+.cred-copy:focus-visible, .btn-cancel:focus-visible, .btn-primary-full:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .cred-box code { font-family: ui-monospace, Consolas, monospace; font-size: 14px; font-weight: 700; color: var(--accent2); }
 .cred-note { font-size: 12px; margin-top: 8px; }
 .demo-stats { grid-template-columns: repeat(4, 1fr); }
@@ -288,13 +293,13 @@ tbody td { padding: 11px 14px; vertical-align: middle; }
   <div class="main">
     <div class="sidebar">
       <div class="nav-item active" onclick="showPage('dashboard',this)">
-        <span class="nav-icon">📊</span> Dashboard
+        Dashboard
       </div>
       <div class="nav-item" onclick="showPage('tenants',this)">
-        <span class="nav-icon">🏢</span> Negocios
+        Negocios
       </div>
       <div class="nav-item" onclick="showPage('demos',this)">
-        <span class="nav-icon">🧪</span> Demos
+        Demos
       </div>
     </div>
 
@@ -337,7 +342,7 @@ tbody td { padding: 11px 14px; vertical-align: middle; }
         <div class="page-sub">Gestiona todos los tenants de la plataforma</div>
 
         <div class="filters-bar">
-          <input class="search-input" id="searchInput" type="text" placeholder="🔍  Buscar por nombre o email…" oninput="onSearch()">
+          <input class="search-input" id="searchInput" type="text" placeholder="Buscar por nombre o email…" oninput="onSearch()">
           <select class="filter-select" id="filterPlan" onchange="loadTenants(1)">
             <option value="">Todos los planes</option>
             <option value="basic">Basic</option>
@@ -399,7 +404,7 @@ tbody td { padding: 11px 14px; vertical-align: middle; }
             </div>
           </div>
 
-          <button class="paste-toggle" onclick="togglePaste()">📋 Pegar el correo de la solicitud para autocompletar</button>
+          <button class="paste-toggle" onclick="togglePaste()">Pegar el correo de la solicitud para autocompletar</button>
           <div class="paste-box" id="pasteBox" style="margin-top:10px;">
             <textarea class="form-input" id="pasteText" placeholder="Pega aquí el texto del correo de Formspree…"></textarea>
             <div style="margin-top:8px;"><button class="btn-sm" onclick="parseSolicitud()">Autocompletar campos</button></div>
@@ -443,7 +448,7 @@ tbody td { padding: 11px 14px; vertical-align: middle; }
 <!-- ── OVERLAY + SIDE PANEL ── -->
 <div class="overlay" id="overlay" onclick="closePanel()"></div>
 <div class="side-panel" id="sidePanel">
-  <button class="sp-close" onclick="closePanel()">✕</button>
+  <button class="sp-close" onclick="closePanel()">Cerrar</button>
   <div id="sidePanelContent"></div>
 </div>
 
@@ -462,7 +467,7 @@ tbody td { padding: 11px 14px; vertical-align: middle; }
 <!-- ── EDIT TENANT DIALOG ── -->
 <div class="edit-overlay" id="editOverlay">
   <div class="edit-box">
-    <div class="edit-title">✎ Editar datos del negocio</div>
+    <div class="edit-title">Editar datos del negocio</div>
     <div class="edit-sub">Los cambios se guardan de inmediato en la cuenta del cliente.</div>
     <div class="edit-err" id="editErr"></div>
 
@@ -515,7 +520,7 @@ tbody td { padding: 11px 14px; vertical-align: middle; }
 <!-- ── RESET PASSWORD DIALOG ── -->
 <div class="edit-overlay" id="resetPwOverlay">
   <div class="edit-box" style="max-width:360px;">
-    <div class="edit-title">🔑 Resetear contraseña</div>
+    <div class="edit-title">Resetear contraseña</div>
     <div class="edit-sub">Define una nueva contraseña temporal para esta cuenta y compártela con el cliente.</div>
     <div class="edit-err" id="resetPwErr"></div>
     <div class="edit-field">
@@ -531,8 +536,8 @@ tbody td { padding: 11px 14px; vertical-align: middle; }
 
 <!-- ── DEMO CREDENTIALS DIALOG ── -->
 <div class="edit-overlay" id="credOverlay">
-  <div class="edit-box" style="max-width:440px;">
-    <div class="edit-title" id="credTitle">✅ Demo creada</div>
+  <div class="edit-box" style="max-width:440px;" role="dialog" aria-modal="true" aria-labelledby="credTitle" tabindex="-1" id="credDialog">
+    <div class="edit-title" id="credTitle">Demo creada</div>
     <div class="edit-sub">Guarda o comparte estos datos: la clave no se puede volver a ver (solo regenerar).</div>
     <div class="cred-box" id="credBox"></div>
     <div class="cred-note" id="credNote"></div>
@@ -544,7 +549,7 @@ tbody td { padding: 11px 14px; vertical-align: middle; }
 </div>
 
 <!-- ── TOAST ── -->
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
 const BACKEND = location.origin;
@@ -689,7 +694,7 @@ function renderTable(tenants) {
       <td style="font-size:12px;color:var(--text2);">${fmtDate(t.created_at)}</td>
       <td><span class="badge ${t.active ? 'badge-active' : 'badge-suspended'}">${t.active ? 'Activo' : 'Suspendido'}</span></td>
       <td>
-        <button class="action-btn" onclick="openDetail('${t.id}')" title="Ver detalle">👁</button>
+        <button class="action-btn" onclick="openDetail('${t.id}')" title="Ver detalle">Ver</button>
       </td>
     </tr>
   `).join('');
@@ -726,8 +731,8 @@ async function openDetail(tenantId) {
 
 function renderSidePanel(t) {
   const statusBtn = t.active
-    ? `<button class="btn-action danger" onclick="suspendTenant('${t.id}')">⛔ Suspender cuenta</button>`
-    : `<button class="btn-action success" onclick="reactivateTenant('${t.id}')">✅ Reactivar cuenta</button>`;
+    ? `<button class="btn-action danger" onclick="suspendTenant('${t.id}')">Suspender cuenta</button>`
+    : `<button class="btn-action success" onclick="reactivateTenant('${t.id}')">Reactivar cuenta</button>`;
 
   document.getElementById('sidePanelContent').innerHTML = `
     <div class="sp-title">${esc(t.business_name)}</div>
@@ -767,10 +772,10 @@ function renderSidePanel(t) {
     </div>
 
     <div class="sp-actions">
-      <button class="btn-action" onclick="openEditTenant()">✎ Editar datos</button>
-      <button class="btn-action" onclick="openResetPassword('${t.id}')">🔑 Resetear contraseña</button>
+      <button class="btn-action" onclick="openEditTenant()">Editar datos</button>
+      <button class="btn-action" onclick="openResetPassword('${t.id}')">Resetear contraseña</button>
       ${statusBtn}
-      <button class="btn-action danger" onclick="confirmDelete('${t.id}','${esc(t.business_name)}')">🗑 Eliminar cuenta</button>
+      <button class="btn-action danger" onclick="confirmDelete('${t.id}','${esc(t.business_name)}')">Eliminar cuenta</button>
     </div>
   `;
 }
@@ -821,7 +826,7 @@ async function setStatus(tenantId, active) {
 
 function confirmDelete(tenantId, name) {
   showConfirm(
-    '⚠️ ¿Eliminar "' + name + '"?',
+    '¿Eliminar "' + name + '"?',
     'Esta acción borrará permanentemente el negocio, todas sus conversaciones y mensajes. No se puede deshacer.',
     async () => {
       try {
@@ -1061,7 +1066,7 @@ async function createDemo() {
     if (!res.ok) { errEl.textContent = data.error || 'Error al crear la demo'; errEl.style.display = 'block'; return; }
     ['dmOwner','dmEmail','dmBusiness','dmCity','dmCountry','pasteText'].forEach(id => document.getElementById(id).value = '');
     document.getElementById('dmDays').value = 7;
-    showCreds('✅ Demo creada', { ...data, businessName: body.businessName, ownerName: body.ownerName }, body.sendEmail);
+    showCreds('Demo creada', { ...data, businessName: body.businessName, ownerName: body.ownerName }, body.sendEmail);
     loadDemos();
   } catch {
     errEl.textContent = 'No se pudo conectar con el servidor'; errEl.style.display = 'block';
@@ -1080,18 +1085,41 @@ function showCreds(title, c, wantedEmail) {
     (c.password ? '<div>Clave temporal: <code>' + esc(c.password) + '</code></div>' : '<div>Clave del dueño: sin cambios</div>') +
     (c.expiresAt ? '<div>Disponible hasta: <b>' + fmtDate(c.expiresAt) + '</b></div>' : '') +
     (Array.isArray(c.teamUsers) && c.teamUsers.length ? '<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);"><div style="color:var(--text2);font-size:12px;margin-bottom:4px;">Usuarios de ejemplo para probar los roles</div>' +
-      c.teamUsers.map(u => '<div>' + esc(u.name) + ' (' + (u.role === 'manager' ? 'Encargado' : 'Vendedor') + '): <b>' + esc(u.email) + '</b> · <code>' + esc(u.password) + '</code></div>').join('') + '</div>' : '');
+      c.teamUsers.map((u, i) => '<div class="cred-user"><div>' + esc(u.name) + ' (' + (u.role === 'manager' ? 'Encargado' : 'Vendedor') + (u.active === false ? ', desactivado' : '') + ')<span class="cred-line2">' + esc(u.email) + ' · <code>' + esc(u.password) + '</code></span></div><button type="button" class="cred-copy" onclick="copyCredUser(' + i + ')" aria-label="Copiar correo y clave de ' + esc(u.name) + '">Copiar</button></div>').join('') + '</div>' : '');
   const note = document.getElementById('credNote');
-  if (c.emailSent) { note.style.color = 'var(--green)'; note.textContent = '✉️ Correo enviado a ' + c.email; }
+  if (c.emailSent) { note.style.color = 'var(--green)'; note.textContent = 'Correo enviado a ' + c.email; }
   else if (wantedEmail === false) { note.style.color = 'var(--text2)'; note.textContent = 'No se envió correo: compártelo tú por WhatsApp o email.'; }
-  else { note.style.color = 'var(--yellow)'; note.textContent = '⚠️ El correo no se pudo enviar' + (c.emailError ? ' (' + c.emailError + ')' : ' (Resend no configurado)') + '. Compártelo manualmente.'; }
+  else { note.style.color = 'var(--yellow)'; note.textContent = 'El correo no se pudo enviar' + (c.emailError ? ' (' + c.emailError + ')' : ' (Resend no configurado)') + '. Compártelo manualmente.'; }
   document.getElementById('credOverlay').classList.add('open');
+  _credReturnFocus = document.activeElement;
+  setTimeout(() => { const d = document.getElementById('credDialog'); if (d) d.focus(); }, 30);
 }
-function closeCreds() { document.getElementById('credOverlay').classList.remove('open'); lastCreds = null; }
+let _credReturnFocus = null;
+function closeCreds() {
+  document.getElementById('credOverlay').classList.remove('open'); lastCreds = null;
+  if (_credReturnFocus && _credReturnFocus.focus) { try { _credReturnFocus.focus(); } catch (e) {} } _credReturnFocus = null;
+}
+document.addEventListener('keydown', ev => {
+  const ov = document.getElementById('credOverlay');
+  if (!ov || !ov.classList.contains('open')) return;
+  if (ev.key === 'Escape') { ev.preventDefault(); closeCreds(); return; }
+  if (ev.key === 'Tab') { // el foco no sale del diálogo
+    const f = [...ov.querySelectorAll('button, [tabindex]')].filter(x => !x.disabled && x.offsetParent !== null);
+    if (!f.length) return;
+    const first = f[0], last = f[f.length - 1];
+    if (ev.shiftKey && (document.activeElement === first || document.activeElement === document.getElementById('credDialog'))) { ev.preventDefault(); last.focus(); }
+    else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
+  }
+});
+function copyCredUser(i) {
+  const u = lastCreds && lastCreds.teamUsers && lastCreds.teamUsers[i];
+  if (!u) return;
+  navigator.clipboard.writeText(u.email + '\n' + u.password).then(() => showToast('Copiado: ' + u.name), () => showToast('No se pudo copiar'));
+}
 function copyCreds() {
   if (!lastCreds) return;
   const link = location.origin + '/central-registro.html?email=' + encodeURIComponent(lastCreds.email);
-  const txt = 'Hola' + (lastCreds.ownerName ? ' ' + lastCreds.ownerName : '') + ', tu demo de CENTRAL ya está lista 🚀\n\n' +
+  const txt = 'Hola' + (lastCreds.ownerName ? ' ' + lastCreds.ownerName : '') + ', tu demo de CENTRAL ya está lista\n\n' +
     'Entra aquí: ' + link + '\nCorreo: ' + lastCreds.email + '\nClave temporal: ' + (lastCreds.password || '(sin cambios)') +
     (lastCreds.expiresAt ? '\nDisponible hasta el ' + fmtDate(lastCreds.expiresAt) : '') +
     (Array.isArray(lastCreds.teamUsers) && lastCreds.teamUsers.length ? '\n\nUsuarios de ejemplo:\n' + lastCreds.teamUsers.map(u => u.name + ' — ' + u.email + ' — ' + u.password).join('\n') : '');
@@ -1159,7 +1187,7 @@ function resendDemo(id) {
   const d = demos.find(x => x.id === id);
   showConfirm('¿Generar una clave nueva?', 'La clave anterior de ' + (d ? d.email : 'esta demo') + ' dejará de funcionar y se enviará la nueva por correo.', async () => {
     const r = await demoAction(id + '/resend', { key: true });
-    if (r) showCreds('🔑 Clave regenerada', { ...r, expiresAt: d && d.expires_at, ownerName: d && d.full_name }, true);
+    if (r) showCreds('Clave regenerada', { ...r, expiresAt: d && d.expires_at, ownerName: d && d.full_name }, true);
   });
 }
 function resetDemoData(id) {
@@ -1170,7 +1198,7 @@ function resetDemoData(id) {
     if (r) {
       showToast('Datos de la demo reiniciados');
       // Los usuarios de ejemplo se volvieron a crear con claves nuevas: se muestran
-      if (Array.isArray(r.teamUsers) && r.teamUsers.length) showCreds('Datos reiniciados', { email: d ? d.email : '', teamUsers: r.teamUsers, expiresAt: d && d.expires_at, ownerName: d && d.full_name }, false);
+      if (Array.isArray(r.teamUsers) && r.teamUsers.length) showCreds('Datos reiniciados: claves nuevas del equipo de ejemplo', { email: d ? d.email : '', teamUsers: r.teamUsers, expiresAt: d && d.expires_at, ownerName: d && d.full_name }, false);
     }
   });
 }
