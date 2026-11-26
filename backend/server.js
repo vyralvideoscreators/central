@@ -139,16 +139,31 @@ const mediaCache = {};
 // POSTGRESQL
 // ══════════════════════════════════════════════════════════════
 let pool = null;
+let reportPool = null; // solo los informes (ver más abajo)
 let dbReady = false;
 
 if (process.env.DATABASE_URL) {
   // max explícito (por defecto 10 por réplica): con las listas y los informes pesados, el límite del pool es parte del diseño
   const poolMax = parseInt(process.env.PG_POOL_MAX, 10);
+  // connectionTimeoutMillis: si no hay conexión libre en 10 s la petición falla (500/503) en vez de colgarse sin fin.
+  // PG_POOL_MAX × réplicas debe caber en el max_connections de Postgres (ver .env.example).
   pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false },
     max: Number.isInteger(poolMax) && poolMax > 0 ? poolMax : 10,
+    connectionTimeoutMillis: 10000,
   });
+  // Pool APARTE para los informes (máx. 3 conexiones, statement_timeout 20 s): un informe pesado nunca deja sin conexión al resto
+  // de la app ni corre sin límite de tiempo. Cada informe hace sus consultas por este pool.
+  const reportPoolMax = parseInt(process.env.PG_REPORT_POOL_MAX, 10);
+  reportPool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false },
+    max: Number.isInteger(reportPoolMax) && reportPoolMax > 0 ? reportPoolMax : 3,
+    connectionTimeoutMillis: 10000,
+    statement_timeout: 20000,
+  });
+  reportPool.on('error', (err) => console.error('reportPool:', err.message));
 }
 
 let backfillAfterListen = false; // relleno de pagos en segundo plano tras listen (ver initDB)
@@ -4191,22 +4206,53 @@ async function resolveReportRange(req, tenantId) {
 }
 const planRequired = (res) => res.status(403).json({ error: 'plan_required', message: 'Los informes están disponibles desde el plan Pro.' });
 
-// Como mucho 2 informes a la vez por réplica: los demás esperan en cola (no es un error) y así los informes pesados no agotan el pool
-// de conexiones ni dejan sin servicio al resto de la app. El hueco se traspasa directamente al primero de la cola.
-const REPORT_MAX_CONCURRENT = 2;
+// Como mucho 2 informes a la vez por réplica; los demás esperan en cola (no es un error). Reglas:
+//  · El cierre de la conexión se registra ANTES de esperar: una petición cancelada en la cola sale de ella y nunca ocupa un hueco.
+//  · Cola de 20 como máximo y espera de 30 s como máximo: pasado eso, 503 «busy» con Retry-After (el SPA avisa y se puede reintentar).
+//  · El hueco se traspasa al primero de la cola cuya petición siga viva; si al tocarle ya se cerró, se libera en el acto sin ejecutar nada.
+const REPORT_MAX_CONCURRENT = 2, REPORT_QUEUE_MAX = 20, REPORT_WAIT_MS = parseInt(process.env.REPORT_WAIT_MS, 10) || 30000;
 let reportActive = 0;
-const reportQueue = [];
-async function reportSlot(req, res, next) {
-  if (reportActive >= REPORT_MAX_CONCURRENT) await new Promise(r => reportQueue.push(r)); else reportActive++;
-  let released = false;
-  const release = () => {
-    if (released) return;
-    released = true;
-    const n = reportQueue.shift();
-    if (n) n(); else reportActive--;
+const reportQueue = []; // { grant() → boolean (false si la petición ya no está viva) }
+const reqGone = (req, res) => res.destroyed || res.writableEnded || !res.socket || res.socket.destroyed || req.aborted === true;
+function reportPassSlot() {
+  while (reportQueue.length) { if (reportQueue.shift().grant()) return; }
+  reportActive--;
+}
+function reportSlot(req, res, next) {
+  let state = 'init'; // init → waiting → running → done
+  let entry = null, timer = null;
+  const finish = () => {
+    const was = state; state = 'done';
+    if (was === 'waiting') { const i = reportQueue.indexOf(entry); if (i >= 0) reportQueue.splice(i, 1); clearTimeout(timer); }
+    else if (was === 'running') reportPassSlot();
   };
-  res.once('close', release);
-  next();
+  // ANTES de esperar
+  res.once('close', finish);
+  req.once('aborted', finish);
+  if (reqGone(req, res)) { state = 'done'; return; }
+  const busy = () => {
+    state = 'done';
+    res.set('Retry-After', '10');
+    res.status(503).json({ error: 'busy', message: 'Hay muchos informes en curso. Inténtalo de nuevo en unos segundos.' });
+  };
+  if (reportActive < REPORT_MAX_CONCURRENT) { reportActive++; state = 'running'; return next(); }
+  if (reportQueue.length >= REPORT_QUEUE_MAX) return busy();
+  state = 'waiting';
+  entry = {
+    grant() {
+      if (state !== 'waiting' || reqGone(req, res)) { state = 'done'; clearTimeout(timer); return false; } // cancelada mientras esperaba
+      clearTimeout(timer);
+      state = 'running';
+      next();
+      return true;
+    },
+  };
+  reportQueue.push(entry);
+  timer = setTimeout(() => {
+    if (state !== 'waiting') return;
+    const i = reportQueue.indexOf(entry); if (i >= 0) reportQueue.splice(i, 1);
+    busy();
+  }, REPORT_WAIT_MS);
 }
 
 app.get('/api/reports', requireAuth, reportSlot, async (req, res) => {
@@ -4236,7 +4282,7 @@ app.get('/api/reports', requireAuth, reportSlot, async (req, res) => {
 
     // Cobros reales: pagos no anulados − reembolsos, cada uno en SU fecha (zona del negocio), en moneda base.
     // El saldo a favor no es dinero nuevo: queda fuera de ambos lados.
-    const cobros = pool.query(`
+    const cobros = reportPool.query(`
       SELECT method, SUM(total)::float AS total FROM (
         SELECT p.method, COALESCE(SUM(p.amount_base), 0) AS total
         FROM payments p JOIN orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
@@ -4253,7 +4299,7 @@ app.get('/api/reports', requireAuth, reportSlot, async (req, res) => {
         GROUP BY r.method
       ) x GROUP BY method ORDER BY total DESC, method`, [...P, CREDIT_METHOD]);
     const [kpi, pays, tops, encRows, series, cobrosRows] = await Promise.all([
-      pool.query(`
+      reportPool.query(`
         SELECT COALESCE(SUM(o.total_price - o.credited_total) FILTER (WHERE ${OK}), 0)::float AS ventas,
                COUNT(*) FILTER (WHERE ${OK})::int AS pedidos,
                COUNT(*) FILTER (WHERE NOT ${OK})::int AS cancelados,
@@ -4271,13 +4317,13 @@ app.get('/api/reports', requireAuth, reportSlot, async (req, res) => {
                -- clientes nuevos del periodo: misma consulta, una escalar más (en vez de una consulta aparte)
                (SELECT COUNT(*)::int FROM clients c WHERE c.tenant_id = $1 AND ${inPeriod('c.created_at')} AND ($5 = 'todos' OR c.channel = $5)) AS new_clients
         FROM orders o WHERE ${WALL}`, P),
-      pool.query(`
+      reportPool.query(`
         SELECT o.pay_method_label AS label, COUNT(*)::int AS n FROM orders o
         WHERE ${W} AND o.pay_method_label IS NOT NULL AND o.pay_method_label NOT IN ('', '—')
         GROUP BY o.pay_method_label ORDER BY n DESC, label`, P),
       // Top productos: artículos de los pedidos menos lo devuelto por artículos; un pedido sin artículos cuenta como 1
       // unidad de su resumen. Margen = (ventas − costo) / ventas solo sobre las líneas CON costo (antes del descuento del pedido).
-      pool.query(`
+      reportPool.query(`
         WITH rets AS (
           SELECT cni.order_item_id, SUM(cni.qty)::int AS ret
           FROM orders o
@@ -4302,11 +4348,11 @@ app.get('/api/reports', requireAuth, reportSlot, async (req, res) => {
           WHERE ${W} AND COALESCE(o.total_price, 0) - COALESCE(o.credited_total, 0) > 0
             AND NOT EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id AND oi.tenant_id = o.tenant_id)
         ) x GROUP BY name HAVING SUM(qty) > 0 ORDER BY qty DESC, revenue DESC LIMIT 5`, P),
-      pool.query(`
+      reportPool.query(`
         SELECT COALESCE(o.tenant_order_number, o.order_number) AS num, o.client_name, o.address, o.delivery_status, o.shipping
         FROM orders o WHERE ${W} AND ${ENC}
         ORDER BY o.created_at DESC LIMIT 10`, P),
-      pool.query(`
+      reportPool.query(`
         SELECT to_char(${LOCAL('o.created_at')}, '${bucketFmt}') AS b, COALESCE(SUM(o.total_price - o.credited_total), 0)::float AS amount, COUNT(*)::int AS n
         FROM orders o WHERE ${W} GROUP BY b`, P),
       cobros,
@@ -4387,7 +4433,7 @@ app.get('/api/reports/profit', requireAuth, reportSlot, async (req, res) => {
     const P = [tenantId, tz, startLocal, endExclusive, canal];
     const W = `o.tenant_id = $1 AND o.kind = 'order' AND o.delivery_status <> 'cancelled' AND ${tsIn('o.created_at')} AND ${canalCond}`;
     const [prof, cobros, extra] = await Promise.all([
-      pool.query(`
+      reportPool.query(`
         WITH ord AS (
           SELECT o.id, o.total_price, o.credited_total, COALESCE(o.shipping, 0) AS shipping, COALESCE(o.discount, 0) AS discount, o.tax_rate, COALESCE(o.tax_amount, 0) AS tax_amount,
             (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id AND oi.tenant_id = o.tenant_id) AS n_items,
@@ -4428,7 +4474,7 @@ app.get('/api/reports/profit', requireAuth, reportSlot, async (req, res) => {
           COALESCE(SUM(CASE WHEN net > 0 THEN nocost * (net - red) / net ELSE 0 END + orphan), 0)::float AS sin_costo,
           COALESCE(SUM(CASE WHEN net > 0 THEN withcost * (net - red) / net ELSE 0 END), 0)::float AS con_costo
         FROM calc`, P),
-      pool.query(`
+      reportPool.query(`
         SELECT COALESCE(SUM(t), 0)::float AS total FROM (
           SELECT COALESCE(SUM(p.amount_base), 0) AS t FROM payments p JOIN orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
           WHERE p.tenant_id = $1 AND p.voided_at IS NULL AND p.method <> $6 AND ${tsIn('p.paid_at')} AND ${canalCond}
@@ -4436,18 +4482,15 @@ app.get('/api/reports/profit', requireAuth, reportSlot, async (req, res) => {
           SELECT -COALESCE(SUM(r.amount_base), 0) FROM refunds r JOIN orders o ON o.id = r.order_id AND o.tenant_id = r.tenant_id
           WHERE r.tenant_id = $1 AND r.method <> $6 AND ${tsIn('r.created_at')} AND ${canalCond}
         ) x`, [...P, CREDIT_METHOD]),
-      // Devoluciones, gastos y moneda base en UNA consulta (tres escalares con los mismos parámetros)
-      pool.query(`
-        SELECT
-          (SELECT COALESCE(SUM(cn.amount_base), 0)::float FROM credit_notes cn JOIN orders o ON o.id = cn.order_id AND o.tenant_id = cn.tenant_id
-            WHERE cn.tenant_id = $1 AND ${tsIn('cn.created_at')} AND ${canalCond}) AS dev_total,
-          (SELECT COUNT(*)::int FROM credit_notes cn JOIN orders o ON o.id = cn.order_id AND o.tenant_id = cn.tenant_id
-            WHERE cn.tenant_id = $1 AND ${tsIn('cn.created_at')} AND ${canalCond}) AS dev_n,
-          (SELECT COALESCE(SUM(amount_base), 0)::float FROM expenses
-            WHERE tenant_id = $1 AND voided_at IS NULL AND spent_on >= $3::date AND ($4::date IS NULL OR spent_on < $4::date)) AS exp_total,
-          (SELECT COUNT(*)::int FROM expenses
-            WHERE tenant_id = $1 AND voided_at IS NULL AND spent_on >= $3::date AND ($4::date IS NULL OR spent_on < $4::date)) AS exp_n,
-          (SELECT base_currency FROM tenants WHERE id = $1) AS base_currency`, P),
+      // Devoluciones, gastos y moneda base en UNA consulta: cada pareja (total, cantidad) sale de UN solo recorrido
+      reportPool.query(`
+        SELECT dv.total AS dev_total, dv.n AS dev_n, ex.total AS exp_total, ex.n AS exp_n,
+          (SELECT base_currency FROM tenants WHERE id = $1) AS base_currency
+        FROM (SELECT COALESCE(SUM(cn.amount_base), 0)::float AS total, COUNT(*)::int AS n
+              FROM credit_notes cn JOIN orders o ON o.id = cn.order_id AND o.tenant_id = cn.tenant_id
+              WHERE cn.tenant_id = $1 AND ${tsIn('cn.created_at')} AND ${canalCond}) dv,
+             (SELECT COALESCE(SUM(amount_base), 0)::float AS total, COUNT(*)::int AS n FROM expenses
+              WHERE tenant_id = $1 AND voided_at IS NULL AND spent_on >= $3::date AND ($4::date IS NULL OR spent_on < $4::date)) ex`, P),
     ]);
     const dev = { rows: [{ total: extra.rows[0].dev_total, n: extra.rows[0].dev_n }] };
     const exp = { rows: [{ total: extra.rows[0].exp_total, n: extra.rows[0].exp_n }] };
@@ -4488,13 +4531,13 @@ app.get('/api/reports/receivables', requireAuth, reportSlot, async (req, res) =>
     const TODAY = "(NOW() AT TIME ZONE $2)::date";
     const DAY_OF = (col) => `((${col} AT TIME ZONE current_setting('TimeZone')) AT TIME ZONE $2)::date`;
     const [buckets, debtors, base] = await Promise.all([
-      pool.query(`
+      reportPool.query(`
         SELECT CASE WHEN age <= 7 THEN 0 WHEN age <= 30 THEN 1 WHEN age <= 60 THEN 2 ELSE 3 END AS b,
                SUM(bal)::float AS total, COUNT(*)::int AS n
         FROM (SELECT o.total_price - o.credited_total - o.amount_paid AS bal,
                      (${TODAY} - ${DAY_OF('o.created_at')})::int AS age
               FROM orders o WHERE ${OPEN}) x GROUP BY b`, [tenantId, tz]),
-      pool.query(`
+      reportPool.query(`
         SELECT COALESCE(o.client_id::text, 'n:' || lower(COALESCE(o.client_name, ''))) AS k,
                (array_agg(o.client_id ORDER BY o.created_at))[1] AS client_id,
                (array_agg(o.client_name ORDER BY o.created_at DESC))[1] AS name,
@@ -4504,7 +4547,7 @@ app.get('/api/reports/receivables', requireAuth, reportSlot, async (req, res) =>
                (${TODAY} - ${DAY_OF('MIN(o.created_at)')})::int AS oldest_age
         FROM orders o WHERE ${OPEN}
         GROUP BY 1 ORDER BY total DESC, name LIMIT ${RECEIVABLES_LIMIT + 1}`, [tenantId, tz]),
-      pool.query('SELECT base_currency FROM tenants WHERE id = $1', [tenantId]),
+      reportPool.query('SELECT base_currency FROM tenants WHERE id = $1', [tenantId]),
     ]);
     const defs = [['0-7', '0–7 días'], ['8-30', '8–30 días'], ['31-60', '31–60 días'], ['60+', 'Más de 60 días']];
     const byB = new Map(buckets.rows.map(r => [r.b, r]));

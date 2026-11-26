@@ -13,9 +13,9 @@ run(async () => {
   ok(base.status === 200 && base.body.ventas === 20 && base.body.cobrado === 5 && base.body.pedidos === 1, 'Informe: ventas 20, cobrado 5, 1 pedido');
   ok(profit.status === 200 && profit.body.vendido === 20 && profit.body.gastos === 3 && profit.body.devuelto === 0 && profit.body.baseCurrency === 'USD', 'Utilidad: vendido 20, gastos 3, moneda USD');
   const calls = [];
-  for (let k = 0; k < 8; k++) calls.push(j('/api/reports?period=mes', { headers: O.H }), j('/api/reports/profit?period=mes', { headers: O.H }), j('/api/reports/receivables', { headers: O.H }));
+  for (let k = 0; k < 7; k++) calls.push(j('/api/reports?period=mes', { headers: O.H }), j('/api/reports/profit?period=mes', { headers: O.H }), j('/api/reports/receivables', { headers: O.H }));
   const res = await Promise.all(calls);
-  ok(res.every(r => r.status === 200), '24 informes a la vez: todos 200 (ninguno 500 ni rechazado)');
+  ok(res.every(r => r.status === 200), '21 informes a la vez (caben en las 2 plazas + cola de 20): todos 200');
   ok(res.filter((r, i) => i % 3 === 0).every(r => JSON.stringify(r.body) === JSON.stringify(base.body)), 'Las cifras del informe son idénticas bajo carga');
   const h = await j('/health');
   ok(h.status === 200 && h.body.db === true, 'El servidor sigue sano tras la ráfaga');
