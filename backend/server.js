@@ -142,9 +142,12 @@ let pool = null;
 let dbReady = false;
 
 if (process.env.DATABASE_URL) {
+  // max explícito (por defecto 10 por réplica): con las listas y los informes pesados, el límite del pool es parte del diseño
+  const poolMax = parseInt(process.env.PG_POOL_MAX, 10);
   pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false },
+    max: Number.isInteger(poolMax) && poolMax > 0 ? poolMax : 10,
   });
 }
 
@@ -4051,7 +4054,25 @@ async function resolveReportRange(req, tenantId) {
 }
 const planRequired = (res) => res.status(403).json({ error: 'plan_required', message: 'Los informes están disponibles desde el plan Pro.' });
 
-app.get('/api/reports', requireAuth, async (req, res) => {
+// Como mucho 2 informes a la vez por réplica: los demás esperan en cola (no es un error) y así los informes pesados no agotan el pool
+// de conexiones ni dejan sin servicio al resto de la app. El hueco se traspasa directamente al primero de la cola.
+const REPORT_MAX_CONCURRENT = 2;
+let reportActive = 0;
+const reportQueue = [];
+async function reportSlot(req, res, next) {
+  if (reportActive >= REPORT_MAX_CONCURRENT) await new Promise(r => reportQueue.push(r)); else reportActive++;
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    const n = reportQueue.shift();
+    if (n) n(); else reportActive--;
+  };
+  res.once('close', release);
+  next();
+}
+
+app.get('/api/reports', requireAuth, reportSlot, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   if (req.tenant.plan === 'basic') {
     return res.status(403).json({ error: 'plan_required', message: 'Los informes están disponibles desde el plan Pro.' });
@@ -4094,7 +4115,7 @@ app.get('/api/reports', requireAuth, async (req, res) => {
           AND ${canalCond}
         GROUP BY r.method
       ) x GROUP BY method ORDER BY total DESC, method`, [...P, CREDIT_METHOD]);
-    const [kpi, pays, tops, encRows, series, newCli, cobrosRows] = await Promise.all([
+    const [kpi, pays, tops, encRows, series, cobrosRows] = await Promise.all([
       pool.query(`
         SELECT COALESCE(SUM(o.total_price - o.credited_total) FILTER (WHERE ${OK}), 0)::float AS ventas,
                COUNT(*) FILTER (WHERE ${OK})::int AS pedidos,
@@ -4109,7 +4130,9 @@ app.get('/api/reports', requireAuth, async (req, res) => {
                COALESCE(SUM(o.shipping) FILTER (WHERE ${OK} AND ${ENC}), 0)::float AS enc_ingresos,
                COALESCE(AVG(o.shipping) FILTER (WHERE ${OK} AND o.shipping > 0), 0)::float AS avg_shipping,
                COUNT(*) FILTER (WHERE ${OK} AND o.platform = 'wa')::int AS count_wa,
-               COUNT(*) FILTER (WHERE ${OK} AND o.platform = 'ig')::int AS count_ig
+               COUNT(*) FILTER (WHERE ${OK} AND o.platform = 'ig')::int AS count_ig,
+               -- clientes nuevos del periodo: misma consulta, una escalar más (en vez de una consulta aparte)
+               (SELECT COUNT(*)::int FROM clients c WHERE c.tenant_id = $1 AND ${inPeriod('c.created_at')} AND ($5 = 'todos' OR c.channel = $5)) AS new_clients
         FROM orders o WHERE ${WALL}`, P),
       pool.query(`
         SELECT o.pay_method_label AS label, COUNT(*)::int AS n FROM orders o
@@ -4149,9 +4172,6 @@ app.get('/api/reports', requireAuth, async (req, res) => {
       pool.query(`
         SELECT to_char(${LOCAL('o.created_at')}, '${bucketFmt}') AS b, COALESCE(SUM(o.total_price - o.credited_total), 0)::float AS amount, COUNT(*)::int AS n
         FROM orders o WHERE ${W} GROUP BY b`, P),
-      pool.query(`
-        SELECT COUNT(*)::int AS n FROM clients c
-        WHERE c.tenant_id = $1 AND ${inPeriod('c.created_at')} AND ($5 = 'todos' OR c.channel = $5)`, P),
       cobros,
     ]);
 
@@ -4184,7 +4204,7 @@ app.get('/api/reports', requireAuth, async (req, res) => {
       encomiendasEnTransito: k.enc_transito,
       encomiendasIngresos: money(k.enc_ingresos),
       avgShipping: money(k.avg_shipping),
-      newClients: newCli.rows[0].n,
+      newClients: k.new_clients,
       canal: canalTotal > 0
         ? { wa: Math.round(k.count_wa / canalTotal * 100), ig: Math.round(k.count_ig / canalTotal * 100) }
         : { wa: 0, ig: 0 },
@@ -4218,7 +4238,7 @@ app.get('/api/reports', requireAuth, async (req, res) => {
 //  · utilidadBruta = ventasItems − costo (una línea sin costo cuenta como costo 0: por eso ventasSinCosto avisa)
 //  · gastos       = gastos no anulados con fecha en el periodo (no tienen canal: con un canal filtrado no se calculan)
 //  · utilidadNeta = utilidadBruta − gastos
-app.get('/api/reports/profit', requireAuth, async (req, res) => {
+app.get('/api/reports/profit', requireAuth, reportSlot, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   if (req.tenant.plan === 'basic') return planRequired(res);
   const tenantId = req.tenant.tenantId;
@@ -4229,7 +4249,7 @@ app.get('/api/reports/profit', requireAuth, async (req, res) => {
     const canalCond = `($5 = 'todos' OR o.platform = $5)`;
     const P = [tenantId, tz, startLocal, endExclusive, canal];
     const W = `o.tenant_id = $1 AND o.kind = 'order' AND o.delivery_status <> 'cancelled' AND ${tsIn('o.created_at')} AND ${canalCond}`;
-    const [prof, cobros, dev, exp, base] = await Promise.all([
+    const [prof, cobros, extra] = await Promise.all([
       pool.query(`
         WITH ord AS (
           SELECT o.id, o.total_price, o.credited_total, COALESCE(o.shipping, 0) AS shipping, COALESCE(o.discount, 0) AS discount, o.tax_rate, COALESCE(o.tax_amount, 0) AS tax_amount,
@@ -4279,15 +4299,22 @@ app.get('/api/reports/profit', requireAuth, async (req, res) => {
           SELECT -COALESCE(SUM(r.amount_base), 0) FROM refunds r JOIN orders o ON o.id = r.order_id AND o.tenant_id = r.tenant_id
           WHERE r.tenant_id = $1 AND r.method <> $6 AND ${tsIn('r.created_at')} AND ${canalCond}
         ) x`, [...P, CREDIT_METHOD]),
+      // Devoluciones, gastos y moneda base en UNA consulta (tres escalares con los mismos parámetros)
       pool.query(`
-        SELECT COALESCE(SUM(cn.amount_base), 0)::float AS total, COUNT(*)::int AS n FROM credit_notes cn
-        JOIN orders o ON o.id = cn.order_id AND o.tenant_id = cn.tenant_id
-        WHERE cn.tenant_id = $1 AND ${tsIn('cn.created_at')} AND ${canalCond}`, P),
-      pool.query(`
-        SELECT COALESCE(SUM(amount_base), 0)::float AS total, COUNT(*)::int AS n FROM expenses
-        WHERE tenant_id = $1 AND voided_at IS NULL AND spent_on >= $2::date AND ($3::date IS NULL OR spent_on < $3::date)`, [tenantId, startLocal, endExclusive]),
-      pool.query('SELECT base_currency FROM tenants WHERE id = $1', [tenantId]),
+        SELECT
+          (SELECT COALESCE(SUM(cn.amount_base), 0)::float FROM credit_notes cn JOIN orders o ON o.id = cn.order_id AND o.tenant_id = cn.tenant_id
+            WHERE cn.tenant_id = $1 AND ${tsIn('cn.created_at')} AND ${canalCond}) AS dev_total,
+          (SELECT COUNT(*)::int FROM credit_notes cn JOIN orders o ON o.id = cn.order_id AND o.tenant_id = cn.tenant_id
+            WHERE cn.tenant_id = $1 AND ${tsIn('cn.created_at')} AND ${canalCond}) AS dev_n,
+          (SELECT COALESCE(SUM(amount_base), 0)::float FROM expenses
+            WHERE tenant_id = $1 AND voided_at IS NULL AND spent_on >= $3::date AND ($4::date IS NULL OR spent_on < $4::date)) AS exp_total,
+          (SELECT COUNT(*)::int FROM expenses
+            WHERE tenant_id = $1 AND voided_at IS NULL AND spent_on >= $3::date AND ($4::date IS NULL OR spent_on < $4::date)) AS exp_n,
+          (SELECT base_currency FROM tenants WHERE id = $1) AS base_currency`, P),
     ]);
+    const dev = { rows: [{ total: extra.rows[0].dev_total, n: extra.rows[0].dev_n }] };
+    const exp = { rows: [{ total: extra.rows[0].exp_total, n: extra.rows[0].exp_n }] };
+    const base = { rows: [{ base_currency: extra.rows[0].base_currency }] };
     const k = prof.rows[0];
     const r2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
     const ventasItems = r2(k.ventas_items), costo = r2(k.costo), bruta = r2(ventasItems - costo);
@@ -4314,7 +4341,7 @@ app.get('/api/reports/profit', requireAuth, async (req, res) => {
 // Por cobrar con antigüedad (Pro y Business): saldo de pedidos no anulados, en tramos de 0–7, 8–30, 31–60 y más de 60
 // días desde la creación del pedido, y los clientes que más deben (hasta 50: nombre, total y pedido más antiguo).
 const RECEIVABLES_LIMIT = 50;
-app.get('/api/reports/receivables', requireAuth, async (req, res) => {
+app.get('/api/reports/receivables', requireAuth, reportSlot, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   if (req.tenant.plan === 'basic') return planRequired(res);
   const tenantId = req.tenant.tenantId;
