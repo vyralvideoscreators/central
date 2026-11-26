@@ -3465,8 +3465,9 @@ async function verifySessionAndApplyTenant() {
       setTimeout(() => { window.location.href = 'central-registro.html'; }, 1800);
       return;
     }
-    if (!res.ok) return;
+    if (!res.ok) { bizLocProfileFailed = true; return; }
     const t = await res.json();
+    bizLocProfileFailed = false;
     // Update localStorage with fresh data
     localStorage.setItem('central_tenant', JSON.stringify({
       id: t.id, businessName: t.business_name, fullName: t.full_name,
@@ -3496,7 +3497,14 @@ async function verifySessionAndApplyTenant() {
     }
   } catch(e) {
     // Network error — allow offline access
+    bizLocProfileFailed = true;
   }
+}
+async function retryBizLoc() {
+  bizLocProfileFailed = false; tenantSettingsFailed = false;
+  const el = document.getElementById('locCountryDesc'); if (el) el.textContent = 'Cargando la ubicación…';
+  await Promise.all([verifySessionAndApplyTenant(), loadTenantSettings()]);
+  if (!bizLoc.loaded && window._settingsPanel === 'perfil') { const c = document.getElementById('settingsContent'); if (c) c.innerHTML = settingsPanels.perfil(); }
 }
 document.addEventListener('DOMContentLoaded', verifySessionAndApplyTenant);
 
@@ -4055,6 +4063,7 @@ function tzLabel(tz) {
   return name + off;
 }
 const bizLoc = { loaded: false, country: null, timezone: null, options: [] };
+let bizLocProfileFailed = false; // el perfil no se pudo leer (con los ajustes también caídos, el selector de país ofrece Reintentar)
 // Guarda lo que el servidor dice de la ubicación (perfil o ajustes); true si algo cambió
 function setBizLoc(src) {
   if (!src || typeof src !== 'object' || !('timezone' in src)) return false;
@@ -4069,7 +4078,7 @@ function setBizLoc(src) {
 // Día de hoy en la zona del negocio; si aún no se sabe, el del dispositivo solo mientras carga (nunca se manda al servidor)
 function bizToday() { return bizDayIso(0) || todayLocalIso(); }
 function isLocErr(e) { return !!e && e.code === 'location_required'; }
-const LOC_MSG = 'Configura la ubicación de tu negocio en Ajustes para usar caja, gastos e informes';
+const LOC_MSG = 'Configura la ubicación de tu negocio en Ajustes → Perfil → País y zona horaria para usar caja, gastos e informes';
 function locRequiredHtml(cls) {
   return '<div class="' + (cls || 'pagr-card') + '" style="text-align:center;padding:32px 20px;"><div style="font-weight:700;font-size:14px;margin-bottom:6px;">Falta la ubicación del negocio</div>' +
     '<div style="color:var(--text2);font-size:12.5px;margin:0 auto 14px;max-width:420px;line-height:1.5;">' + escHtml(LOC_MSG) + '</div>' +
@@ -4084,7 +4093,7 @@ function onLocationChanged() {
   try { updateOrderCounts(); renderOrders(); } catch (e) {}
   const ae = document.activeElement;
   if (window._settingsPanel === 'perfil' && document.getElementById('v-ajustes')?.classList.contains('active') && !(ae && ae.closest && ae.closest('#settingsContent') && /INPUT|SELECT|TEXTAREA/.test(ae.tagName))) {
-    const el = document.getElementById('settingsContent'); if (el && settingsPanels.perfil) el.innerHTML = settingsPanels.perfil();
+    const el = document.getElementById('settingsContent'); if (el && settingsPanels.perfil) { el.innerHTML = settingsPanels.perfil(); loadCashClosedBox(); }
   }
   const act = document.querySelector('.view.active');
   const id = act && act.id;
@@ -5407,7 +5416,7 @@ async function ofSubmit() {
     if (!saved || !saved.id || !saved.orderNumber) throw new Error('respuesta inesperada del servidor');
   } catch (err) {
     OF.busy = false; btn.disabled = false; btn.style.opacity = '';
-    const closedCash = !edit && initialPayment && /caja del .* está cerrada/i.test(err.message || '');
+    const closedCash = !edit && initialPayment && err.code === 'cash_closed';
     ofFail('No se pudo guardar (' + err.message + '). ' + (closedCash ? 'Puedes guardarlo sin cobro inicial y registrar el pago otro día.' : 'Inténtalo de nuevo.'));
     return;
   }
@@ -5952,8 +5961,9 @@ async function loadCaja() {
   renderCaja(card, st);
 }
 function renderCaja(card, st) {
+  const sCur = (n, c) => escHtml(fmtSignedCur(n, c)), mCur = (n, c) => escHtml(fmtMoneyCur(n, c)); // todo texto que entra a innerHTML va escapado
   const closed = st.status === 'closed', c = st.closing, rows = st.rows || [];
-  const diffTd = (n, cur) => '<td style="text-align:right;' + (Math.abs(n) < 0.005 ? '' : n < 0 ? 'color:var(--red);font-weight:700;' : 'color:var(--yellow);font-weight:700;') + '">' + (Number(n) > 0.004 ? '+' : '') + fmtSignedCur(n, cur) + '</td>';
+  const diffTd = (n, cur) => '<td style="text-align:right;' + (Math.abs(n) < 0.005 ? '' : n < 0 ? 'color:var(--red);font-weight:700;' : 'color:var(--yellow);font-weight:700;') + '">' + (Number(n) > 0.004 ? '+' : '') + sCur(n, cur) + '</td>';
   const nameTd = r => '<td class="bold">' + escHtml(r.method) + ' <span class="cur">· ' + escHtml(r.currency) + '</span></td>';
   let html = '<div class="pagr-card-title"><span>Cierre de caja</span><span style="display:flex;align-items:center;gap:8px;">' +
     '<label for="cajaDayInput" class="pagr-sub">Día</label><input type="date" id="cajaDayInput" class="form-input" style="padding:5px 8px;font-size:12px;width:136px;" value="' + escHtml(st.day) + '" max="' + escHtml(st.today) + '" onchange="setCajaDay(this.value)">' +
@@ -5963,7 +5973,7 @@ function renderCaja(card, st) {
       ' — mientras esté cerrada no se pueden registrar ni anular pagos, reembolsos ni gastos de este día.' +
       (c.differentLines ? ' Hay ' + c.differentLines + (c.differentLines === 1 ? ' fila con diferencia.' : ' filas con diferencia.') : ' Todo cuadró.') + '</div>';
     html += '<div style="overflow-x:auto;"><table class="inf-table cash-rows"><thead><tr><th>Método · moneda</th><th style="text-align:right;">Esperado</th><th style="text-align:right;">Contado</th><th style="text-align:right;">Diferencia</th></tr></thead><tbody>' +
-      c.lines.map(l => '<tr>' + nameTd(l) + '<td style="text-align:right;">' + fmtSignedCur(l.expected, l.currency) + '</td><td style="text-align:right;">' + fmtSignedCur(l.counted, l.currency) + '</td>' + diffTd(l.difference, l.currency) + '</tr>').join('') +
+      c.lines.map(l => '<tr>' + nameTd(l) + '<td style="text-align:right;">' + sCur(l.expected, l.currency) + '</td><td style="text-align:right;">' + sCur(l.counted, l.currency) + '</td>' + diffTd(l.difference, l.currency) + '</tr>').join('') +
       '</tbody></table></div>';
     html += '<div style="margin-top:10px;"><button type="button" class="btn-ghost" onclick="reopenCaja()">Reabrir caja…</button></div>';
   } else if (!rows.length) {
@@ -5971,9 +5981,9 @@ function renderCaja(card, st) {
     if (!st.isFuture) html += '<div style="margin-top:6px;"><button type="button" class="btn-ghost" onclick="openCloseCaja()">Cerrar caja…</button></div>';
   } else {
     html += '<div style="overflow-x:auto;"><table class="inf-table cash-rows"><thead><tr><th>Método · moneda</th><th style="text-align:right;">Cobrado</th><th style="text-align:right;">Reemb.</th><th style="text-align:right;">Gastos</th><th style="text-align:right;">Esperado</th></tr></thead><tbody>' +
-      rows.map(m => '<tr>' + nameTd(m) + '<td style="text-align:right;">' + fmtMoneyCur(m.cobrado, m.currency) + '</td><td style="text-align:right;">' + (m.reembolsado ? '−' + fmtMoneyCur(m.reembolsado, m.currency) : '—') + '</td><td style="text-align:right;">' + (m.gastos ? '−' + fmtMoneyCur(m.gastos, m.currency) : '—') + '</td><td style="text-align:right;font-weight:700;">' + fmtSignedCur(m.expected, m.currency) + '</td></tr>').join('') +
+      rows.map(m => '<tr>' + nameTd(m) + '<td style="text-align:right;">' + mCur(m.cobrado, m.currency) + '</td><td style="text-align:right;">' + (m.reembolsado ? '−' + mCur(m.reembolsado, m.currency) : '—') + '</td><td style="text-align:right;">' + (m.gastos ? '−' + mCur(m.gastos, m.currency) : '—') + '</td><td style="text-align:right;font-weight:700;">' + sCur(m.expected, m.currency) + '</td></tr>').join('') +
       '</tbody></table></div>';
-    html += '<div class="pagr-sub" style="margin-top:6px;">Cada importe va en su moneda y no se suman entre sí. Referencia: neto del día en ' + escHtml(st.baseCurrency || baseCurrency()) + ' ' + fmtSignedCur(st.expectedBase, st.baseCurrency || baseCurrency()) + '.</div>';
+    html += '<div class="pagr-sub" style="margin-top:6px;">Cada importe va en su moneda y no se suman entre sí. Referencia: neto del día en ' + escHtml(st.baseCurrency || baseCurrency()) + ' ' + sCur(st.expectedBase, st.baseCurrency || baseCurrency()) + '.</div>';
     html += '<div style="margin-top:10px;">' + (st.isFuture ? '<span class="pagr-sub">No se puede cerrar un día futuro.</span>' : '<button type="button" class="btn-primary" onclick="openCloseCaja()">Cerrar caja…</button>') + '</div>';
   }
   // Cierres anteriores de este día (reabiertos): quién cerró, con qué líneas y por qué se reabrió
@@ -5982,7 +5992,7 @@ function renderCaja(card, st) {
     html += '<div class="cash-hist" style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px;"><details><summary>Cierres reabiertos de este día (' + past.length + ')</summary>' +
       past.map(h => '<div style="margin-top:8px;"><div class="pagr-sub">Cerrada el ' + escHtml(fmtWhen(h.closedAt)) + ' · reabierta el ' + escHtml(fmtWhen(h.reopenedAt)) + (h.reopenReason ? ' — ' + escHtml(h.reopenReason) : '') + '</div>' +
         '<div style="overflow-x:auto;"><table class="inf-table cash-rows"><thead><tr><th>Método · moneda</th><th style="text-align:right;">Esperado</th><th style="text-align:right;">Contado</th><th style="text-align:right;">Diferencia</th></tr></thead><tbody>' +
-        (h.lines || []).map(l => '<tr>' + nameTd(l) + '<td style="text-align:right;">' + fmtSignedCur(l.expected, l.currency) + '</td><td style="text-align:right;">' + fmtSignedCur(l.counted, l.currency) + '</td>' + diffTd(l.difference, l.currency) + '</tr>').join('') +
+        (h.lines || []).map(l => '<tr>' + nameTd(l) + '<td style="text-align:right;">' + sCur(l.expected, l.currency) + '</td><td style="text-align:right;">' + sCur(l.counted, l.currency) + '</td>' + diffTd(l.difference, l.currency) + '</tr>').join('') +
         '</tbody></table></div></div>').join('') + '</details></div>';
   }
   card.innerHTML = html;
@@ -6017,9 +6027,9 @@ function openCloseCaja() {
   const finish = v => { if (done) return; done = true; _cajaDlgOpen = false; d.close(); };
   const d = _openDialog(
     '<div class="modal-title">Cerrar la caja del ' + escHtml(fmtDay(st.day)) + '</div>' +
-    '<div class="modal-sub">Cuenta lo que hay por cada método y moneda y escríbelo (si no hay nada, escribe 0). La diferencia contra lo esperado queda registrada. Tras cerrar no se podrán registrar ni anular pagos, reembolsos ni gastos de este día hasta reabrirla.</div>' +
-    (rows.length ? rows.map((m, i) => '<div class="form-row" style="align-items:flex-end;"><div class="form-field" style="flex:1.2;"><div class="form-label">' + escHtml(cashRowName(m)) + '</div><div class="pagr-sub">Esperado ' + escHtml(fmtSignedCur(m.expected, m.currency)) + '</div></div>' +
-      '<div class="form-field"><label class="form-label" for="ccCnt' + i + '">Contado</label><input class="form-input" id="ccCnt' + i + '" data-m="' + escHtml(m.method) + '" data-c="' + escHtml(m.currency) + '" aria-label="' + escHtml('Contado ' + cashRowName(m).replace(' · ', ' ')) + '" required type="number" min="0" step="0.01" inputmode="decimal" placeholder="' + escHtml((Number(m.expected) || 0).toFixed(2)) + '" value=""></div></div>').join('')
+    '<div class="modal-sub">Cuenta lo que hay por cada método y moneda y escríbelo (si no hay nada, escribe 0; si salió dinero, anótalo en negativo). La diferencia contra lo esperado queda registrada. Tras cerrar no se podrán registrar ni anular pagos, reembolsos ni gastos de este día hasta reabrirla.</div>' +
+    (rows.length ? rows.map((m, i) => '<div class="form-row" style="align-items:flex-end;"><div class="form-field" style="flex:1.2;"><div class="form-label">' + escHtml(cashRowName(m)) + '</div><div class="pagr-sub">Esperado ' + escHtml(fmtSignedCur(m.expected, m.currency)) + '</div>' + (m.expected < 0 ? '<div class="pagr-sub" style="color:var(--yellow);">Salió dinero: anótalo en negativo (p. ej. -5)</div>' : '') + '</div>' +
+      '<div class="form-field"><label class="form-label" for="ccCnt' + i + '">Contado</label><input class="form-input" id="ccCnt' + i + '" data-m="' + escHtml(m.method) + '" data-c="' + escHtml(m.currency) + '" aria-label="' + escHtml('Contado ' + cashRowName(m).replace(' · ', ' ')) + '" required type="number" step="0.01" inputmode="decimal" placeholder="' + escHtml((Number(m.expected) || 0).toFixed(2)) + '" value=""></div></div>').join('')
       : '<div class="pagr-empty" style="padding:10px;">Sin movimientos de caja este día.</div>') +
     '<div class="form-field"><label class="form-label" for="ccNote">Nota</label><input class="form-input" id="ccNote" maxlength="300" autocomplete="off" placeholder="Opcional: ¿a qué se debe la diferencia?"></div>' +
     '<div class="dlg-error" data-err role="alert"></div>' +
@@ -6032,7 +6042,7 @@ function openCloseCaja() {
     const counted = [];
     for (const inp of d.ov.querySelectorAll('input[data-m]')) {
       const raw = inp.value.trim(), v = parseFloat(raw);
-      if (raw === '' || !(v >= 0)) { flagField(inp); inp.focus(); err.textContent = 'Escribe lo contado en «' + inp.dataset.m + ' · ' + inp.dataset.c + '» (0 o más)'; return; }
+      if (raw === '' || !Number.isFinite(v)) { flagField(inp); inp.focus(); err.textContent = 'Escribe lo contado en «' + inp.dataset.m + ' · ' + inp.dataset.c + '» (un número; negativo si salió dinero)'; return; }
       counted.push({ method: inp.dataset.m, currency: inp.dataset.c, amount: v });
     }
     busy = true; yes.disabled = true; no.disabled = true;
@@ -6073,7 +6083,7 @@ function stockNormPart(s) { return String(s == null ? '' : s).replace(/\|/g, ' '
 function stockVariantKey(size, color) { const a = stockNormPart(size), b = stockNormPart(color); return a || b ? a + '|' + b : ''; }
 let stockLevels = {}; // 'idProducto|claveVariante' → cantidad
 // stockLoaded: ya se leyeron las existencias del servidor; stockTruncated: el servidor recortó la lista (no hay datos de todos los productos)
-let stockLoaded = false, stockTruncated = false, _stkSeq = 0, _stkWarned = false;
+let stockLoaded = false, stockTruncated = false, _stkSeq = 0, _stkWarned = false, _stkTruncWarned = false, stockLastPid = null;
 async function loadStockLevels() {
   const seq = ++_stkSeq;
   try {
@@ -6083,7 +6093,10 @@ async function loadStockLevels() {
     (d.levels || []).forEach(l => { m[l.productId + '|' + l.variantKey] = l.qty; });
     stockLevels = m;
     stockLoaded = true; stockTruncated = !!d.truncated; _stkWarned = false;
-    if (stockTruncated) showToast('Hay tantas existencias que no se pudieron cargar todas: ábrelas producto por producto', 'error');
+    // Lista recortada: el último producto puede haber llegado incompleto, no cuenta como conocido
+    const lv = d.levels || [];
+    stockLastPid = stockTruncated && lv.length ? lv[lv.length - 1].productId : null;
+    if (stockTruncated && !_stkTruncWarned) _stkTruncWarned = true, showToast('Hay tantas existencias que no se pudieron cargar todas: ábrelas producto por producto', 'error');
     return true;
   } catch (err) {
     if (seq !== _stkSeq) return false;
@@ -6097,6 +6110,7 @@ async function loadStockLevels() {
 function stockKnown(pid) {
   if (!stockLoaded) return false;
   if (!stockTruncated) return true;
+  if (pid === stockLastPid) return false;
   const pre = pid + '|';
   for (const k in stockLevels) if (k.startsWith(pre)) return true;
   return false;
@@ -6182,6 +6196,7 @@ async function adjustStockCell(prodId, key, label, current) {
       const body = { productId: prodId, variantKey: key, note: v.note.trim() };
       if (v.op === 'count') body.count = n; else body.delta = v.op === 'out' ? -n : n;
       const r = await apiJson('POST', '/api/stock/adjust', body);
+      _stkSeq++; // una carga que viene en camino es anterior a este ajuste: no debe pisarlo
       stockLevels[prodId + '|' + key] = r.level;
     },
   });
@@ -6323,16 +6338,24 @@ function openStatusPicker(orderId) {
   d.ov.querySelector('[data-act="no"]').onclick = () => { _statusPickerOpen = false; d.close(); };
   d.ov.querySelectorAll('[data-st]').forEach(b => b.onclick = () => { _statusPickerOpen = false; d.close(); setOrderStatus(o, b.dataset.st); });
 }
+// Un pedido entregado ya no se edita: Editar y su aviso siguen al estado de entrega (al abrir el detalle y al cambiarlo)
+function updateDetailEditLock(o) {
+  const lockedEdit = o.kind !== 'quote' && o.delivery === 'delivered';
+  const editBtn = document.getElementById('odmEditBtn');
+  if (editBtn) { editBtn.disabled = lockedEdit; editBtn.title = lockedEdit ? 'Este pedido ya fue entregado: no se puede editar' : ''; }
+  const hint = document.getElementById('odmEditHint');
+  if (hint) hint.style.display = !o.cancelled && lockedEdit ? '' : 'none';
+}
 function setOrderStatus(o, st) {
   if (o.delivery === st) return;
   const prev = o.delivery;
   o.delivery = st;
   patchOrder(o.id, { delivery_status: st }, () => {
     o.delivery = prev;
-    if (currentDetailId === o.id) { updateDetailDeliveryBtn(prev); renderOrderSteps(o); }
+    if (currentDetailId === o.id) { updateDetailDeliveryBtn(prev); renderOrderSteps(o); updateDetailEditLock(o); }
     renderOrders();
   });
-  if (currentDetailId === o.id) { updateDetailDeliveryBtn(st); renderOrderSteps(o); }
+  if (currentDetailId === o.id) { updateDetailDeliveryBtn(st); renderOrderSteps(o); updateDetailEditLock(o); }
   renderOrders();
   showToast(o.id + ' → ' + DELIVERY_META[st].label);
 }
@@ -6405,10 +6428,12 @@ function updateOrderCounts() {
 
 // Día de hoy (+offset) en la zona horaria del negocio, como AAAA-MM-DD
 // Día (AAAA-MM-DD) en que cae un instante, en la zona del negocio (sin zona: el día del dispositivo, solo para mostrar)
+const _bizFmtCache = {};
+function bizDayFmt(tz) { return _bizFmtCache[tz] || (_bizFmtCache[tz] = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' })); }
 function bizDayOf(d) {
   const tz = bizLoc.timezone || (tenantSettings && tenantSettings.timezone) || '';
   if (!tz || isNaN(d)) return isNaN(d) ? '' : d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-  try { return new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d); } catch (e) { return ''; }
+  try { return bizDayFmt(tz).format(d); } catch (e) { return ''; }
 }
 // Usa la zona de la ubicación del negocio (nunca la del navegador). Sin zona configurada devuelve null
 // (mientras aún no se ha leído el perfil, el día del dispositivo basta para no dejar la pantalla vacía).
@@ -6419,7 +6444,7 @@ function bizDayIso(offset) {
     if (bizLoc.loaded) return null;
     today = todayLocalIso();
   } else {
-    try { today = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()); }
+    try { today = bizDayFmt(tz).format(new Date()); }
     catch (e) { return null; }
   }
   return offset ? new Date(Date.parse(today) + offset * 86400000).toISOString().slice(0, 10) : today;
@@ -6566,11 +6591,8 @@ function openOrderDetail(orderId) {
   updateDetailDeliveryBtn(o.delivery);
   setShow('odmDeliveryBtn', live);
   // Un pedido entregado ya no se edita (solo se puede cambiar su estado de entrega)
-  const lockedEdit = !quote && o.delivery === 'delivered';
   setShow('odmEditBtn', !o.cancelled);
-  const editBtn = document.getElementById('odmEditBtn');
-  if (editBtn) { editBtn.disabled = lockedEdit; editBtn.title = lockedEdit ? 'Este pedido ya fue entregado: no se puede editar' : ''; }
-  setShow('odmEditHint', !o.cancelled && lockedEdit);
+  updateDetailEditLock(o);
   setShow('odmConvertBtn', quote && !o.cancelled);
   setShow('odmReturnBtn', live && o.total > 0.004);
   setShow('odmCancelBtn', !o.cancelled);
@@ -7817,18 +7839,48 @@ function locZoneOptionsFor(country) {
   const c = LOC_COUNTRIES.find(x => x[0] === country);
   return c && c[2] ? c[2] : [];
 }
+// Plan Básico: la caja es de Pro y Business, pero un negocio que bajó de plan puede tener días cerrados que bloquean pagos y
+// gastos de ese día. Solo en ese caso, Ajustes → Perfil lista esos días con «Reabrir» (el servidor permite reabrir en todos los planes).
+async function loadCashClosedBox() {
+  const box = document.getElementById('cashClosedBox');
+  if (!box || normalizePlan(activePlan) !== 'basic') return;
+  let days;
+  try { days = (await apiJson('GET', '/api/cash-closed')).days || []; } catch (e) { return; }
+  const el = document.getElementById('cashClosedBox');
+  if (!el) return;
+  if (!days.length) { el.innerHTML = ''; return; }
+  el.innerHTML = '<div class="s-row" style="flex-direction:column;align-items:stretch;gap:6px;"><div class="s-row-info"><div class="s-row-label">Días con la caja cerrada</div>' +
+    '<div class="s-row-desc">Mientras un día siga cerrado no se pueden registrar ni anular pagos, reembolsos ni gastos de ese día. Reábrelo para seguir trabajando.</div></div>' +
+    days.map(x => '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;"><span>' + escHtml(fmtDay(x.day)) + '</span>' +
+      '<button type="button" class="btn-ghost" style="font-size:11px;" onclick="reopenClosedDay(' + escJsAttr(x.day) + ')">Reabrir…</button></div>').join('') + '</div>';
+}
+async function reopenClosedDay(day) {
+  const ok = await openFormDialog({
+    title: 'Reabrir la caja del ' + fmtDay(day),
+    sub: 'Podrás volver a registrar y anular movimientos de ese día. La reapertura queda registrada con su motivo.',
+    confirmLabel: 'Reabrir caja', danger: true,
+    fields: [{ id: 'reason', label: 'Motivo', placeholder: 'Ej: faltaba registrar un cobro' }],
+    onSubmit: async v => {
+      const reason = (v.reason || '').trim();
+      if (!reason) throw new Error('Escribe el motivo de la reapertura');
+      await apiJson('POST', '/api/cash/' + encodeURIComponent(day) + '/reopen', { reason });
+    },
+  });
+  if (ok) { showToast('Caja reabierta'); loadCashClosedBox(); }
+}
 function locRowsHtml() {
   const cur = bizLoc.country, known = LOC_COUNTRIES.some(c => c[0] === cur);
   const opts = '<option value=""' + (known ? '' : ' selected') + '>— Elige tu país —</option>' +
     LOC_COUNTRIES.map(c => '<option value="' + escHtml(c[0]) + '"' + (c[0] === cur ? ' selected' : '') + '>' + escHtml(c[1]) + '</option>').join('');
   const zones = locZoneOptionsFor(known ? cur : '');
   const zoneOpts = '<option value="">— Elige la zona —</option>' + zones.map(z => '<option value="' + escHtml(z) + '"' + (z === bizLoc.timezone ? ' selected' : '') + '>' + escHtml(tzLabel(z)) + '</option>').join('');
+  const locFailed = !bizLoc.loaded && bizLocProfileFailed && tenantSettingsFailed;
   const desc = bizLoc.timezone ? 'Zona horaria: ' + tzLabel(bizLoc.timezone)
-    : bizLoc.loaded ? 'Falta la zona horaria: sin ella no funcionan caja, gastos ni informes' : 'Cargando la ubicación…';
+    : bizLoc.loaded ? 'Falta la zona horaria: sin ella no funcionan caja, gastos ni informes' : locFailed ? 'No se pudo leer tu ubicación' : 'Cargando la ubicación…';
   return '<div id="locCard">' +
     '<div class="s-row"><div class="s-row-icon" style="background:var(--surface3)">' + LOC_PIN + '</div><div class="s-row-info"><div class="s-row-label"><label for="s-input-country">País</label></div>' +
-      '<div class="s-row-desc" id="locCountryDesc"' + (bizLoc.loaded && !bizLoc.timezone ? ' style="color:var(--yellow);"' : '') + '>' + escHtml(desc) + '</div></div>' +
-      '<div class="s-row-action"><select class="s-input" id="s-input-country" onchange="locOnCountryChange(this)"' + (bizLoc.loaded ? '' : ' disabled') + '>' + opts + '</select></div></div>' +
+      '<div class="s-row-desc" id="locCountryDesc"' + (bizLoc.loaded && !bizLoc.timezone ? ' style="color:var(--yellow);"' : locFailed ? ' style="color:var(--red);"' : '') + '>' + escHtml(desc) + '</div></div>' +
+      '<div class="s-row-action"><select class="s-input" id="s-input-country" onchange="locOnCountryChange(this)"' + (bizLoc.loaded ? '' : ' disabled') + '>' + opts + '</select>' + (locFailed ? '<button type="button" class="btn-ghost" style="margin-left:8px;" onclick="retryBizLoc()">Reintentar</button>' : '') + '</div></div>' +
     '<div class="s-row" id="locTzRow"' + (zones.length > 1 ? '' : ' style="display:none"') + '><div class="s-row-icon" style="background:var(--surface3)">' + LOC_CLOCK + '</div><div class="s-row-info"><div class="s-row-label"><label for="s-input-tz">Zona horaria</label></div>' +
       '<div class="s-row-desc">Define qué día es para tu caja, tus gastos y tus informes</div></div>' +
       '<div class="s-row-action"><select class="s-input" id="s-input-tz">' + zoneOpts + '</select></div></div>' +
@@ -7887,6 +7939,7 @@ const settingsPanels = {
         <div class="s-row-action"><input class="s-input" id="s-input-business" value="${escHtml(businessProfile.businessName)}" type="text"></div>
       </div>
       ${locRowsHtml()}
+      <div id="cashClosedBox"></div>
       <div class="s-row">
         <div class="s-row-icon" style="background:var(--surface3)">📱</div>
         <div class="s-row-info">
@@ -8620,6 +8673,7 @@ function switchSettings(panel, el) {
   if (settingsPanels[panel]) {
     window._settingsPanel = panel;
     content.innerHTML = settingsPanels[panel]();
+    if (panel === 'perfil') loadCashClosedBox();
     if (panel === 'canales') loadCanalWaStatus();
     if (panel === 'pagos' || panel === 'entrega' || panel === 'impuesto') loadTenantSettings(); // refresca, p. ej., si ya se puede cambiar la moneda base
     if (panel === 'plan')    loadBillingStatus();
@@ -9431,7 +9485,7 @@ async function downloadExcel() {
   if (infTab === 'utilidad') return downloadUtilidadCsv();
   let d;
   try { d = await fetchInfData(); }
-  catch (err) { showToast('⚠ No se pudo descargar el informe (' + err.message + ')'); return; }
+  catch (err) { showToast(isLocErr(err) ? LOC_MSG : 'No se pudo descargar el informe (' + err.message + ')', 'error'); return; }
   const tabLabels = { ventas:'Ventas', pedidos:'Pedidos', delivery:'Delivery', encomiendas:'Encomiendas', clientes:'Contactos', productos:'Productos', utilidad:'Utilidad' };
   const periodLabel = { hoy:'Hoy', '7dias':'Últimos 7 días', mes:'Este mes', año:'Este año', personalizado: document.getElementById('infCustomLabel')?.textContent || 'Personalizado' }[infPeriod];
   let csv = '';
