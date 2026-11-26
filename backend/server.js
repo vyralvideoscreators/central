@@ -988,7 +988,10 @@ async function inTx(fn) {
 
 // Respuesta de error de las rutas de pagos: datos mal enviados → 400; lo demás → 500 sin detalles internos
 // Cuerpo del 400 de un BadRequest: «sin ubicación» lleva su código propio (location_required) para que el SPA lleve a Ajustes → Perfil → País y zona horaria
-const badRequestBody = (err) => err instanceof ops.LocationRequired ? { error: 'location_required', message: err.message }
+// Error de datos con código propio (el SPA reconoce el código, no el texto): 400 { error: code, message, ...extra }
+class TeamError extends BadRequest { constructor(code, message, extra = {}) { super(message); this.errCode = code; this.extra = extra; } }
+const badRequestBody = (err) => err instanceof TeamError ? { error: err.errCode, message: err.message, ...err.extra }
+  : err instanceof ops.LocationRequired ? { error: 'location_required', message: err.message }
   : err instanceof ops.CashClosed ? { error: 'cash_closed', message: err.message } : { error: err.message };
 function sendApiError(res, err, label) {
   if (err instanceof BadRequest) return res.status(400).json(badRequestBody(err));
@@ -2064,6 +2067,8 @@ const DEMO_ALLOWED_ROUTES = new Set([
   'GET /api/catalog', 'POST /api/catalog', 'PATCH /api/catalog/:id', 'DELETE /api/catalog/:id',
   'POST /api/send', 'POST /api/send-media', 'POST /api/send-ticket', 'POST /api/send-instagram',
   'GET /api/billing/status', 'POST /api/billing/create-checkout', 'POST /api/billing/cancel', 'POST /api/billing/portal',
+  // Fase 4B: equipo (una demo puede ver y crear usuarios dentro del tope; nunca se envía correo). Cambiar la contraseña sigue bloqueado.
+  'GET /api/team', 'POST /api/team', 'PATCH /api/team/:id', 'POST /api/team/:id/reset-password', 'POST /api/team/resolve-limit',
 ]);
 const DEMO_MAX_BODY = 1024 * 1024;
 const DEMO_MAX_EVENTS = 5000;   // filas de order_events por demo (cada edición/pago/anulación añade una)
@@ -2084,6 +2089,7 @@ const DEMO_ROW_LIMITS = {
   'POST /api/orders/:id/cancel': [EV_LIMIT, REFUND_LIMIT, CREDIT_LIMIT, MV_LIMIT],
   'POST /api/orders/:id/returns': [CN_LIMIT, ['credit_note_items', 2000], REFUND_LIMIT, CREDIT_LIMIT, EV_LIMIT, MV_LIMIT],
   'POST /api/clients': [['clients', 300]], 'POST /api/catalog': [['catalog_products', 100]],
+  'POST /api/team': [['team_users', 10]],
   'POST /api/send': [['messages', 600]], 'POST /api/send-media': [['messages', 600]],
   'POST /api/send-ticket': [['messages', 600]], 'POST /api/send-instagram': [['messages', 600]],
 };
@@ -2129,11 +2135,29 @@ function demoBilling(kind) {
       if (kind === 'checkout') {
         const plan = req.body?.plan;
         if (!['basic', 'pro', 'business'].includes(plan)) return res.status(400).json({ error: 'Plan inválido' });
-        await pool.query('UPDATE tenants SET plan = $1 WHERE id = $2 AND is_demo = true', [plan, tenantId]);
-        return res.json({ demo: true, plan, message: 'Plan cambiado. En la demo no se realiza ningún cobro.' });
+        // Bajar de plan con más usuarios activos que el límite nuevo: el dueño elige a quién mantener (keepUserIds); el resto
+        // se desactiva en la misma operación. Sin la lista → 400 con los usuarios para elegir.
+        const dropped = await inTx(async (c) => {
+          const { rows: [t] } = await c.query('SELECT 1 FROM tenants WHERE id = $1 AND is_demo = true FOR UPDATE', [tenantId]);
+          if (!t) return [];
+          const limit = team.planLimit(plan);
+          const { rows: act } = await c.query(`SELECT id, name, role FROM team_users WHERE tenant_id = $1 AND active AND role <> 'owner' ORDER BY created_at, id`, [tenantId]);
+          let drop = [];
+          if (act.length + 1 > limit) {
+            if (req.body.keepUserIds === undefined) {
+              throw new TeamError('keep_users_required', `El plan ${plan} admite ${limit} usuario(s) contando al dueño: elige a quién mantener.`, { limit, users: act });
+            }
+            drop = await applyKeepUsers(c, tenantId, limit, req.body.keepUserIds);
+          }
+          await c.query('UPDATE tenants SET plan = $1, team_over_limit_since = NULL WHERE id = $2 AND is_demo = true', [plan, tenantId]);
+          return drop;
+        });
+        for (const id of dropped) closeUserSockets(tenantId, id);
+        return res.json({ demo: true, plan, message: 'Plan cambiado. En la demo no se realiza ningún cobro.', deactivatedUsers: dropped.length });
       }
       return res.json({ demo: true, message: 'En la demo no hay suscripción ni cobros: cambia de plan cuando quieras sin coste.' });
     } catch (err) {
+      if (err instanceof BadRequest) return res.status(400).json(badRequestBody(err));
       return res.status(500).json({ error: 'Error en la demo' });
     }
   };
@@ -3398,6 +3422,209 @@ app.post('/api/cash/:day/reopen', requireAuth, async (req, res) => {
   } catch (err) { sendApiError(res, err, 'Reabrir caja'); }
 });
 
+// ══════════════════════════════════════════════════════════════
+// API — Equipo (Fase 4B): solo el dueño. Plan Pro o Business para crear y gestionar (en Básico solo se puede consultar
+// y resolver el límite si quedaron usuarios de más tras bajar de plan). Nada se borra: se desactiva.
+// ══════════════════════════════════════════════════════════════
+const teamPlan = planGate('El equipo está disponible desde el plan Pro.');
+const TEAM_COLS = 'id, name, email, role, active, must_change_password, temp_password_expires_at, created_at, deactivated_at, last_login_at';
+function mapTeamUser(r) {
+  return {
+    id: r.id, name: r.name, email: r.email, role: r.role, roleLabel: team.ROLE_LABEL[r.role] || r.role, isOwner: r.role === 'owner',
+    active: !!r.active, mustChangePassword: !!r.must_change_password, tempPasswordExpiresAt: r.temp_password_expires_at || null,
+    createdAt: r.created_at, deactivatedAt: r.deactivated_at || null, lastLoginAt: r.last_login_at || null,
+  };
+}
+async function teamOverview(db, tenantId) {
+  const { rows: [t] } = await db.query('SELECT plan, team_over_limit_since FROM tenants WHERE id = $1', [tenantId]);
+  const { rows } = await db.query(`SELECT ${TEAM_COLS} FROM team_users WHERE tenant_id = $1 ORDER BY (role = 'owner') DESC, created_at, id`, [tenantId]);
+  const limit = team.planLimit(t.plan);
+  const activeCount = rows.filter(r => r.active).length;
+  const since = t.team_over_limit_since ? new Date(t.team_over_limit_since) : null;
+  return {
+    plan: t.plan, limit, activeCount, users: rows.map(mapTeamUser),
+    overLimit: activeCount > limit
+      ? { since: (since || new Date()).toISOString(), deadline: new Date((since || new Date()).getTime() + team.OVER_LIMIT_GRACE_DAYS * 86400000).toISOString(), limit, activeCount }
+      : null,
+    roles: ['manager', 'seller'].map(r => ({ role: r, label: team.ROLE_LABEL[r] })),
+  };
+}
+const cleanTeamName = (v) => {
+  const s = String(v ?? '').replace(/\s+/g, ' ').trim();
+  if (!s) throw new BadRequest('El nombre es obligatorio');
+  if (s.length > 80) throw new BadRequest('El nombre es demasiado largo (máx. 80 caracteres)');
+  return s;
+};
+const cleanTeamRole = (v) => {
+  if (v !== 'manager' && v !== 'seller') throw new BadRequest('El rol debe ser «manager» (encargado) o «seller» (vendedor)');
+  return v;
+};
+// Contraseña temporal: en cuentas reales caduca a los 7 días y hay que cambiarla al entrar. En una demo no (la demo no puede
+// cambiar contraseñas), así que la clave que se muestra sirve mientras dure la demo.
+async function newTempCredentials(isDemo) {
+  const password = team.generateTempPassword();
+  return { password, hash: await bcrypt.hash(password, 10), mustChange: !isDemo,
+    expires: isDemo ? null : new Date(Date.now() + team.TEMP_PASSWORD_DAYS * 86400000) };
+}
+const loadTeamTarget = async (db, tenantId, id, selfId) => {
+  const { rows: [u] } = await db.query(`SELECT ${TEAM_COLS} FROM team_users WHERE id = $1 AND tenant_id = $2 FOR UPDATE`, [id, tenantId]);
+  if (!u) return null;
+  if (u.role === 'owner') throw new BadRequest('No se puede modificar al dueño del negocio');
+  if (u.id === selfId) throw new BadRequest('No puedes modificar tu propio usuario desde aquí');
+  return u;
+};
+// Desactiva a todos los usuarios activos no dueños que NO estén en keepIds (dentro de la transacción de quien llama)
+// y devuelve los ids desactivados. Valida que keepIds sean usuarios activos de ESTE negocio y quepan en el límite.
+async function applyKeepUsers(c, tenantId, limit, keepIds) {
+  if (!Array.isArray(keepIds) || keepIds.some(k => typeof k !== 'string' || !UUID_RE.test(k))) throw new BadRequest('keepUserIds debe ser una lista de usuarios');
+  const keep = [...new Set(keepIds)];
+  if (keep.length > Math.max(0, limit - 1)) throw new BadRequest(`Con este plan caben ${limit} usuarios contando al dueño: elige como máximo ${Math.max(0, limit - 1)} más`);
+  const { rows: act } = await c.query(`SELECT id FROM team_users WHERE tenant_id = $1 AND active AND role <> 'owner'`, [tenantId]);
+  const activeIds = new Set(act.map(r => r.id));
+  if (keep.some(k => !activeIds.has(k))) throw new BadRequest('Algún usuario elegido no existe o no está activo');
+  const drop = act.map(r => r.id).filter(id => !keep.includes(id));
+  if (drop.length) {
+    await c.query(`UPDATE team_users SET active = false, deactivated_at = now(), token_version = token_version + 1
+      WHERE tenant_id = $1 AND id = ANY($2::uuid[]) AND role <> 'owner'`, [tenantId, drop]);
+  }
+  return drop;
+}
+// Marca el plazo de 3 días si, tras bajar el plan, hay más usuarios activos que los del plan. No hace nada si cabe.
+async function markTeamOverLimit(tenantId) {
+  await pool.query(`UPDATE tenants t SET team_over_limit_since = now() WHERE t.id = $1 AND t.team_over_limit_since IS NULL
+    AND (SELECT count(*) FROM team_users u WHERE u.tenant_id = t.id AND u.active) >
+        CASE t.plan WHEN 'business' THEN ${team.PLAN_USER_LIMIT.business} WHEN 'pro' THEN ${team.PLAN_USER_LIMIT.pro} ELSE ${team.PLAN_USER_LIMIT.basic} END`, [tenantId]);
+}
+// Tarea periódica (al arrancar y cada hora): marca los negocios con usuarios de más y desactiva a los más recientes de los que
+// ya pasaron el plazo. Nada se borra.
+async function teamLimitSweep() {
+  if (!dbReady) return;
+  try {
+    await pool.query(`UPDATE tenants t SET team_over_limit_since = now() WHERE t.team_over_limit_since IS NULL
+      AND (SELECT count(*) FROM team_users u WHERE u.tenant_id = t.id AND u.active) >
+          CASE t.plan WHEN 'business' THEN ${team.PLAN_USER_LIMIT.business} WHEN 'pro' THEN ${team.PLAN_USER_LIMIT.pro} ELSE ${team.PLAN_USER_LIMIT.basic} END`);
+    const { rows } = await pool.query(`SELECT id FROM tenants WHERE team_over_limit_since IS NOT NULL
+      AND team_over_limit_since <= now() - make_interval(days => ${team.OVER_LIMIT_GRACE_DAYS}) LIMIT 200`);
+    for (const t of rows) await enforceTeamLimit(t.id);
+  } catch (err) { console.error('⚠️  Revisión de límites del equipo:', err.message); }
+}
+
+app.get('/api/team', requireAuth, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  try {
+    const out = await teamOverview(pool, req.tenant.tenantId);
+    // En Básico no hay equipo, salvo que queden usuarios de una bajada de plan (hay que poder verlos y elegir)
+    if (req.tenant.plan === 'basic' && out.users.length <= 1) return res.status(403).json({ error: 'plan_required', message: 'El equipo está disponible desde el plan Pro.' });
+    res.json({ ...out, canManage: req.tenant.plan !== 'basic' });
+  } catch (err) { sendApiError(res, err, 'Equipo'); }
+});
+
+app.post('/api/team', requireAuth, teamPlan, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  const tenantId = req.tenant.tenantId, b = req.body || {};
+  try {
+    const name = cleanTeamName(b.name), role = cleanTeamRole(b.role), email = normEmail(b.email);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 200) throw new BadRequest('Correo electrónico inválido');
+    const cred = await newTempCredentials(!!req.tenant.isDemo);
+    const out = await inTx(async (c) => {
+      const { rows: [t] } = await c.query('SELECT plan FROM tenants WHERE id = $1 FOR UPDATE', [tenantId]);
+      const limit = team.planLimit(t.plan);
+      const { rows: [n] } = await c.query('SELECT count(*)::int AS n FROM team_users WHERE tenant_id = $1 AND active', [tenantId]);
+      if (n.n >= limit) throw new TeamError('team_limit', `Tu plan permite ${limit} usuarios contando al dueño. Desactiva a alguien o sube de plan.`, { limit });
+      await c.query('SAVEPOINT new_user'); // el correo repetido es esperable: se responde 400 sin romper la transacción
+      try {
+        const { rows: [u] } = await c.query(`
+          INSERT INTO team_users (tenant_id, name, email, password_hash, role, must_change_password, temp_password_expires_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING ${TEAM_COLS}`, [tenantId, name, email, cred.hash, role, cred.mustChange, cred.expires]);
+        return u;
+      } catch (e) {
+        if (e.code === '23505') { await c.query('ROLLBACK TO SAVEPOINT new_user'); throw new BadRequest('Ese correo ya está en uso por otro usuario o negocio'); }
+        throw e;
+      }
+    });
+    // La contraseña se devuelve UNA vez: no se guarda en claro
+    res.json({ user: mapTeamUser(out), tempPassword: cred.password, tempPasswordExpiresAt: cred.expires });
+  } catch (err) { sendApiError(res, err, 'Crear usuario del equipo'); }
+});
+
+app.patch('/api/team/:id', requireAuth, teamPlan, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  if (!UUID_RE.test(req.params.id)) return res.status(404).json({ error: 'Usuario no encontrado' });
+  const tenantId = req.tenant.tenantId, b = req.body || {};
+  try {
+    const name = b.name !== undefined ? cleanTeamName(b.name) : null;
+    const role = b.role !== undefined ? cleanTeamRole(b.role) : null;
+    if (b.active !== undefined && typeof b.active !== 'boolean') throw new BadRequest('«active» debe ser verdadero o falso');
+    if (name === null && role === null && b.active === undefined) throw new BadRequest('No hay cambios para guardar');
+    const out = await inTx(async (c) => {
+      const { rows: [t] } = await c.query('SELECT plan FROM tenants WHERE id = $1 FOR UPDATE', [tenantId]);
+      const u = await loadTeamTarget(c, tenantId, req.params.id, req.user.id);
+      if (!u) return null;
+      let bump = false;
+      if (b.active === true && !u.active) {
+        const limit = team.planLimit(t.plan);
+        const { rows: [n] } = await c.query('SELECT count(*)::int AS n FROM team_users WHERE tenant_id = $1 AND active', [tenantId]);
+        if (n.n >= limit) throw new TeamError('team_limit', `Tu plan permite ${limit} usuarios contando al dueño. Desactiva a alguien o sube de plan.`, { limit });
+      }
+      if (b.active === false && u.active) bump = true; // desactivar cierra sus sesiones al instante
+      const { rows: [r] } = await c.query(`
+        UPDATE team_users SET name = COALESCE($3, name), role = COALESCE($4, role),
+          active = COALESCE($5, active),
+          deactivated_at = CASE WHEN $5::boolean = false AND active THEN now() WHEN $5::boolean = true THEN NULL ELSE deactivated_at END,
+          token_version = token_version + $6
+        WHERE id = $1 AND tenant_id = $2 RETURNING ${TEAM_COLS}`, [req.params.id, tenantId, name, role, b.active === undefined ? null : b.active, bump ? 1 : 0]);
+      return { user: r, bump, roleChanged: role !== null && role !== u.role };
+    });
+    if (!out) return res.status(404).json({ error: 'Usuario no encontrado' });
+    // Sesiones abiertas: desactivar las cierra; un cambio de rol ya vale en la siguiente petición (el rol se lee de la base) y se
+    // avisa por el socket para que su pantalla cambie sin volver a entrar
+    if (out.bump) closeUserSockets(tenantId, out.user.id);
+    else if (out.roleChanged) {
+      const clients = tenantClients.get(String(tenantId));
+      if (clients) for (const ws of clients) if (ws.userId === out.user.id && ws.readyState === 1) ws.send(JSON.stringify({ type: 'role_changed', role: out.user.role }));
+    }
+    res.json({ user: mapTeamUser(out.user) });
+  } catch (err) { sendApiError(res, err, 'Editar usuario del equipo'); }
+});
+
+app.post('/api/team/:id/reset-password', requireAuth, teamPlan, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  if (!UUID_RE.test(req.params.id)) return res.status(404).json({ error: 'Usuario no encontrado' });
+  const tenantId = req.tenant.tenantId;
+  try {
+    const cred = await newTempCredentials(!!req.tenant.isDemo);
+    const out = await inTx(async (c) => {
+      const u = await loadTeamTarget(c, tenantId, req.params.id, req.user.id);
+      if (!u) return null;
+      const { rows: [r] } = await c.query(`UPDATE team_users SET password_hash = $3, must_change_password = $4, temp_password_expires_at = $5,
+        token_version = token_version + 1 WHERE id = $1 AND tenant_id = $2 RETURNING ${TEAM_COLS}`, [req.params.id, tenantId, cred.hash, cred.mustChange, cred.expires]);
+      return r;
+    });
+    if (!out) return res.status(404).json({ error: 'Usuario no encontrado' });
+    closeUserSockets(tenantId, out.id);
+    res.json({ user: mapTeamUser(out), tempPassword: cred.password, tempPasswordExpiresAt: cred.expires });
+  } catch (err) { sendApiError(res, err, 'Restablecer contraseña del usuario'); }
+});
+
+// El dueño elige a quién mantener cuando hay más usuarios activos que los del plan (tras una bajada de plan)
+app.post('/api/team/resolve-limit', requireAuth, async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
+  const tenantId = req.tenant.tenantId;
+  try {
+    const dropped = await inTx(async (c) => {
+      const { rows: [t] } = await c.query('SELECT plan FROM tenants WHERE id = $1 FOR UPDATE', [tenantId]);
+      const limit = team.planLimit(t.plan);
+      const { rows: [n] } = await c.query('SELECT count(*)::int AS n FROM team_users WHERE tenant_id = $1 AND active', [tenantId]);
+      if (n.n <= limit) throw new BadRequest('No hay usuarios de más: tu equipo cabe en el plan');
+      const drop = await applyKeepUsers(c, tenantId, limit, req.body && req.body.keepUserIds);
+      await c.query('UPDATE tenants SET team_over_limit_since = NULL WHERE id = $1', [tenantId]);
+      return drop;
+    });
+    for (const id of dropped) closeUserSockets(tenantId, id);
+    res.json({ ...(await teamOverview(pool, tenantId)), deactivated: dropped.length });
+  } catch (err) { sendApiError(res, err, 'Resolver límite del equipo'); }
+});
+
 // ── Ajustes del negocio: métodos de pago, entrega y moneda base ──
 
 function cleanPaymentMethods(v) {
@@ -4563,6 +4790,7 @@ app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), asyn
           'UPDATE tenants SET plan=$1, stripe_customer_id=$2, stripe_subscription_id=$3, billing_status=$4 WHERE id=$5',
           [plan, customerId, subId, 'active', tenantId]
         );
+        await markTeamOverLimit(tenantId);
         console.log(`✅ Stripe: tenant ${tenantId} activó plan ${plan}`);
       }
     }
@@ -4613,10 +4841,11 @@ app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), asyn
 
     if (event.type === 'customer.subscription.deleted') {
       const sub = event.data.object;
-      await pool.query(
-        'UPDATE tenants SET plan=$1, billing_status=$2, stripe_subscription_id=$3 WHERE stripe_subscription_id=$4',
+      const { rows: downgraded } = await pool.query(
+        'UPDATE tenants SET plan=$1, billing_status=$2, stripe_subscription_id=$3 WHERE stripe_subscription_id=$4 RETURNING id',
         ['basic', 'cancelled', null, sub.id]
       );
+      for (const t of downgraded) await markTeamOverLimit(t.id); // el dueño tiene 3 días para elegir a quién mantener
       console.log(`⚠️  Stripe: suscripción ${sub.id} cancelada — tenant bajado a basic`);
     }
   } catch (err) {
@@ -4855,7 +5084,9 @@ app.put('/api/admin/tenants/:tenantId/plan', requireAdmin, async (req, res) => {
   if (!['basic','pro','business'].includes(plan)) return res.status(400).json({ error: 'Plan inválido' });
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   try {
+    if (!UUID_RE.test(String(req.params.tenantId))) return res.status(404).json({ error: 'Tenant no encontrado' });
     await pool.query('UPDATE tenants SET plan = $1 WHERE id = $2', [plan, req.params.tenantId]);
+    await markTeamOverLimit(req.params.tenantId); // si baja de plan con usuarios de más: plazo de 3 días para que el dueño elija
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -5256,6 +5487,8 @@ initDB().then(() => {
     console.log(`🚀 CENTRAL Backend v5.0 escuchando en puerto ${PORT}`);
     ensureIndexes().catch(err => console.error('⚠️  ensureIndexes:', err.message));
     validateOrdersKindCheck(pool).catch(err => console.error('⚠️  validateOrdersKindCheck:', err.message));
+    teamLimitSweep();
+    setInterval(teamLimitSweep, 60 * 60000).unref();
     team.validateTeamFks(pool).catch(err => console.error('⚠️  validateTeamFks:', err.message));
     if (backfillAfterListen) {
       runPaymentsBackfill(pool).catch(() => {});
