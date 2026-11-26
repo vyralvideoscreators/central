@@ -342,7 +342,7 @@ body {
 
     <div class="form-group">
       <label class="form-label">País</label>
-      <select class="form-select" id="rCountry">
+      <select class="form-select" id="rCountry" onchange="countryHint()" aria-describedby="countryHint">
         <option value="">— Selecciona tu país —</option>
         <option value="Venezuela">Venezuela</option>
         <option value="Colombia">Colombia</option>
@@ -366,6 +366,7 @@ body {
         <option value="España">España</option>
         <option value="Otro">Otro</option>
       </select>
+      <div class="field-hint" id="countryHint" role="status" style="font-size:11.5px;color:var(--text2);margin-top:4px;display:none;">Con «Otro» tendrás que elegir tu zona horaria en Ajustes, en Ubicación. Sin ella no funcionan caja, gastos ni informes.</div>
       <div class="field-error" id="errCountry"></div>
     </div>
 
@@ -537,6 +538,12 @@ function setLoading(btnId, loading, defaultText) {
   if (!btn) return;
   btn.disabled = loading;
   btn.innerHTML = loading ? '<span class="spinner"></span>Cargando…' : defaultText;
+}
+
+// Aviso de «Otro»: su zona horaria no se puede adivinar, se elige después en Ajustes
+function countryHint() {
+  const h = document.getElementById('countryHint');
+  if (h) h.style.display = document.getElementById('rCountry').value === 'Otro' ? 'block' : 'none';
 }
 
 // ── Registro ──
