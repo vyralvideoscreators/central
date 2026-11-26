@@ -3539,6 +3539,11 @@ app.put('/api/tenant/settings', requireAuth, async (req, res) => {
     if (b.baseCurrency !== undefined) {
       cur = String(b.baseCurrency).trim().toUpperCase();
       if (!BASE_CURRENCIES.includes(cur)) throw new BadRequest('Moneda base inválida');
+      // Cambiar la moneda base es del dueño: un encargado puede reenviar la actual sin problema
+      if (req.user.role !== 'owner') {
+        const { rows: [cb] } = await pool.query('SELECT base_currency FROM tenants WHERE id = $1', [tenantId]);
+        if (!cb || cb.base_currency !== cur) return res.status(403).json({ error: 'role_forbidden', message: 'Solo el dueño puede cambiar la moneda base.' });
+      }
     }
     const tax = b.tax !== undefined ? cleanTax(b.tax) : null;
     const zones = b.zones !== undefined ? cleanZones(b.zones) : null;
@@ -4032,7 +4037,8 @@ app.delete('/api/clients/:id', requireAuth, async (req, res) => {
 app.get('/api/catalog', requireAuth, async (req, res) => {
   try {
     const catalog = await dbGetCatalog(req.tenant.tenantId);
-    res.json(catalog);
+    // El vendedor no ve costos ni márgenes
+    res.json(req.user.role === 'seller' ? catalog.map(({ cost, ...rest }) => rest) : catalog);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -4079,7 +4085,8 @@ app.get('/api/stock', requireAuth, async (req, res) => {
     if (!p) return res.status(404).json({ error: 'Producto no encontrado' });
     const { rows } = await pool.query('SELECT variant_key, qty FROM stock_levels WHERE product_id = $1 AND tenant_id = $2 ORDER BY variant_key LIMIT 500', [p.id, tenantId]);
     res.json({
-      productId: p.id, trackStock: !!p.track_stock, cost: p.cost === null ? null : Number(p.cost),
+      productId: p.id, trackStock: !!p.track_stock,
+      ...(req.user.role === 'seller' ? {} : { cost: p.cost === null ? null : Number(p.cost) }), // el vendedor no ve costos
       variants: ops.productVariants(p), levels: rows.map(r => ({ productId: p.id, variantKey: r.variant_key, qty: r.qty })),
     });
   } catch (err) { sendApiError(res, err, 'Existencias'); }
