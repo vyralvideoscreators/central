@@ -576,40 +576,66 @@ async function dbSaveMessage(msg, waId, tenantId) {
   ]);
 }
 
-async function dbGetConversations(tenantId) {
-  if (!dbReady) return [];
-  const { rows } = await pool.query(`
-    SELECT
-      c.wa_id, c.name, c.platform, c.ig_sender_id, c.last_message_at,
-      COALESCE(
-        json_agg(
-          json_build_object(
-            'id', m.id, 'role', m.role, 'type', m.type, 'text', m.text,
-            'mediaId', m.media_id, 'mimeType', m.mime_type, 'mediaUrl', m.media_url,
-            'caption', m.caption, 'filename', m.filename, 'orderType', m.order_type,
-            'time', to_char(m.time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
-          ) ORDER BY m.time
-        ) FILTER (WHERE m.id IS NOT NULL),
-        '[]'::json
-      ) AS messages
-    FROM conversations c
-    LEFT JOIN messages m ON m.wa_id = c.wa_id AND m.tenant_id = c.tenant_id
-    WHERE c.tenant_id = $1
-    GROUP BY c.wa_id, c.tenant_id
-    ORDER BY c.last_message_at DESC NULLS LAST
-  `, [tenantId]);
+// Chats paginados (Fase 4B). Sin parámetros se conserva la respuesta de siempre (arreglo), con un tope razonable.
+const LEGACY_CONVOS_CAP = 300, LEGACY_MSGS_PER_CONVO = 200, CONVO_PAGE_DEFAULT = 100, CONVO_PAGE_MAX = 200, CONVO_PREVIEW_MSGS = 20;
+const TS_US = `to_char(%COL%, 'YYYY-MM-DD"T"HH24:MI:SS.US')`;
+const tsText = (col) => TS_US.replace('%COL%', col);
+const TS_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?$/;
+const encodeCursor = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+function decodeCursor(s) {
+  try { const o = JSON.parse(Buffer.from(String(s), 'base64url').toString('utf8')); return o && typeof o === 'object' ? o : null; } catch { return null; }
+}
+// Texto de búsqueda para ILIKE (se escapan % _ \)
+const likeOf = (q) => '%' + String(q).replace(/[\\%_]/g, c => '\\' + c) + '%';
+const MSG_JSON = `json_build_object(
+  'id', m.id, 'role', m.role, 'type', m.type, 'text', m.text,
+  'mediaId', m.media_id, 'mimeType', m.mime_type, 'mediaUrl', m.media_url,
+  'caption', m.caption, 'filename', m.filename, 'orderType', m.order_type,
+  'time', to_char(m.time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))`;
 
-  return rows.map(r => ({
-    waId:          r.wa_id,
-    name:          r.name,
-    platform:      r.platform,
-    igSenderId:    r.ig_sender_id,
-    lastMessageAt: r.last_message_at,
-    messages:      r.messages || [],
-  }));
+// Lista de chats con sus últimos mensajes. opts: { limit, cursor, q, msgs }. Devuelve { rows, nextCursor }.
+async function dbListConversations(tenantId, opts = {}) {
+  if (!dbReady) return { conversations: [], nextCursor: null };
+  const limit = Math.min(opts.max || CONVO_PAGE_MAX, Math.max(1, parseInt(opts.limit, 10) || CONVO_PAGE_DEFAULT));
+  const msgs = Math.min(200, Math.max(1, parseInt(opts.msgs, 10) || CONVO_PREVIEW_MSGS));
+  const P = [tenantId];
+  const where = ['c.tenant_id = $1'];
+  if (opts.q) { P.push(likeOf(opts.q)); where.push(`(c.name ILIKE $${P.length} ESCAPE '\\' OR c.wa_id ILIKE $${P.length} ESCAPE '\\')`); }
+  if (opts.cursor) {
+    const cur = decodeCursor(opts.cursor);
+    if (!cur || typeof cur.w !== 'string' || (cur.t !== null && !TS_RE.test(String(cur.t)))) throw new BadRequest('Cursor inválido');
+    P.push(cur.w);
+    const wi = P.length;
+    if (cur.t === null) where.push(`(c.last_message_at IS NULL AND c.wa_id > $${wi})`);
+    else { P.push(cur.t); where.push(`(c.last_message_at IS NULL OR c.last_message_at < $${P.length}::timestamp OR (c.last_message_at = $${P.length}::timestamp AND c.wa_id > $${wi}))`); }
+  }
+  P.push(limit + 1);
+  const { rows } = await pool.query(`
+    SELECT c.wa_id, c.name, c.platform, c.ig_sender_id, c.last_message_at, ${tsText('c.last_message_at')} AS last_txt,
+           COALESCE(mm.msgs, '[]'::json) AS messages
+    FROM (SELECT * FROM conversations c WHERE ${where.join(' AND ')}
+          ORDER BY c.last_message_at DESC NULLS LAST, c.wa_id LIMIT $${P.length}) c
+    LEFT JOIN LATERAL (
+      SELECT json_agg(x.j ORDER BY x.t, x.id) AS msgs FROM (
+        SELECT ${MSG_JSON} AS j, m.time AS t, m.id FROM messages m
+        WHERE m.tenant_id = c.tenant_id AND m.wa_id = c.wa_id ORDER BY m.time DESC, m.id DESC LIMIT ${msgs}) x
+    ) mm ON true
+    ORDER BY c.last_message_at DESC NULLS LAST, c.wa_id`, P);
+  const page = rows.slice(0, limit);
+  const last = page[page.length - 1];
+  return {
+    conversations: page.map(r => ({ waId: r.wa_id, name: r.name, platform: r.platform, igSenderId: r.ig_sender_id,
+      lastMessageAt: r.last_message_at, messages: r.messages || [] })),
+    nextCursor: rows.length > limit && last ? encodeCursor({ t: last.last_txt || null, w: last.wa_id }) : null,
+  };
+}
+// Respuesta de siempre (arreglo): los chats más recientes con sus últimos mensajes
+async function dbGetConversations(tenantId) {
+  return (await dbListConversations(tenantId, { limit: LEGACY_CONVOS_CAP, max: LEGACY_CONVOS_CAP, msgs: LEGACY_MSGS_PER_CONVO })).conversations;
 }
 
 async function dbGetTenantByPhoneId(phoneNumberId) {
+
   if (!dbReady) return null;
   const { rows } = await pool.query(
     'SELECT * FROM tenants WHERE whatsapp_phone_number_id = $1 AND active = true LIMIT 1',
@@ -678,27 +704,111 @@ function mapOrderRow(r) {
   };
 }
 
-async function dbGetOrders(tenantId) {
-  if (!dbReady) return [];
+// Pedidos paginados (Fase 4B). Sin parámetros: el arreglo de siempre (los 1000 más recientes). Con limit/before/filtros:
+// { orders, nextCursor, counts }, 100 por página (máx. 200), del más reciente al más antiguo, con cursor (created_at + id).
+const LEGACY_ORDERS_CAP = 1000, ORDERS_PAGE_DEFAULT = 100, ORDERS_PAGE_MAX = 200;
+const ORDER_STATUSES = ['to_deliver', 'preparing', 'on_the_way', 'delivered', 'not_delivered', 'cancelled'];
+const ORDER_ITEMS_JSON = `(SELECT COALESCE(json_agg(json_build_object(
+    'id', oi.id, 'productId', oi.product_id, 'emoji', oi.emoji, 'name', oi.name, 'detail', oi.detail, 'qty', oi.qty,
+    'unitPrice', oi.unit_price, 'linePrice', oi.line_price, 'variantKey', COALESCE(oi.variant_key, '')
+  )), '[]'::json) FROM order_items oi WHERE oi.order_id = o.id AND oi.tenant_id = o.tenant_id)`;
+const OWED = `(o.total_price - o.credited_total - o.amount_paid)`; // saldo por cobrar de un pedido vigente
+
+// Filtros de servidor → { where, params } (siempre filtrado por negocio)
+async function ordersFilter(tenantId, q) {
+  const P = [tenantId];
+  const w = ['o.tenant_id = $1'];
+  const status = q.status === undefined || q.status === '' ? null : String(q.status);
+  if (status && ![...ORDER_STATUSES, 'all', 'pending_pay'].includes(status)) throw new BadRequest('Estado inválido');
+  const kind = q.kind === undefined || q.kind === '' ? null : String(q.kind);
+  if (kind && !['quote', 'order'].includes(kind)) throw new BadRequest('Tipo inválido');
+  if (kind === 'quote') w.push("o.kind = 'quote' AND o.delivery_status <> 'cancelled'");
+  else if (status === 'cancelled') w.push("o.delivery_status = 'cancelled'");
+  else if (status === 'all') w.push("o.kind = 'order' AND o.delivery_status <> 'cancelled'");
+  else if (status === 'pending_pay') w.push(`o.kind = 'order' AND o.delivery_status <> 'cancelled' AND ${OWED} > 0.004`);
+  else if (status) { P.push(status); w.push(`o.kind = 'order' AND o.delivery_status = $${P.length}`); }
+  else if (kind === 'order') w.push("o.kind = 'order'");
+  if (q.deliveryDate !== undefined && q.deliveryDate !== '') {
+    if (!['today', 'tomorrow'].includes(String(q.deliveryDate))) throw new BadRequest('deliveryDate debe ser today o tomorrow');
+    const tz = await resolveTenantTz(tenantId); // sin ubicación → 400 location_required
+    P.push(tz); const zi = P.length;
+    w.push(`o.kind = 'order' AND o.delivery_status NOT IN ('cancelled', 'delivered') AND o.delivery_date = ((now() AT TIME ZONE $${zi})::date + ${q.deliveryDate === 'tomorrow' ? 1 : 0})`);
+  }
+  if (q.clientId !== undefined && q.clientId !== '') {
+    if (!UUID_RE.test(String(q.clientId))) throw new BadRequest('clientId inválido');
+    P.push(String(q.clientId)); w.push(`o.client_id = $${P.length}`);
+  }
+  if (q.q !== undefined && String(q.q).trim() !== '') {
+    const text = String(q.q).trim().slice(0, 100);
+    P.push(likeOf(text)); const li = P.length;
+    const digits = /^(#|p-?)?0*(\d{1,9})$/i.exec(text);
+    let numCond = '';
+    if (digits) { P.push(parseInt(digits[2], 10)); numCond = ` OR COALESCE(o.tenant_order_number, o.quote_number) = $${P.length}`; }
+    w.push(`(o.client_name ILIKE $${li} ESCAPE '\\' OR o.product_summary ILIKE $${li} ESCAPE '\\'${numCond}
+      OR EXISTS (SELECT 1 FROM order_items oi2 WHERE oi2.order_id = o.id AND oi2.tenant_id = o.tenant_id AND oi2.name ILIKE $${li} ESCAPE '\\'))`);
+  }
+  return { w, P };
+}
+
+// Contadores de las pestañas y del inicio, calculados por el servidor sobre TODOS los pedidos (no solo los cargados)
+async function ordersCounts(tenantId) {
+  let tz = null;
+  try { tz = await resolveTenantTz(tenantId); } catch (e) { if (!(e instanceof BadRequest)) throw e; }
+  const live = "o.kind = 'order' AND o.delivery_status <> 'cancelled'";
+  const dayOf = (col) => `((${col} AT TIME ZONE current_setting('TimeZone')) AT TIME ZONE $2)::date`;
+  const { rows: [r] } = await pool.query(`
+    SELECT COUNT(*) FILTER (WHERE ${live})::int AS "all",
+      COUNT(*) FILTER (WHERE o.kind = 'order' AND o.delivery_status = 'to_deliver')::int AS to_deliver,
+      COUNT(*) FILTER (WHERE o.kind = 'order' AND o.delivery_status = 'preparing')::int AS preparing,
+      COUNT(*) FILTER (WHERE o.kind = 'order' AND o.delivery_status = 'on_the_way')::int AS on_the_way,
+      COUNT(*) FILTER (WHERE o.kind = 'order' AND o.delivery_status = 'delivered')::int AS delivered,
+      COUNT(*) FILTER (WHERE o.kind = 'order' AND o.delivery_status = 'not_delivered')::int AS not_delivered,
+      COUNT(*) FILTER (WHERE o.kind = 'quote' AND o.delivery_status <> 'cancelled')::int AS quote,
+      COUNT(*) FILTER (WHERE o.delivery_status = 'cancelled')::int AS cancelled,
+      COUNT(*) FILTER (WHERE ${live} AND ${OWED} > 0.004)::int AS pending_pay,
+      COALESCE(SUM(${OWED}) FILTER (WHERE ${live} AND ${OWED} > 0.004), 0)::float AS owed,
+      COUNT(*) FILTER (WHERE ${live} AND $2::text IS NOT NULL AND o.delivery_status <> 'delivered' AND o.delivery_date = (now() AT TIME ZONE $2)::date)::int AS today,
+      COUNT(*) FILTER (WHERE ${live} AND $2::text IS NOT NULL AND o.delivery_status <> 'delivered' AND o.delivery_date = (now() AT TIME ZONE $2)::date + 1)::int AS tomorrow,
+      COUNT(*) FILTER (WHERE ${live} AND $2::text IS NOT NULL AND ${dayOf('o.created_at')} = (now() AT TIME ZONE $2)::date)::int AS orders_today,
+      COALESCE(SUM(o.total_price) FILTER (WHERE ${live} AND $2::text IS NOT NULL AND ${dayOf('o.created_at')} = (now() AT TIME ZONE $2)::date), 0)::float AS sales_today,
+      COUNT(*) FILTER (WHERE ${live} AND $2::text IS NOT NULL AND ${dayOf('o.created_at')} = (now() AT TIME ZONE $2)::date - 1)::int AS orders_yesterday,
+      COALESCE(SUM(o.total_price) FILTER (WHERE ${live} AND $2::text IS NOT NULL AND ${dayOf('o.created_at')} = (now() AT TIME ZONE $2)::date - 1), 0)::float AS sales_yesterday
+    FROM orders o WHERE o.tenant_id = $1`, [tenantId, tz]);
+  return {
+    all: r.all, to_deliver: r.to_deliver, preparing: r.preparing, on_the_way: r.on_the_way, delivered: r.delivered, not_delivered: r.not_delivered,
+    quote: r.quote, cancelled: r.cancelled, pending_pay: r.pending_pay, owed: money2(r.owed), today: r.today, tomorrow: r.tomorrow,
+    ordersToday: r.orders_today, salesToday: money2(r.sales_today), ordersYesterday: r.orders_yesterday, salesYesterday: money2(r.sales_yesterday),
+  };
+}
+
+async function dbListOrders(tenantId, q = {}) {
+  if (!dbReady) return { orders: [], nextCursor: null, counts: null };
+  const limit = Math.min(q._legacy ? LEGACY_ORDERS_CAP : ORDERS_PAGE_MAX, Math.max(1, parseInt(q.limit, 10) || ORDERS_PAGE_DEFAULT));
+  const { w, P } = await ordersFilter(tenantId, q);
+  if (q.before) {
+    const cur = decodeCursor(q.before);
+    if (!cur || !TS_RE.test(String(cur.c)) || !UUID_RE.test(String(cur.i))) throw new BadRequest('Cursor inválido');
+    P.push(cur.c, cur.i);
+    w.push(`(o.created_at, o.id) < ($${P.length - 1}::timestamp, $${P.length}::uuid)`);
+  }
+  P.push(limit + 1);
   const { rows } = await pool.query(`
-    SELECT o.*,
-      COALESCE(
-        json_agg(
-          json_build_object(
-            'id', oi.id, 'productId', oi.product_id, 'emoji', oi.emoji,
-            'name', oi.name, 'detail', oi.detail, 'qty', oi.qty,
-            'unitPrice', oi.unit_price, 'linePrice', oi.line_price, 'variantKey', COALESCE(oi.variant_key, '')
-          )
-        ) FILTER (WHERE oi.id IS NOT NULL),
-        '[]'::json
-      ) AS items
-    FROM orders o
-    LEFT JOIN order_items oi ON oi.order_id = o.id AND oi.tenant_id = o.tenant_id
-    WHERE o.tenant_id = $1
-    GROUP BY o.id
-    ORDER BY o.created_at DESC
-  `, [tenantId]);
-  return ops.attachByName(pool, tenantId, rows.map(mapOrderRow), ops.BY_CREATED);
+    SELECT o.*, ${ORDER_ITEMS_JSON} AS items, ${tsText('o.created_at')} AS cursor_ts
+    FROM (SELECT o.* FROM orders o WHERE ${w.join(' AND ')} ORDER BY o.created_at DESC, o.id DESC LIMIT $${P.length}) o
+    ORDER BY o.created_at DESC, o.id DESC`, P);
+  const page = rows.slice(0, limit);
+  const last = page[page.length - 1];
+  const orders = await ops.attachByName(pool, tenantId, page.map(mapOrderRow), ops.BY_CREATED);
+  return {
+    orders,
+    nextCursor: rows.length > limit && last ? encodeCursor({ c: last.cursor_ts, i: last.id }) : null,
+    counts: q.before || q._legacy ? undefined : await ordersCounts(tenantId),
+  };
+}
+// Respuesta de siempre (arreglo): los pedidos más recientes, con un tope
+async function dbGetOrders(tenantId) {
+  const out = await dbListOrders(tenantId, { limit: LEGACY_ORDERS_CAP, _legacy: true });
+  return out.orders;
 }
 
 // Inserta los artículos de un pedido. El producto del catálogo solo se enlaza si es de ESTE negocio (si no, queda sin
@@ -3034,31 +3144,52 @@ app.put('/api/tenant/auto-reply', requireAuth, async (req, res) => {
 // API — Conversaciones
 // ══════════════════════════════════════════════════════════════
 
+// Sin parámetros: el arreglo de siempre (los 300 chats más recientes). Con limit / before / q: { conversations, nextCursor } (100 por
+// página, máx. 200; before = cursor de la página anterior; q busca por nombre o número).
 app.get('/api/conversations', requireAuth, async (req, res) => {
   try {
-    const convos = await dbGetConversations(req.tenant.tenantId);
-    res.json(convos);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    const q = req.query;
+    if (q.limit === undefined && q.before === undefined && q.q === undefined) return res.json(await dbGetConversations(req.tenant.tenantId));
+    const text = q.q === undefined ? '' : String(q.q).trim().slice(0, 100);
+    res.json(await dbListConversations(req.tenant.tenantId, { limit: q.limit, cursor: q.before, q: text || null }));
+  } catch (err) { sendApiError(res, err, 'Chats'); }
 });
 
+// Mensajes de un chat. Sin limit/before: todos (tope 2000, los más recientes). Con ellos: paginación hacia atrás, 50 por página
+// (máx. 200): { messages (del más antiguo al más reciente), hasMore, nextBefore } — pasa nextBefore como `before` para ver los anteriores.
 app.get('/api/conversations/:waId', requireAuth, async (req, res) => {
+  if (req.query.limit !== undefined || req.query.before !== undefined) {
+    try {
+      const tenantId = req.tenant.tenantId;
+      const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
+      const { rows: [c] } = await pool.query('SELECT wa_id, name, platform, ig_sender_id FROM conversations WHERE wa_id = $1 AND tenant_id = $2', [req.params.waId, tenantId]);
+      if (!c) return res.status(404).json({ error: 'Conversación no encontrada' });
+      const P = [tenantId, req.params.waId];
+      let cond = '';
+      if (req.query.before !== undefined) {
+        const cur = decodeCursor(req.query.before);
+        if (!cur || !TS_RE.test(String(cur.t)) || typeof cur.i !== 'string') return res.status(400).json({ error: 'Cursor inválido' });
+        P.push(cur.t, cur.i);
+        cond = `AND (m.time, m.id) < ($3::timestamp, $4)`;
+      }
+      const { rows } = await pool.query(`
+        SELECT ${MSG_JSON} AS j, ${tsText('m.time')} AS t, m.id FROM messages m
+        WHERE m.tenant_id = $1 AND m.wa_id = $2 ${cond} ORDER BY m.time DESC, m.id DESC LIMIT ${limit + 1}`, P);
+      const page = rows.slice(0, limit);
+      const oldest = page[page.length - 1];
+      return res.json({ waId: c.wa_id, name: c.name, platform: c.platform, igSenderId: c.ig_sender_id,
+        messages: page.map(r => r.j).reverse(), hasMore: rows.length > limit,
+        nextBefore: rows.length > limit && oldest ? encodeCursor({ t: oldest.t, i: oldest.id }) : null });
+    } catch (err) { return sendApiError(res, err, 'Mensajes del chat'); }
+  }
   try {
     const { rows } = await pool.query(`
       SELECT c.wa_id, c.name, c.platform, c.ig_sender_id, c.last_message_at,
-        COALESCE(
-          json_agg(json_build_object(
-            'id', m.id, 'role', m.role, 'type', m.type, 'text', m.text,
-            'mediaId', m.media_id, 'mimeType', m.mime_type, 'mediaUrl', m.media_url,
-            'caption', m.caption, 'filename', m.filename, 'orderType', m.order_type,
-            'time', to_char(m.time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
-          ) ORDER BY m.time) FILTER (WHERE m.id IS NOT NULL), '[]'::json
-        ) AS messages
+        COALESCE((SELECT json_agg(x.j ORDER BY x.t, x.id) FROM (
+          SELECT ${MSG_JSON} AS j, m.time AS t, m.id FROM messages m
+          WHERE m.tenant_id = c.tenant_id AND m.wa_id = c.wa_id ORDER BY m.time DESC, m.id DESC LIMIT 2000) x), '[]'::json) AS messages
       FROM conversations c
-      LEFT JOIN messages m ON m.wa_id = c.wa_id AND m.tenant_id = c.tenant_id
       WHERE c.wa_id = $1 AND c.tenant_id = $2
-      GROUP BY c.wa_id, c.tenant_id
     `, [req.params.waId, req.tenant.tenantId]);
 
     if (!rows[0]) return res.status(404).json({ error: 'Conversación no encontrada' });
@@ -3075,11 +3206,11 @@ app.get('/api/conversations/:waId', requireAuth, async (req, res) => {
 
 app.get('/api/orders', requireAuth, async (req, res) => {
   try {
-    const orders = await dbGetOrders(req.tenant.tenantId);
-    res.json(orders);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    const q = req.query;
+    const paged = ['limit', 'before', 'status', 'kind', 'deliveryDate', 'q', 'clientId'].some(k => q[k] !== undefined);
+    if (!paged) return res.json(await dbGetOrders(req.tenant.tenantId)); // compatibilidad: sin parámetros, el arreglo de siempre (1000 más recientes)
+    res.json(await dbListOrders(req.tenant.tenantId, q));
+  } catch (err) { sendApiError(res, err, 'Pedidos'); }
 });
 
 app.post('/api/orders', requireAuth, async (req, res) => {
