@@ -55,9 +55,11 @@ CREATE TABLE IF NOT EXISTS cash_closings (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id     UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   day           DATE NOT NULL,
-  expected      JSONB NOT NULL,                      -- { método: importe esperado } = cobros − reembolsos − gastos
-  counted       JSONB NOT NULL,                      -- { método: importe contado }
-  difference    JSONB NOT NULL,                      -- { método: contado − esperado }
+  -- Por MÉTODO Y MONEDA: claves "método|MONEDA" (ej. "Efectivo|USD", "Efectivo|VES"), con el importe ORIGINAL de cada moneda.
+  -- (Los cierres antiguos, con claves solo por método, se leen como moneda base.)
+  expected      JSONB NOT NULL,                      -- { "método|MONEDA": cobros − reembolsos − gastos }
+  counted       JSONB NOT NULL,                      -- { "método|MONEDA": importe contado }
+  difference    JSONB NOT NULL,                      -- { "método|MONEDA": contado − esperado }
   note          TEXT,
   closed_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   closed_by     TEXT NOT NULL DEFAULT 'owner',
@@ -94,6 +96,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS cash_closings_open_day_uniq ON cash_closings (
 CREATE INDEX IF NOT EXISTS cash_closings_tenant_day_idx ON cash_closings (tenant_id, day);
 CREATE INDEX IF NOT EXISTS stock_levels_product_idx     ON stock_levels (product_id);
 CREATE INDEX IF NOT EXISTS stock_movements_product_idx  ON stock_movements (tenant_id, product_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS stock_movements_fk_product_idx ON stock_movements (product_id);  -- ON DELETE CASCADE de catalog_products
 CREATE INDEX IF NOT EXISTS stock_movements_order_idx    ON stock_movements (order_id) WHERE order_id IS NOT NULL;
 
 COMMIT;
+
+-- Índice GRANDE (orders ya tiene datos): NO va en initDB sino en BACKGROUND_INDEXES (server.js), que lo crea DESPUÉS de empezar a
+-- escuchar, fuera de transacción y con un advisory lock. Aquí solo queda documentado; CONCURRENTLY no puede ir dentro de BEGIN/COMMIT.
+-- Informes, utilidad y por cobrar filtran pedidos por (negocio, fecha de creación) sobre created_at crudo:
+--   CREATE INDEX CONCURRENTLY IF NOT EXISTS orders_tenant_created_idx ON orders (tenant_id, created_at);

@@ -470,6 +470,8 @@ async function initDB() {
       console.error('❌ Falta el esquema de gastos y existencias. Se detiene el arranque para reintentar.');
       process.exit(1);
     }
+    // Zona horaria desde el país (ver backfillTenantTimezones): rápido e idempotente; un fallo solo se registra
+    try { await backfillTenantTimezones(); } catch (err) { console.error('⚠️  Relleno de zonas horarias:', err.message); }
     // Relleno de pedidos pagados "a la antigua" (por lotes; un fallo solo se registra). En el PRIMER arranque
     // de la Fase 2 (sin la marca) se espera antes de escuchar, para que nadie vea un pedido pagado con saldo.
     // Después corre en segundo plano tras listen y otra vez a los 10 min (recoge lo que la versión vieja
@@ -753,8 +755,6 @@ async function dbCreateOrder(tenantId, data) {
     const order = rows[0];
 
     const stockLines = await insertOrderItems(client, tenantId, order.id, items, { snapshotCost: !isQuote });
-    // Existencias (Fase 4A): un pedido descuenta lo que vende; un presupuesto no (descuenta al convertirse)
-    if (!isQuote) await ops.syncOrderStock(client, tenantId, order.id, stockLines, 'sale');
 
     await addOrderEvent(client, tenantId, order.id, 'created', {
       total, items: items.length, clientName: data.clientName || null, platform: data.platform || null, kind });
@@ -764,6 +764,9 @@ async function dbCreateOrder(tenantId, data) {
       const r = await addPaymentTx(client, tenantId, order.id, data.initialPayment);
       Object.assign(order, r.order);
     }
+    // Existencias (Fase 4A): un pedido descuenta lo que vende; un presupuesto no (descuenta al convertirse). Va DESPUÉS del
+    // pago inicial: el orden de bloqueo es pedido → tenant → cliente (saldo a favor) → existencias.
+    if (!isQuote) await ops.syncOrderStock(client, tenantId, order.id, stockLines, 'sale');
     // Los artículos se leen DENTRO de la transacción, con la misma conexión: pedir otra al pool mientras esta sigue
     // tomada deja el servidor colgado cuando llegan a la vez tantos pedidos como conexiones hay.
     const { rows: itemRows } = await client.query(
@@ -957,8 +960,10 @@ async function inTx(fn) {
 }
 
 // Respuesta de error de las rutas de pagos: datos mal enviados → 400; lo demás → 500 sin detalles internos
+// Cuerpo del 400 de un BadRequest: «sin ubicación» lleva su código propio (location_required) para que el SPA lleve a Ajustes → Ubicación
+const badRequestBody = (err) => err instanceof ops.LocationRequired ? { error: 'location_required', message: err.message } : { error: err.message };
 function sendApiError(res, err, label) {
-  if (err instanceof BadRequest) return res.status(400).json({ error: err.message });
+  if (err instanceof BadRequest) return res.status(400).json(badRequestBody(err));
   console.error(label + ':', err.message);
   return res.status(500).json({ error: 'No se pudo completar la operación' });
 }
@@ -999,15 +1004,38 @@ async function fetchOrderFull(db, tenantId, orderId) {
   return rows[0] ? mapOrderRow(rows[0]) : null;
 }
 
-// Zona horaria del negocio (la del navegador solo si aún no tiene una guardada, como en /api/reports)
-async function resolveTenantTz(tenantId, queryTz) {
-  const { rows: [t] } = await pool.query('SELECT timezone FROM tenants WHERE id = $1', [tenantId]);
-  let tz = isValidTimezone(t && t.timezone) ? t.timezone : null;
-  if (!tz && isValidTimezone(queryTz)) {
-    tz = queryTz;
-    await pool.query('UPDATE tenants SET timezone = $1 WHERE id = $2 AND timezone IS NULL', [tz, tenantId]);
+// Zona horaria del negocio: SOLO la de su ubicación (país + zona, Ajustes → Ubicación). Nunca la del navegador: el `tz` de la
+// URL que aún mande un cliente antiguo se ignora. Sin ubicación → 400 { error: 'location_required' }.
+async function resolveTenantTz(tenantId) {
+  const { rows: [t] } = await pool.query('SELECT timezone, country FROM tenants WHERE id = $1', [tenantId]);
+  return ops.requireTz(t);
+}
+// Ubicación para el SPA: país, zona efectiva (null si falta) y las zonas que admite su país
+const locationOf = (t) => ({
+  country: ops.canonCountry(t && t.country) || (t && t.country) || null,
+  timezone: ops.tzOf(t),
+  timezoneOptions: ops.timezonesForCountry(t && t.country),
+});
+
+// Rellena la zona horaria de los negocios con país: la de por defecto de su país si falta o no es de ese país.
+// «Otro» y sin país no se tocan. Idempotente y barato (tenants es una tabla pequeña); corre en cada arranque.
+async function backfillTenantTimezones() {
+  const { rows } = await pool.query('SELECT DISTINCT country FROM tenants WHERE country IS NOT NULL');
+  const byCanon = new Map();
+  for (const r of rows) {
+    const c = ops.canonCountry(r.country);
+    if (!c || !ops.defaultTimezoneFor(c)) continue;
+    if (!byCanon.has(c)) byCanon.set(c, []);
+    byCanon.get(c).push(r.country);
   }
-  return tz || DEFAULT_TIMEZONE;
+  let n = 0;
+  for (const [c, raws] of byCanon) {
+    const { rowCount } = await pool.query(
+      'UPDATE tenants SET timezone = $1 WHERE country = ANY($2::text[]) AND (timezone IS NULL OR timezone <> ALL($3::text[]))',
+      [ops.defaultTimezoneFor(c), raws, ops.timezonesForCountry(c)]);
+    n += rowCount;
+  }
+  if (n) console.log(`✅ Zona horaria: ${n} negocio(s) ajustados a la de su país`);
 }
 
 const isRealDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s)) && new Date(Date.parse(s)).toISOString().slice(0, 10) === s;
@@ -1019,10 +1047,11 @@ const payStr = (v, max, label, required) => {
   return s;
 };
 
-// Saldo a favor de un cliente, en centavos, bloqueando antes su ficha (FOR UPDATE): dentro de una transacción
-// que ya tiene bloqueado el pedido. Nunca puede ser negativo.
+// Saldo a favor de un cliente, en centavos, bloqueando antes su ficha (FOR NO KEY UPDATE: dos gastos de saldo se esperan, pero
+// un alta de pedido de ese cliente —que solo toma FOR KEY SHARE por la clave foránea— no queda esperando): dentro de una
+// transacción que ya tiene bloqueado el pedido Y el tenant (orden: pedido → tenant → cliente → existencias). Nunca negativo.
 async function lockedClientCreditC(db, tenantId, clientId) {
-  const { rows: lk } = await db.query('SELECT 1 FROM clients WHERE id = $1 AND tenant_id = $2 FOR UPDATE', [clientId, tenantId]);
+  const { rows: lk } = await db.query('SELECT 1 FROM clients WHERE id = $1 AND tenant_id = $2 FOR NO KEY UPDATE', [clientId, tenantId]);
   if (!lk[0]) throw new BadRequest('Cliente no encontrado');
   const { rows: [r] } = await db.query('SELECT COALESCE(SUM(amount), 0) AS b FROM client_credit_entries WHERE client_id = $1 AND tenant_id = $2', [clientId, tenantId]);
   return centsOf(r.b);
@@ -1081,8 +1110,10 @@ async function addPaymentTx(db, tenantId, orderId, body, createdBy = 'owner') {
   let paidAt = null;
   if (body.paidAt !== undefined && body.paidAt !== null && body.paidAt !== '') {
     const raw = String(body.paidAt).trim();
-    const tz = isValidTimezone(t.timezone) ? t.timezone : DEFAULT_TIMEZONE;
+    const tz = ops.tzOf(t);
     if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      // Una fecha sin hora necesita la zona del negocio; sin ubicación se rechaza (un pago «de ahora», sin fecha, sí se admite)
+      if (!tz) throw new ops.LocationRequired(ops.LOCATION_MSG);
       if (!isRealDate(raw)) throw new BadRequest('Fecha del pago inválida');
       // Fecha sin hora: mediodía en la zona del negocio (así cae en el día correcto en los informes)
       paidAt = (await db.query(`SELECT (($1::date + time '12:00') AT TIME ZONE $2) AS ts`, [raw, tz])).rows[0].ts;
@@ -1185,6 +1216,8 @@ function mapRefundRow(r) {
 // no sale como efectivo); 'credit' → todo al saldo a favor. Devuelve las filas de refunds creadas.
 async function settleRefundTx(db, tenantId, ord, amountC, o) {
   if (amountC <= 0) return [];
+  // Orden de bloqueo: pedido (ya tomado) → tenant → cliente → existencias. El tenant va primero (FOR KEY SHARE).
+  const tenantRow = await ops.lockTenantForCash(db, tenantId, 'SHARE');
   let method = null;
   if (o.resolution === 'refund') {
     method = payStr(o.method, 60, 'Método de reembolso', true);
@@ -1214,8 +1247,7 @@ async function settleRefundTx(db, tenantId, ord, amountC, o) {
   }
   // Caja cerrada: un reembolso en efectivo/transferencia mueve la caja de HOY (el saldo a favor, no)
   if (cashC > 0) await ops.assertCashOpen(db, tenantId, { instants: [null] });
-  const { rows: [t] } = await db.query('SELECT base_currency FROM tenants WHERE id = $1', [tenantId]);
-  const base = (t && t.base_currency) || 'USD';
+  const base = tenantRow.base_currency || 'USD';
   const out = [];
   for (const [c, m] of [[cashC, method], [creditC, CREDIT_METHOD]]) {
     if (c <= 0) continue;
@@ -1351,9 +1383,6 @@ async function createReturnTx(db, tenantId, orderId, body, createdBy = 'owner') 
     await db.query(`INSERT INTO credit_note_items (tenant_id, credit_note_id, order_item_id, name, qty, amount)
       VALUES ($1, $2, $3, $4, $5, $6)`, [tenantId, note.id, l.orderItemId, l.name, l.qty, l.amountC / 100]);
   }
-  // Devolución por artículos: las unidades vuelven al almacén (una devolución por importe no mueve existencias)
-  if (hasItems) await ops.restoreReturnedStock(db, tenantId, orderId,
-    lines.filter(l => l.orderItemId).map(l => ({ orderItemId: l.orderItemId, qty: l.qty })), fmtCreditNote(note.number), createdBy);
   const ord = await recalcOrderPayment(db, tenantId, orderId);
   await addOrderEvent(db, tenantId, orderId, 'returned', {
     creditNoteId: note.id, number: fmtCreditNote(note.number), amountBase: amountC / 100, reason, resolution,
@@ -1362,6 +1391,10 @@ async function createReturnTx(db, tenantId, orderId, body, createdBy = 'owner') 
   const excessC = Math.max(0, centsOf(ord.amount_paid) - (centsOf(ord.total_price) - centsOf(ord.credited_total)));
   const refunds = await settleRefundTx(db, tenantId, ord, Math.min(excessC, amountC), {
     resolution, method: body.refundMethod, reason, creditNoteId: note.id, createdBy });
+  // Devolución por artículos: las unidades vuelven al almacén (una devolución por importe no mueve existencias).
+  // Va al final: el orden de bloqueo es pedido → tenant → cliente → existencias.
+  if (hasItems) await ops.restoreReturnedStock(db, tenantId, orderId,
+    lines.filter(l => l.orderItemId).map(l => ({ orderItemId: l.orderItemId, qty: l.qty })), fmtCreditNote(note.number), createdBy);
   const order = refunds.length ? await recalcOrderPayment(db, tenantId, orderId) : ord;
   const [full] = await mapCreditNoteFull(db, tenantId, [note]);
   return { creditNote: full, order };
@@ -1426,6 +1459,12 @@ async function dbUpdateOrder(tenantId, orderId, fields) {
     const { rows: found } = await client.query('SELECT * FROM orders WHERE id = $1 AND tenant_id = $2 FOR UPDATE', [orderId, tenantId]);
     if (!found[0]) { await client.query('ROLLBACK'); return null; }
     if (found[0].delivery_status === 'cancelled') throw new BadRequest('El pedido está anulado: ya no se puede modificar');
+    // Un pedido ENTREGADO no se edita (artículos, importes, cliente, notas…): solo se puede cambiar su estado de entrega
+    // (por ejemplo para corregir un «entregado» por error y editarlo después).
+    if (found[0].delivery_status === 'delivered' &&
+        Object.keys(fields).some(k => k !== 'delivery_status' && (allowed.includes(k) || k === 'client_id' || k === 'items'))) {
+      throw new BadRequest('Este pedido ya fue entregado: no se puede editar');
+    }
     const hasCredit = Number(found[0].credited_total || 0) > 0;
     if (hasCredit && fields.items !== undefined) throw new BadRequest('Este pedido tiene devoluciones: no se pueden cambiar sus artículos');
 
@@ -1516,7 +1555,7 @@ async function dbUpdateOrder(tenantId, orderId, fields) {
     if (String(rows[0].total_price) !== String(found[0].total_price)) rows = [await recalcOrderPayment(client, tenantId, orderId)];
     if (items) {
       // La foto del costo de las líneas que ya existían (mismo producto y variante) se conserva
-      const { rows: oldLines } = await client.query('SELECT product_id, variant_key, unit_cost FROM order_items WHERE order_id = $1 AND tenant_id = $2 ORDER BY ctid', [orderId, tenantId]);
+      const { rows: oldLines } = await client.query('SELECT product_id, variant_key, unit_cost, qty FROM order_items WHERE order_id = $1 AND tenant_id = $2 ORDER BY ctid', [orderId, tenantId]);
       const oldCosts = new Map();
       for (const l of oldLines) {
         const k = l.product_id + '|' + (l.variant_key || '');
@@ -1524,8 +1563,11 @@ async function dbUpdateOrder(tenantId, orderId, fields) {
       }
       await client.query('DELETE FROM order_items WHERE order_id = $1 AND tenant_id = $2', [orderId, tenantId]);
       const stockLines = await insertOrderItems(client, tenantId, orderId, items, { snapshotCost: found[0].kind !== 'quote', oldCosts });
-      // Existencias: se aplica solo la diferencia (un presupuesto no mueve existencias)
-      if (found[0].kind !== 'quote') await ops.syncOrderStock(client, tenantId, orderId, stockLines, 'edit');
+      // Existencias: se aplica SOLO la diferencia entre las líneas viejas y las nuevas (un presupuesto no mueve existencias)
+      if (found[0].kind !== 'quote') {
+        await ops.syncOrderStock(client, tenantId, orderId, stockLines, 'edit', 'owner',
+          oldLines.map(l => ({ productId: l.product_id, variantKey: l.variant_key || '', qty: l.qty })));
+      }
     }
     // Historial: la entrega va como status_changed; el resto de cambios como edited
     const clip = (v) => v === null || v === undefined ? null : String(v).slice(0, 200);
@@ -1920,7 +1962,7 @@ const DEMO_ROW_LIMITS = {
   'PATCH /api/orders/:id': [EV_LIMIT, MV_LIMIT],
   'POST /api/expenses': [['expenses', 300]],
   'POST /api/cash/:day/close': [['cash_closings', 60]],
-  'POST /api/stock/adjust': [MV_LIMIT],
+  'POST /api/stock/adjust': [MV_LIMIT, ['stock_levels', 1500]],
   'POST /api/orders/:id/payments': [['payments', DEMO_MAX_PAYMENTS], EV_LIMIT, CREDIT_LIMIT],
   'POST /api/payments/:id/void': [EV_LIMIT, CREDIT_LIMIT],
   'POST /api/orders/:id/convert': [EV_LIMIT, MV_LIMIT],
@@ -2064,8 +2106,8 @@ function isWithinBusinessHours(schedule, timezone, now = new Date()) {
 // por conversación y por día (día del negocio), aunque lleguen varios mensajes a la vez.
 async function maybeSendAutoReply(tenant, convoKey, platform, igSenderId = null) {
   if (!dbReady || !tenant || !tenant.auto_reply_enabled || tenant.is_demo) return;
-  if (isWithinBusinessHours(tenant.business_hours, tenant.timezone)) return;
-  const tz = isValidTimezone(tenant.timezone) ? tenant.timezone : DEFAULT_TIMEZONE;
+  const tz = ops.tzOf(tenant) || DEFAULT_TIMEZONE;
+  if (isWithinBusinessHours(tenant.business_hours, tz)) return;
 
   const { rows } = await pool.query(`
     UPDATE conversations SET last_auto_reply_at = NOW()
@@ -2404,11 +2446,14 @@ app.post('/api/tenant/register', async (req, res) => {
 
   try {
     const hash = await bcrypt.hash(password, 10);
+    // País de la lista cerrada (nombre canónico); la zona horaria sale SOLO del país (la de por defecto; «Otro» → se elige en Ajustes)
+    const countryCanon = ops.canonCountry(country);
     const { rows } = await pool.query(`
-      INSERT INTO tenants (business_name, full_name, email, password_hash, plan, country, whatsapp_number)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-      RETURNING id, business_name, full_name, email, plan, country, created_at
-    `, [businessName, fullName || null, email, hash, 'basic', country || null, whatsappNumber || null]);
+      INSERT INTO tenants (business_name, full_name, email, password_hash, plan, country, whatsapp_number, timezone)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      RETURNING id, business_name, full_name, email, plan, country, timezone, created_at
+    `, [businessName, fullName || null, email, hash, 'basic', countryCanon || (country ? String(country).trim().slice(0, 80) : null),
+         whatsappNumber || null, ops.defaultTimezoneFor(countryCanon)]);
     const tenant = rows[0];
     const token  = jwt.sign({ tenantId: tenant.id, email: tenant.email }, JWT_SECRET, { expiresIn: '30d' });
     if (process.env.RESEND_API_KEY) {
@@ -2553,7 +2598,7 @@ app.post('/api/tenant/reset-password', async (req, res) => {
 app.get('/api/tenant/profile', requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT id, business_name, full_name, email, plan, country, whatsapp_number, whatsapp_phone_number_id, instagram_account_id, created_at FROM tenants WHERE id = $1',
+      'SELECT id, business_name, full_name, email, plan, country, timezone, whatsapp_number, whatsapp_phone_number_id, instagram_account_id, created_at FROM tenants WHERE id = $1',
       [req.tenant.tenantId]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Tenant no encontrado' });
@@ -2565,7 +2610,7 @@ app.get('/api/tenant/profile', requireAuth, async (req, res) => {
       full_name:               t.full_name,
       email:                   t.email,
       plan:                    t.plan,
-      country:                 t.country,
+      ...locationOf(t), // country, timezone (efectiva; null si falta) y timezoneOptions (zonas de su país)
       whatsapp_number:         t.whatsapp_number,
       created_at:              t.created_at,
       instagram_account_id:    t.instagram_account_id,
@@ -2605,11 +2650,40 @@ app.put('/api/tenant/password', requireAuth, async (req, res) => {
   }
 });
 
+// Fija país y zona horaria de un negocio (DENTRO de una transacción). Bloquea la fila del tenant FOR UPDATE: así un cierre de caja
+// (también FOR UPDATE) y un cambio de zona se serializan. Reglas:
+//  · país: de la lista cerrada (sin cambios respecto al guardado = no se valida de nuevo, para no bloquear fichas antiguas)
+//  · zona: la elegida debe pertenecer al país; sin elegir, se conserva la guardada si es de ese país y, si no, la de por defecto
+//    (países de una sola zona: se asigna sola). «Otro» sin zona válida → null.
+//  · si la zona efectiva cambia y hay cierres de caja vigentes (reopened_at NULL), 400: los días cerrados se descuadrarían.
+async function applyTenantLocation(db, tenantId, { country, timezone }) {
+  const { rows: [cur] } = await db.query('SELECT country, timezone FROM tenants WHERE id = $1 FOR UPDATE', [tenantId]);
+  if (!cur) return null;
+  let newCountry = cur.country;
+  if (country !== undefined && country !== cur.country) {
+    const c = ops.canonCountry(country);
+    if (!c) throw new BadRequest('País no válido: elige uno de la lista');
+    newCountry = c;
+  }
+  let tz;
+  if (timezone !== undefined && timezone !== null && timezone !== '') {
+    if (typeof timezone !== 'string' || !ops.tzValidForCountry(newCountry, timezone)) throw new BadRequest('Esa zona horaria no pertenece al país del negocio');
+    tz = timezone;
+  } else tz = ops.tzOf({ country: newCountry, timezone: cur.timezone });
+  if (tz !== ops.tzOf(cur)) {
+    const { rows: [open] } = await db.query('SELECT 1 FROM cash_closings WHERE tenant_id = $1 AND reopened_at IS NULL LIMIT 1', [tenantId]);
+    if (open) throw new BadRequest('No se puede cambiar la zona horaria mientras haya cierres de caja vigentes: reabre esos días en Caja primero');
+  }
+  await db.query('UPDATE tenants SET country = $2, timezone = $3 WHERE id = $1', [tenantId, newCountry, tz]);
+  return { country: ops.canonCountry(newCountry) || newCountry, timezone: tz };
+}
+
 app.put('/api/tenant/profile', requireAuth, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   const allowed = req.tenant.isDemo
-    ? ['business_name', 'full_name', 'country', 'whatsapp_number']
-    : ['business_name', 'full_name', 'email', 'country', 'whatsapp_number'];
+    ? ['business_name', 'full_name', 'whatsapp_number']
+    : ['business_name', 'full_name', 'email', 'whatsapp_number'];
+  const wantsLocation = req.body && (req.body.country !== undefined || req.body.timezone !== undefined);
   const sets = [];
   const values = [];
   let i = 1;
@@ -2623,8 +2697,9 @@ app.put('/api/tenant/profile', requireAuth, async (req, res) => {
     sets.push(`${key} = $${i++}`);
     values.push(val);
   }
-  if (sets.length === 0) return res.status(400).json({ error: 'No hay campos válidos para actualizar' });
+  if (sets.length === 0 && !wantsLocation) return res.status(400).json({ error: 'No hay campos válidos para actualizar' });
   values.push(req.tenant.tenantId);
+  let txc = null;
   try {
     // Cambiar el correo de acceso exige la contraseña actual (los demás campos no)
     if (allowed.includes('email') && req.body.email !== undefined) {
@@ -2637,16 +2712,31 @@ app.put('/api/tenant/profile', requireAuth, async (req, res) => {
         if (bad) return res.status(bad[0]).json({ error: bad[1] });
       }
     }
-    const { rows } = await pool.query(
-      `UPDATE tenants SET ${sets.join(', ')} WHERE id = $${i} RETURNING business_name, full_name, email, country, whatsapp_number`,
-      values
-    );
+    txc = await pool.connect();
+    await txc.query('BEGIN');
+    if (wantsLocation) {
+      const loc = await applyTenantLocation(txc, req.tenant.tenantId, { country: req.body.country, timezone: req.body.timezone });
+      if (!loc) { await txc.query('ROLLBACK'); return res.status(404).json({ error: 'Tenant no encontrado' }); }
+    }
+    let rows;
+    if (sets.length) {
+      ({ rows } = await txc.query(
+        `UPDATE tenants SET ${sets.join(', ')} WHERE id = $${i} RETURNING business_name, full_name, email, country, timezone, whatsapp_number`,
+        values));
+    } else {
+      ({ rows } = await txc.query('SELECT business_name, full_name, email, country, timezone, whatsapp_number FROM tenants WHERE id = $1', [req.tenant.tenantId]));
+    }
+    await txc.query('COMMIT');
     if (!rows[0]) return res.status(404).json({ error: 'Tenant no encontrado' });
-    res.json({ success: true, tenant: rows[0] });
+    res.json({ success: true, tenant: { ...rows[0], ...locationOf(rows[0]) } });
   } catch (err) {
+    if (txc) await txc.query('ROLLBACK').catch(() => {});
+    if (err instanceof BadRequest) return res.status(400).json(badRequestBody(err));
     if (err.code === '23505') return res.status(409).json({ error: 'Ese correo ya está en uso por otra cuenta' });
     console.error('profile update error:', err);
     res.status(500).json({ error: 'Error al guardar el perfil' });
+  } finally {
+    if (txc) txc.release();
   }
 });
 
@@ -2699,7 +2789,7 @@ app.get('/api/tenant/auto-reply', requireAuth, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   try {
     const { rows } = await pool.query(
-      'SELECT auto_reply_enabled, off_hours_message, business_hours, timezone FROM tenants WHERE id = $1',
+      'SELECT auto_reply_enabled, off_hours_message, business_hours, timezone, country FROM tenants WHERE id = $1',
       [req.tenant.tenantId]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Tenant no encontrado' });
@@ -2708,7 +2798,7 @@ app.get('/api/tenant/auto-reply', requireAuth, async (req, res) => {
       enabled:    !!t.auto_reply_enabled,
       message:    t.off_hours_message || DEFAULT_OFF_HOURS_MESSAGE,
       schedule:   isValidSchedule(t.business_hours) ? t.business_hours : DEFAULT_SCHEDULE,
-      timezone:   t.timezone || null,
+      timezone:   ops.tzOf(t), // la de la ubicación del negocio (Ajustes → Ubicación); aquí ya no se cambia
       configured: t.business_hours !== null || t.off_hours_message !== null,
     });
   } catch (err) {
@@ -2734,11 +2824,12 @@ app.put('/api/tenant/auto-reply', requireAuth, async (req, res) => {
     const clean = b.schedule.map(d => ({ day: d.day, open: d.open, close: d.close, active: d.active }));
     values.push(JSON.stringify(clean)); sets.push(`business_hours = $${values.length}`);
   }
-  if (b.timezone !== undefined) {
-    if (!isValidTimezone(b.timezone)) return res.status(400).json({ error: 'Zona horaria inválida' });
-    values.push(b.timezone); sets.push(`timezone = $${values.length}`);
+  // `timezone` se ignora: la zona del negocio solo se fija desde su ubicación (PUT /api/tenant/profile). Un cliente antiguo
+  // que aún la mande no falla.
+  if (!sets.length) {
+    if (b.timezone !== undefined) return res.json({ success: true });
+    return res.status(400).json({ error: 'No hay campos válidos para actualizar' });
   }
-  if (!sets.length) return res.status(400).json({ error: 'No hay campos válidos para actualizar' });
   values.push(req.tenant.tenantId);
   try {
     await pool.query(`UPDATE tenants SET ${sets.join(', ')} WHERE id = $${values.length}`, values);
@@ -2930,7 +3021,7 @@ app.get('/api/payments', requireAuth, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   const tenantId = req.tenant.tenantId;
   try {
-    const tz = await resolveTenantTz(tenantId, req.query.tz);
+    const tz = await resolveTenantTz(tenantId);
     const { rows: [n] } = await pool.query("SELECT to_char(NOW() AT TIME ZONE $1, 'YYYY-MM-DD') AS today", [tz]);
     // period=today|yesterday|7d|month se resuelve en la zona del negocio; si llegan from/to, mandan esos
     const PERIODS = ['today', 'yesterday', '7d', 'month'];
@@ -3042,12 +3133,18 @@ async function resolveDayRange(query, tz, defaultPeriod = 'month') {
   return { start, to, today: n.today };
 }
 
+// Gastos y cierre de caja: desde el plan Pro (en Básico, 403 plan_required). Lo comprueba el servidor, no solo el menú.
+const planGate = (message) => (req, res, next) =>
+  req.tenant.plan === 'basic' ? res.status(403).json({ error: 'plan_required', message }) : next();
+const expensesPlan = planGate('Los gastos están disponibles desde el plan Pro.');
+const cashPlan = planGate('El cierre de caja está disponible desde el plan Pro.');
+
 const EXPENSES_LIST_LIMIT = 500;
-app.get('/api/expenses', requireAuth, async (req, res) => {
+app.get('/api/expenses', requireAuth, expensesPlan, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   const tenantId = req.tenant.tenantId;
   try {
-    const tz = await resolveTenantTz(tenantId, req.query.tz);
+    const tz = await resolveTenantTz(tenantId);
     const { start, to } = await resolveDayRange(req.query, tz);
     let category = null;
     if (req.query.category !== undefined && req.query.category !== '') {
@@ -3060,14 +3157,14 @@ app.get('/api/expenses', requireAuth, async (req, res) => {
       pool.query(`SELECT e.* FROM expenses e WHERE ${W} ORDER BY e.spent_on DESC, e.created_at DESC LIMIT ${EXPENSES_LIST_LIMIT + 1}`, P),
       pool.query(`SELECT e.category, SUM(e.amount_base)::float AS total, COUNT(*)::int AS n FROM expenses e
         WHERE ${W} AND e.voided_at IS NULL GROUP BY e.category ORDER BY total DESC, e.category`, P),
-      pool.query(`SELECT COUNT(*)::int AS n FROM expenses e WHERE ${W}`, P),
+      pool.query(`SELECT COUNT(*)::int AS n, (COUNT(*) FILTER (WHERE e.voided_at IS NOT NULL))::int AS voided FROM expenses e WHERE ${W}`, P),
       pool.query('SELECT base_currency FROM tenants WHERE id = $1', [tenantId]),
       ops.getExpenseCategories(pool, tenantId),
     ]);
     res.json({
       timezone: tz, from: start, to, baseCurrency: base.rows[0] ? base.rows[0].base_currency : 'USD',
       expenses: list.rows.slice(0, EXPENSES_LIST_LIMIT).map(ops.mapExpenseRow),
-      truncated: list.rows.length > EXPENSES_LIST_LIMIT, limit: EXPENSES_LIST_LIMIT, totalCount: cnt.rows[0].n,
+      truncated: list.rows.length > EXPENSES_LIST_LIMIT, limit: EXPENSES_LIST_LIMIT, totalCount: cnt.rows[0].n, voidedCount: cnt.rows[0].voided,
       total: money2(byCat.rows.reduce((a, r) => a + r.total, 0)),
       byCategory: byCat.rows.map(r => ({ category: r.category, total: money2(r.total), count: r.n })),
       categories: cats,
@@ -3075,7 +3172,7 @@ app.get('/api/expenses', requireAuth, async (req, res) => {
   } catch (err) { sendApiError(res, err, 'Gastos'); }
 });
 
-app.post('/api/expenses', requireAuth, async (req, res) => {
+app.post('/api/expenses', requireAuth, expensesPlan, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   try {
     const expense = await inTx(c => ops.addExpenseTx(c, req.tenant.tenantId, req.body));
@@ -3083,7 +3180,7 @@ app.post('/api/expenses', requireAuth, async (req, res) => {
   } catch (err) { sendApiError(res, err, 'Registrar gasto'); }
 });
 
-app.post('/api/expenses/:id/void', requireAuth, async (req, res) => {
+app.post('/api/expenses/:id/void', requireAuth, expensesPlan, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   if (!UUID_RE.test(req.params.id)) return res.status(404).json({ error: 'Gasto no encontrado' });
   try {
@@ -3094,30 +3191,33 @@ app.post('/api/expenses/:id/void', requireAuth, async (req, res) => {
 });
 
 // Cierre de caja: lista de cierres de un rango (el más reciente primero), con las reaperturas
-app.get('/api/cash', requireAuth, async (req, res) => {
+app.get('/api/cash', requireAuth, cashPlan, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   const tenantId = req.tenant.tenantId;
   try {
-    const tz = await resolveTenantTz(tenantId, req.query.tz);
+    const tz = await resolveTenantTz(tenantId);
     const { start, to } = await resolveDayRange(req.query, tz);
-    const { rows } = await pool.query(
-      'SELECT * FROM cash_closings WHERE tenant_id = $1 AND day >= $2::date AND day <= $3::date ORDER BY day DESC, closed_at DESC LIMIT 401', [tenantId, start, to]);
-    res.json({ timezone: tz, from: start, to, closings: rows.slice(0, 400).map(ops.mapClosing), truncated: rows.length > 400 });
+    const [{ rows }, { rows: [bt] }] = await Promise.all([
+      pool.query('SELECT * FROM cash_closings WHERE tenant_id = $1 AND day >= $2::date AND day <= $3::date ORDER BY day DESC, closed_at DESC LIMIT 401', [tenantId, start, to]),
+      pool.query('SELECT base_currency FROM tenants WHERE id = $1', [tenantId]),
+    ]);
+    const base = (bt && bt.base_currency) || 'USD';
+    res.json({ timezone: tz, baseCurrency: base, from: start, to, closings: rows.slice(0, 400).map(r => ops.mapClosing(r, base)), truncated: rows.length > 400 });
   } catch (err) { sendApiError(res, err, 'Cierres de caja'); }
 });
-app.get('/api/cash/:day', requireAuth, async (req, res) => {
+app.get('/api/cash/:day', requireAuth, cashPlan, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   try { res.json(await ops.getCashDay(pool, req.tenant.tenantId, req.params.day)); }
   catch (err) { sendApiError(res, err, 'Caja del día'); }
 });
-app.post('/api/cash/:day/close', requireAuth, async (req, res) => {
+app.post('/api/cash/:day/close', requireAuth, cashPlan, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   const tenantId = req.tenant.tenantId;
   try {
     res.json(await inTx(async (c) => { await ops.closeCashDay(c, tenantId, req.params.day, req.body); return ops.getCashDay(c, tenantId, req.params.day); }));
   } catch (err) { sendApiError(res, err, 'Cerrar caja'); }
 });
-app.post('/api/cash/:day/reopen', requireAuth, async (req, res) => {
+app.post('/api/cash/:day/reopen', requireAuth, cashPlan, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   const tenantId = req.tenant.tenantId;
   try {
@@ -3224,20 +3324,31 @@ function cleanZones(v) {
   });
 }
 
+// ¿Hay datos en moneda base que un cambio de moneda dejaría mal? Pagos, gastos, reembolsos, cierres de caja o costos.
+async function baseCurrencyInUse(db, tenantId) {
+  const { rows: [r] } = await db.query(`SELECT (
+      EXISTS (SELECT 1 FROM payments WHERE tenant_id = $1) OR EXISTS (SELECT 1 FROM expenses WHERE tenant_id = $1)
+      OR EXISTS (SELECT 1 FROM refunds WHERE tenant_id = $1) OR EXISTS (SELECT 1 FROM cash_closings WHERE tenant_id = $1)
+      OR EXISTS (SELECT 1 FROM catalog_products WHERE tenant_id = $1 AND cost IS NOT NULL)
+      OR EXISTS (SELECT 1 FROM orders o JOIN order_items oi ON oi.order_id = o.id AND oi.tenant_id = o.tenant_id
+                 WHERE o.tenant_id = $1 AND oi.unit_cost IS NOT NULL)) AS x`, [tenantId]);
+  return r.x;
+}
+const BASE_CURRENCY_LOCKED_MSG = 'No se puede cambiar la moneda base: ya hay pagos, gastos, reembolsos, cierres de caja o costos registrados';
+
 app.get('/api/tenant/settings', requireAuth, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   const tenantId = req.tenant.tenantId;
   try {
     const { rows } = await pool.query(`
-      SELECT t.base_currency, s.payment_methods, s.delivery_methods, s.tax, s.zones, s.expense_categories,
-             EXISTS (SELECT 1 FROM payments p WHERE p.tenant_id = t.id) AS has_payments
+      SELECT t.base_currency, t.country, t.timezone, s.payment_methods, s.delivery_methods, s.tax, s.zones, s.expense_categories
       FROM tenants t LEFT JOIN tenant_settings s ON s.tenant_id = t.id WHERE t.id = $1`, [tenantId]);
     const r = rows[0] || {};
     res.json({
       baseCurrency: r.base_currency || 'USD', paymentMethods: r.payment_methods || [], deliveryMethods: r.delivery_methods || {},
-      tax: mapTax(r.tax), zones: Array.isArray(r.zones) ? r.zones : [], timezone: await resolveTenantTz(tenantId, req.query.tz),
+      tax: mapTax(r.tax), zones: Array.isArray(r.zones) ? r.zones : [], ...locationOf(r), // country, timezone, timezoneOptions
       expenseCategories: Array.isArray(r.expense_categories) && r.expense_categories.length ? r.expense_categories : ops.DEFAULT_EXPENSE_CATEGORIES,
-      canChangeBaseCurrency: !r.has_payments, currencies: BASE_CURRENCIES,
+      canChangeBaseCurrency: !(await baseCurrencyInUse(pool, tenantId)), currencies: BASE_CURRENCIES,
     });
   } catch (err) { sendApiError(res, err, 'Ajustes'); }
 });
@@ -3256,13 +3367,15 @@ app.put('/api/tenant/settings', requireAuth, async (req, res) => {
     }
     const tax = b.tax !== undefined ? cleanTax(b.tax) : null;
     const zones = b.zones !== undefined ? cleanZones(b.zones) : null;
+    if (b.expenseCategories !== undefined && req.tenant.plan === 'basic') {
+      return res.status(403).json({ error: 'plan_required', message: 'Los gastos están disponibles desde el plan Pro.' });
+    }
     const expCats = b.expenseCategories !== undefined ? ops.cleanExpenseCategories(b.expenseCategories) : null;
     if (pm === null && dm === null && cur === null && tax === null && zones === null && expCats === null) throw new BadRequest('No hay cambios para guardar');
     const out = await inTx(async (c) => {
       const { rows: [t] } = await c.query('SELECT base_currency FROM tenants WHERE id = $1 FOR UPDATE', [tenantId]);
       if (cur && cur !== t.base_currency) {
-        const { rows: [has] } = await c.query('SELECT EXISTS (SELECT 1 FROM payments WHERE tenant_id = $1) AS x', [tenantId]);
-        if (has.x) throw new BadRequest('No se puede cambiar la moneda base: ya hay pagos registrados');
+        if (await baseCurrencyInUse(c, tenantId)) throw new BadRequest(BASE_CURRENCY_LOCKED_MSG);
         await c.query('UPDATE tenants SET base_currency = $1 WHERE id = $2', [cur, tenantId]);
       }
       const { rows: [s] } = await c.query(`
@@ -3279,9 +3392,10 @@ app.put('/api/tenant/settings', requireAuth, async (req, res) => {
         [tenantId, pm === null ? null : JSON.stringify(pm), dm === null ? null : JSON.stringify(dm),
          tax === null ? null : JSON.stringify(tax), zones === null ? null : JSON.stringify(zones),
          expCats === null ? null : JSON.stringify(expCats)]);
-      const { rows: [has] } = await c.query('SELECT EXISTS (SELECT 1 FROM payments WHERE tenant_id = $1) AS x', [tenantId]);
+      const inUse = await baseCurrencyInUse(c, tenantId);
+      const { rows: [loc] } = await c.query('SELECT country, timezone FROM tenants WHERE id = $1', [tenantId]);
       return { baseCurrency: cur || t.base_currency, paymentMethods: s.payment_methods, deliveryMethods: s.delivery_methods,
-        tax: mapTax(s.tax), zones: s.zones || [], canChangeBaseCurrency: !has.x, currencies: BASE_CURRENCIES,
+        tax: mapTax(s.tax), zones: s.zones || [], ...locationOf(loc), canChangeBaseCurrency: !inUse, currencies: BASE_CURRENCIES,
         expenseCategories: Array.isArray(s.expense_categories) && s.expense_categories.length ? s.expense_categories : ops.DEFAULT_EXPENSE_CATEGORIES };
     });
     res.json(out);
@@ -3355,6 +3469,10 @@ function reportBuckets(period, now, from, to) {
   return { kind: 'month', buckets: out };
 }
 
+// Filtro de fecha SOBRE LA COLUMNA CRUDA (sin envolverla en funciones): así puede usar el índice (tenant_id, created_at). Equivale a
+// pasar la columna a la hora local del negocio: [$3, $4) en la zona $2 (created_at de orders es timestamp en la zona de la sesión).
+const tsIn = (col) => `${col} >= ($3::timestamp AT TIME ZONE $2) AND ($4::timestamp IS NULL OR ${col} < ($4::timestamp AT TIME ZONE $2))`;
+
 // Rango de un informe en la zona del negocio (lo comparten /api/reports y /api/reports/*)
 // period: hoy | 7dias | mes | año | personalizado (con from/to) · canal: todos | wa | ig
 async function resolveReportRange(req, tenantId) {
@@ -3368,7 +3486,7 @@ async function resolveReportRange(req, tenantId) {
     if (from > to) throw new BadRequest('La fecha inicial debe ser anterior a la final');
     if ((Date.parse(to) - Date.parse(from)) / 86400000 > 366) throw new BadRequest('El rango máximo es de un año');
   }
-  const tz = await resolveTenantTz(tenantId, req.query.tz);
+  const tz = await resolveTenantTz(tenantId);
   const { rows: [nowRow] } = await pool.query("SELECT to_char(NOW() AT TIME ZONE $1, 'YYYY-MM-DD HH24') AS now_local", [tz]);
   const [ymd, hh] = nowRow.now_local.split(' ');
   const [y, m, d] = ymd.split('-').map(Number);
@@ -3399,9 +3517,9 @@ app.get('/api/reports', requireAuth, async (req, res) => {
     const ENC = `lower(coalesce(o.delivery_method_label, '')) LIKE '%encomienda%'`;
     const DLV = `(NOT ${ENC} AND (lower(coalesce(o.delivery_method_label, '')) LIKE '%motorizado%' OR lower(coalesce(o.delivery_method_label, '')) LIKE '%delivery%'))`;
     // Solo pedidos de verdad: los presupuestos no cuentan, y los anulados salen de ventas e informes (se cuentan aparte)
-    const W = `o.tenant_id = $1 AND o.kind = 'order' AND o.delivery_status <> 'cancelled' AND ${inPeriod('o.created_at')} AND ${canalCond}`;
+    const W = `o.tenant_id = $1 AND o.kind = 'order' AND o.delivery_status <> 'cancelled' AND ${tsIn('o.created_at')} AND ${canalCond}`;
     // Los anulados se cuentan en la misma pasada del KPI (FILTER) y no en una consulta aparte
-    const WALL = `o.tenant_id = $1 AND o.kind = 'order' AND ${inPeriod('o.created_at')} AND ${canalCond}`;
+    const WALL = `o.tenant_id = $1 AND o.kind = 'order' AND ${tsIn('o.created_at')} AND ${canalCond}`;
     const OK = "o.delivery_status <> 'cancelled'";
     const OPEN = "('to_deliver', 'preparing', 'on_the_way')"; // sin entregar todavía
     const { kind, buckets } = reportBuckets(period, now, from, to);
@@ -3449,23 +3567,29 @@ app.get('/api/reports', requireAuth, async (req, res) => {
       // Top productos: artículos de los pedidos menos lo devuelto por artículos; un pedido sin artículos cuenta como 1
       // unidad de su resumen. Margen = (ventas − costo) / ventas solo sobre las líneas CON costo (antes del descuento del pedido).
       pool.query(`
+        WITH rets AS (
+          SELECT cni.order_item_id, SUM(cni.qty)::int AS ret
+          FROM orders o
+          JOIN credit_notes cn ON cn.order_id = o.id AND cn.tenant_id = o.tenant_id
+          JOIN credit_note_items cni ON cni.credit_note_id = cn.id AND cni.tenant_id = cn.tenant_id
+          WHERE ${W} AND o.credited_total > 0 AND cni.order_item_id IS NOT NULL
+          GROUP BY cni.order_item_id)
         SELECT name, MIN(emoji) AS emoji, SUM(qty)::int AS qty, SUM(revenue)::float AS revenue,
                COALESCE(SUM(cost), 0)::float AS cost, COALESCE(SUM(rev_costed), 0)::float AS rev_costed FROM (
           SELECT COALESCE(oi.name, 'Producto') AS name, oi.emoji,
-            GREATEST(oi.qty - r.ret, 0) AS qty,
-            COALESCE(oi.line_price, 0) * GREATEST(oi.qty - r.ret, 0) / NULLIF(oi.qty, 0) AS revenue,
-            CASE WHEN oi.unit_cost IS NOT NULL THEN oi.unit_cost * GREATEST(oi.qty - r.ret, 0) END AS cost,
-            CASE WHEN oi.unit_cost IS NOT NULL THEN COALESCE(oi.line_price, 0) * GREATEST(oi.qty - r.ret, 0) / NULLIF(oi.qty, 0) END AS rev_costed
+            GREATEST(oi.qty - COALESCE(r.ret, 0), 0) AS qty,
+            COALESCE(oi.line_price, 0) * GREATEST(oi.qty - COALESCE(r.ret, 0), 0) / NULLIF(oi.qty, 0) AS revenue,
+            CASE WHEN oi.unit_cost IS NOT NULL THEN oi.unit_cost * GREATEST(oi.qty - COALESCE(r.ret, 0), 0) END AS cost,
+            CASE WHEN oi.unit_cost IS NOT NULL THEN COALESCE(oi.line_price, 0) * GREATEST(oi.qty - COALESCE(r.ret, 0), 0) / NULLIF(oi.qty, 0) END AS rev_costed
           FROM order_items oi JOIN orders o ON o.id = oi.order_id AND oi.tenant_id = o.tenant_id
-          CROSS JOIN LATERAL (
-            SELECT COALESCE(SUM(cni.qty), 0)::int AS ret FROM credit_note_items cni
-            JOIN credit_notes cn ON cn.id = cni.credit_note_id AND cn.tenant_id = cni.tenant_id
-            WHERE cni.order_item_id = oi.id AND cn.tenant_id = oi.tenant_id) r
+          LEFT JOIN rets r ON r.order_item_id = oi.id
           WHERE ${W}
           UNION ALL
-          SELECT COALESCE(o.product_summary, 'Producto'), NULL, 1, COALESCE(o.total_price, 0), NULL, NULL
+          -- Pedido sin artículos: 1 unidad de su resumen por su total neto de notas de crédito (fuera si queda en 0)
+          SELECT COALESCE(o.product_summary, 'Producto'), NULL, 1, GREATEST(COALESCE(o.total_price, 0) - COALESCE(o.credited_total, 0), 0), NULL, NULL
           FROM orders o
-          WHERE ${W} AND NOT EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id AND oi.tenant_id = o.tenant_id)
+          WHERE ${W} AND COALESCE(o.total_price, 0) - COALESCE(o.credited_total, 0) > 0
+            AND NOT EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id AND oi.tenant_id = o.tenant_id)
         ) x GROUP BY name HAVING SUM(qty) > 0 ORDER BY qty DESC, revenue DESC LIMIT 5`, P),
       pool.query(`
         SELECT COALESCE(o.tenant_order_number, o.order_number) AS num, o.client_name, o.address, o.delivery_status, o.shipping
@@ -3525,7 +3649,7 @@ app.get('/api/reports', requireAuth, async (req, res) => {
       bars, barsCount, barLabels: buckets.map(b => b.label),
     });
   } catch (err) {
-    if (err instanceof BadRequest) return res.status(400).json({ error: err.message });
+    if (err instanceof BadRequest) return res.status(400).json(badRequestBody(err));
     console.error('Informes:', err.message);
     res.status(500).json({ error: 'No se pudo calcular el informe' });
   }
@@ -3551,25 +3675,31 @@ app.get('/api/reports/profit', requireAuth, async (req, res) => {
     const { period, canal, to, tz, ymd, startLocal, endExclusive } = await resolveReportRange(req, tenantId);
     const LOCAL = (col) => `((${col} AT TIME ZONE current_setting('TimeZone')) AT TIME ZONE $2)`;
     const inPeriod = (col) => `${LOCAL(col)} >= $3::timestamp AND ($4::timestamp IS NULL OR ${LOCAL(col)} < $4::timestamp)`;
-    const tsIn = (col) => `${col} >= ($3::timestamp AT TIME ZONE $2) AND ($4::timestamp IS NULL OR ${col} < ($4::timestamp AT TIME ZONE $2))`;
     const canalCond = `($5 = 'todos' OR o.platform = $5)`;
     const P = [tenantId, tz, startLocal, endExclusive, canal];
-    const W = `o.tenant_id = $1 AND o.kind = 'order' AND o.delivery_status <> 'cancelled' AND ${inPeriod('o.created_at')} AND ${canalCond}`;
-    const RET = `(SELECT COALESCE(SUM(cni.qty), 0) FROM credit_note_items cni JOIN credit_notes cn ON cn.id = cni.credit_note_id AND cn.tenant_id = cni.tenant_id WHERE cni.order_item_id = oi.id AND cn.tenant_id = oi.tenant_id)`;
+    const W = `o.tenant_id = $1 AND o.kind = 'order' AND o.delivery_status <> 'cancelled' AND ${tsIn('o.created_at')} AND ${canalCond}`;
     const [prof, cobros, dev, exp, base] = await Promise.all([
       pool.query(`
         WITH ord AS (
-          SELECT o.id, o.total_price, o.credited_total, o.shipping, o.discount, o.tax_rate, o.tax_amount,
+          SELECT o.id, o.total_price, o.credited_total, COALESCE(o.shipping, 0) AS shipping, COALESCE(o.discount, 0) AS discount, o.tax_rate, COALESCE(o.tax_amount, 0) AS tax_amount,
             (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id AND oi.tenant_id = o.tenant_id) AS n_items,
             (SELECT COALESCE(SUM(oi.line_price), 0) FROM order_items oi WHERE oi.order_id = o.id AND oi.tenant_id = o.tenant_id) AS gross,
             (SELECT COALESCE(SUM(cni.amount), 0) FROM credit_note_items cni JOIN credit_notes cn ON cn.id = cni.credit_note_id AND cn.tenant_id = cni.tenant_id
               WHERE cn.order_id = o.id AND cn.tenant_id = o.tenant_id AND cni.order_item_id IS NULL) AS by_amount
           FROM orders o WHERE ${W}
+        ), rets AS (
+          SELECT cni.order_item_id, SUM(cni.qty) AS ret
+          FROM ord
+          JOIN credit_notes cn ON cn.order_id = ord.id AND cn.tenant_id = $1
+          JOIN credit_note_items cni ON cni.credit_note_id = cn.id AND cni.tenant_id = $1
+          WHERE ord.credited_total > 0 AND cni.order_item_id IS NOT NULL
+          GROUP BY cni.order_item_id
         ), line AS (
           SELECT ord.id AS order_id, oi.unit_cost, oi.qty, oi.line_price,
-            GREATEST(oi.qty - ${RET}, 0) AS kept,
+            GREATEST(oi.qty - COALESCE(rets.ret, 0), 0) AS kept,
             CASE WHEN ord.gross > 0 THEN GREATEST(0, ord.gross - LEAST(ord.discount, ord.gross)) / ord.gross ELSE 1 END AS factor
           FROM ord JOIN order_items oi ON oi.order_id = ord.id AND oi.tenant_id = $1
+          LEFT JOIN rets ON rets.order_item_id = oi.id
         ), po AS (
           SELECT order_id,
             SUM(line_price * factor * kept / NULLIF(qty, 0)) AS net,
@@ -3624,7 +3754,7 @@ app.get('/api/reports/profit', requireAuth, async (req, res) => {
       utilidadNeta: gastosAplican ? r2(bruta - gastos) : null,
     });
   } catch (err) {
-    if (err instanceof BadRequest) return res.status(400).json({ error: err.message });
+    if (err instanceof BadRequest) return res.status(400).json(badRequestBody(err));
     console.error('Utilidad:', err.message);
     res.status(500).json({ error: 'No se pudo calcular la utilidad' });
   }
@@ -3638,14 +3768,17 @@ app.get('/api/reports/receivables', requireAuth, async (req, res) => {
   if (req.tenant.plan === 'basic') return planRequired(res);
   const tenantId = req.tenant.tenantId;
   try {
+    const tz = await resolveTenantTz(tenantId); // la antigüedad se cuenta en días del negocio (sin ubicación: 400 location_required)
     const OPEN = `o.tenant_id = $1 AND o.kind = 'order' AND o.delivery_status <> 'cancelled' AND o.total_price - o.credited_total - o.amount_paid > 0`;
+    const TODAY = "(NOW() AT TIME ZONE $2)::date";
+    const DAY_OF = (col) => `((${col} AT TIME ZONE current_setting('TimeZone')) AT TIME ZONE $2)::date`;
     const [buckets, debtors, base] = await Promise.all([
       pool.query(`
         SELECT CASE WHEN age <= 7 THEN 0 WHEN age <= 30 THEN 1 WHEN age <= 60 THEN 2 ELSE 3 END AS b,
                SUM(bal)::float AS total, COUNT(*)::int AS n
         FROM (SELECT o.total_price - o.credited_total - o.amount_paid AS bal,
-                     FLOOR(EXTRACT(EPOCH FROM (NOW() - o.created_at)) / 86400)::int AS age
-              FROM orders o WHERE ${OPEN}) x GROUP BY b`, [tenantId]),
+                     (${TODAY} - ${DAY_OF('o.created_at')})::int AS age
+              FROM orders o WHERE ${OPEN}) x GROUP BY b`, [tenantId, tz]),
       pool.query(`
         SELECT COALESCE(o.client_id::text, 'n:' || lower(COALESCE(o.client_name, ''))) AS k,
                (array_agg(o.client_id ORDER BY o.created_at))[1] AS client_id,
@@ -3653,9 +3786,9 @@ app.get('/api/reports/receivables', requireAuth, async (req, res) => {
                SUM(o.total_price - o.credited_total - o.amount_paid)::float AS total, COUNT(*)::int AS n,
                MIN(o.created_at) AS oldest_at,
                (array_agg(COALESCE(o.tenant_order_number, o.order_number) ORDER BY o.created_at))[1] AS oldest_num,
-               FLOOR(EXTRACT(EPOCH FROM (NOW() - MIN(o.created_at))) / 86400)::int AS oldest_age
+               (${TODAY} - ${DAY_OF('MIN(o.created_at)')})::int AS oldest_age
         FROM orders o WHERE ${OPEN}
-        GROUP BY 1 ORDER BY total DESC, name LIMIT ${RECEIVABLES_LIMIT + 1}`, [tenantId]),
+        GROUP BY 1 ORDER BY total DESC, name LIMIT ${RECEIVABLES_LIMIT + 1}`, [tenantId, tz]),
       pool.query('SELECT base_currency FROM tenants WHERE id = $1', [tenantId]),
     ]);
     const defs = [['0-7', '0–7 días'], ['8-30', '8–30 días'], ['31-60', '31–60 días'], ['60+', 'Más de 60 días']];
@@ -3805,6 +3938,7 @@ app.get('/api/stock/movements', requireAuth, async (req, res) => {
 });
 
 app.delete('/api/catalog/:id', requireAuth, async (req, res) => {
+  if (!UUID_RE.test(req.params.id)) return res.status(404).json({ error: 'Producto no encontrado' });
   try {
     const ok = await dbDeleteProduct(req.tenant.tenantId, req.params.id);
     if (!ok) return res.status(404).json({ error: 'Producto no encontrado' });
@@ -4572,6 +4706,7 @@ app.put('/api/admin/tenants/:tenantId', requireAdmin, async (req, res) => {
   for (const [key, raw] of Object.entries(req.body || {})) {
     if (!allowed.includes(key)) continue;
     let val = raw;
+    if (key === 'country') continue; // el país (y con él la zona horaria) se aplica abajo, con sus reglas
     if (key === 'email') {
       val = normEmail(raw);
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) return res.status(400).json({ error: 'Correo electrónico inválido' });
@@ -4579,18 +4714,29 @@ app.put('/api/admin/tenants/:tenantId', requireAdmin, async (req, res) => {
     sets.push(`${key} = $${i++}`);
     values.push(val);
   }
-  if (sets.length === 0) return res.status(400).json({ error: 'No hay campos válidos para actualizar' });
+  const newCountry = req.body && req.body.country !== undefined ? req.body.country : undefined;
+  if (sets.length === 0 && newCountry === undefined) return res.status(400).json({ error: 'No hay campos válidos para actualizar' });
+  if (!UUID_RE.test(String(req.params.tenantId))) return res.status(404).json({ error: 'Tenant no encontrado' });
   values.push(req.params.tenantId);
+  const txc = await pool.connect();
   try {
-    const { rows } = await pool.query(
-      `UPDATE tenants SET ${sets.join(', ')} WHERE id = $${i} RETURNING id, business_name, full_name, email, country, whatsapp_number`,
-      values
-    );
+    await txc.query('BEGIN');
+    if (newCountry !== undefined && !(await applyTenantLocation(txc, req.params.tenantId, { country: newCountry }))) {
+      await txc.query('ROLLBACK'); return res.status(404).json({ error: 'Tenant no encontrado' });
+    }
+    const { rows } = sets.length
+      ? await txc.query(`UPDATE tenants SET ${sets.join(', ')} WHERE id = $${i} RETURNING id, business_name, full_name, email, country, timezone, whatsapp_number`, values)
+      : await txc.query('SELECT id, business_name, full_name, email, country, timezone, whatsapp_number FROM tenants WHERE id = $1', [req.params.tenantId]);
+    await txc.query('COMMIT');
     if (!rows[0]) return res.status(404).json({ error: 'Tenant no encontrado' });
     res.json({ success: true, tenant: rows[0] });
   } catch (err) {
+    await txc.query('ROLLBACK').catch(() => {});
+    if (err instanceof BadRequest) return res.status(400).json({ error: err.message });
     if (err.code === '23505') return res.status(409).json({ error: 'Ese correo ya está en uso por otra cuenta' });
     res.status(500).json({ error: err.message });
+  } finally {
+    txc.release();
   }
 });
 
@@ -4708,7 +4854,11 @@ app.post('/api/admin/demos', requireAdmin, requireDemoKey, async (req, res) => {
   const businessName = String(b.businessName || '').trim();
   const ownerName = String(b.ownerName || '').trim();
   const city = String(b.city || '').trim() || 'Caracas';
-  const country = String(b.country || '').trim() || null;
+  const countryIn = String(b.country || '').trim() || null;
+  const countryCanon = ops.canonCountry(countryIn);
+  // La zona sale del país; una demo sin país (o «Otro») usa Venezuela / America/Caracas para tener siempre una zona
+  const country = countryIn ? (countryCanon || countryIn) : 'Venezuela';
+  const demoTz = ops.defaultTimezoneFor(countryCanon || (countryIn ? null : 'Venezuela')) || 'America/Caracas';
   const days = Math.min(30, Math.max(1, parseInt(b.days, 10) || 7));
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Correo inválido' });
   if (!businessName) return res.status(400).json({ error: 'Falta el nombre del negocio' });
@@ -4727,10 +4877,10 @@ app.post('/api/admin/demos', requireAdmin, requireDemoKey, async (req, res) => {
   try {
     await client.query('BEGIN');
     const { rows } = await client.query(`
-      INSERT INTO tenants (business_name, full_name, email, password_hash, plan, country, is_demo, demo_days, expires_at)
-      VALUES ($1,$2,$3,$4,'business',$5,true,$6, NOW() + make_interval(hours => $6 * 24))
+      INSERT INTO tenants (business_name, full_name, email, password_hash, plan, country, is_demo, demo_days, expires_at, timezone)
+      VALUES ($1,$2,$3,$4,'business',$5,true,$6, NOW() + make_interval(hours => $6 * 24), $7)
       RETURNING id, email, business_name, expires_at
-    `, [businessName, ownerName || null, email, hash, country, days]);
+    `, [businessName, ownerName || null, email, hash, country, days, demoTz]);
     tenant = rows[0];
     await seedDemoTenant(client, tenant.id, { city });
     await client.query('COMMIT');
@@ -4867,6 +5017,8 @@ const BACKGROUND_INDEXES = [
   { name: 'order_items_order_idx', table: 'order_items', sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS order_items_order_idx ON order_items (order_id)' },
   // Fase 3: unicidad del número de presupuesto por negocio
   { name: 'orders_tenant_quote_number_uniq', table: 'orders', sql: 'CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS orders_tenant_quote_number_uniq ON orders (tenant_id, quote_number) WHERE quote_number IS NOT NULL' },
+  // Fase 4A: informes, utilidad y por cobrar filtran pedidos por (negocio, fecha de creación)
+  { name: 'orders_tenant_created_idx', table: 'orders', sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS orders_tenant_created_idx ON orders (tenant_id, created_at)' },
   // Relleno de pagos en cada arranque (pagos.js): hace barata la búsqueda de pedidos 'ok' sin pago. Parcial:
   // solo contiene pedidos pendientes de convertir (casi siempre ninguno).
   { name: 'orders_legacy_paid_id_idx', table: 'orders', sql: "CREATE INDEX CONCURRENTLY IF NOT EXISTS orders_legacy_paid_id_idx ON orders (id) WHERE pay_status = 'ok' AND amount_paid = 0 AND total_price > 0" },

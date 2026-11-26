@@ -344,8 +344,8 @@ async function seedDemoTenant(client, tenantId, { city = 'Ciudad Demo' } = {}) {
   }
 
   // Gastos de ejemplo y el cierre de caja de ayer (con una pequeña diferencia)
-  const { rows: [tz0] } = await client.query('SELECT timezone FROM tenants WHERE id = $1', [tenantId]);
-  const tz = ops.tzOf(tz0);
+  const { rows: [tz0] } = await client.query('SELECT timezone, country FROM tenants WHERE id = $1', [tenantId]);
+  const tz = ops.tzOf(tz0) || ops.DEFAULT_TIMEZONE; // las demos nacen con zona (desde su país); Caracas solo como último recurso
   const dayAgo = async (d) => (await client.query(`SELECT to_char((now() - ($1 || ' days')::interval) AT TIME ZONE $2, 'YYYY-MM-DD') AS d`, [String(d), tz])).rows[0].d;
   for (const e of EXPENSES) {
     const made = new Date(now - e.d * 86400000 - 3600000);
@@ -358,14 +358,16 @@ async function seedDemoTenant(client, tenantId, { city = 'Ciudad Demo' } = {}) {
     const day = await dayAgo(1);
     const expected = await ops.computeCashExpected(client, tenantId, day, tz);
     if (expected.length) {
+      // Formato por método Y moneda: claves "método|MONEDA" (ver operacion.js → computeCashExpected)
       const exp = {}, cnt = {}, dif = {};
       let shorted = false;
       for (const m of expected) {
-        exp[m.method] = m.esperado;
-        let c = Math.max(0, m.esperado);
+        const key = ops.cashKey(m.method, m.currency);
+        exp[key] = m.expected;
+        let c = Math.max(0, m.expected);
         if (!shorted && c >= 1.5) { c = money(c - 1.5); shorted = true; } // faltaron 1.50 en la caja
-        cnt[m.method] = c;
-        dif[m.method] = money(c - m.esperado);
+        cnt[key] = c;
+        dif[key] = money(c - m.expected);
       }
       await client.query(
         `INSERT INTO cash_closings (tenant_id, day, expected, counted, difference, note, closed_at) VALUES ($1,$2::date,$3,$4,$5,$6,$7)`,

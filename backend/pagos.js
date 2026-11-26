@@ -71,11 +71,18 @@ const rawMethodsFor = (allRaw, wanted) => { const k = methodKey(wanted); return 
 // total, en la moneda base del negocio. UN lote (hasta `limit` pedidos); devuelve cuántos convirtió.
 // Seguro de reejecutar y de correr junto a pagos nuevos: bloquea los pedidos (SKIP LOCKED) y solo toca los
 // que aún no tienen ningún pago. La condición amount_paid = 0 coincide con orders_legacy_paid_id_idx (por id: da el orden de ORDER BY o.id sin recorrer la tabla).
+// Fase 4A: el pago se fecha en el día de creación del pedido; si ese día tiene la caja CERRADA, el pedido se omite (el pago
+// aparecería dentro de un día ya contado). Se recoge en cuanto se reabre ese día. (Si cash_closings aún no existe, no hay cierres.)
 async function backfillLegacyPayments(db, limit = BACKFILL_BATCH) {
+  const hasClosings = await hasRelation(db, 'cash_closings');
   const { rows: cand } = await db.query(`
     SELECT o.id, o.pay_method_label FROM orders o
     WHERE o.pay_status = 'ok' AND o.amount_paid = 0 AND o.total_price > 0
-      AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.order_id = o.id)
+      AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.order_id = o.id)${hasClosings ? `
+      AND NOT EXISTS (
+        SELECT 1 FROM cash_closings cc JOIN tenants tt ON tt.id = cc.tenant_id
+        WHERE cc.tenant_id = o.tenant_id AND cc.reopened_at IS NULL AND tt.timezone IS NOT NULL
+          AND cc.day = ((o.created_at AT TIME ZONE current_setting('TimeZone')) AT TIME ZONE tt.timezone)::date)` : ''}
     ORDER BY o.id LIMIT $1 FOR UPDATE OF o SKIP LOCKED`, [limit]);
   if (!cand.length) return 0;
   const ids = cand.map(r => r.id);

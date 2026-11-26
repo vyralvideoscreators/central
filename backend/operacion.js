@@ -6,18 +6,25 @@
 //  · El dinero y las existencias no se editan, se registran: gastos y ajustes solo se insertan (o se anulan, con motivo).
 //  · Todo en la moneda base del negocio. Todo dentro de la transacción de quien llama.
 //  · ORDEN DE BLOQUEO (siempre): pedido → tenant → cliente → existencias (stock_levels, ordenadas por producto y variante).
-//    Las operaciones de dinero toman la fila del tenant FOR SHARE (lockTenantForCash) y el cierre/reapertura de caja
-//    FOR UPDATE: así «cerrar» y «cobrar» a la vez se serializan y quien llega segundo ve el cierre.
+//    Las operaciones de dinero toman la fila del tenant FOR KEY SHARE (lockTenantForCash: no choca con el UPDATE de los
+//    contadores de numeración, así un cobro y un alta de pedido a la vez no se esperan) y el cierre/reapertura de caja y
+//    el cambio de moneda base FOR UPDATE: así «cerrar» y «cobrar» a la vez se serializan y quien llega segundo ve el cierre.
+//  · Zona horaria: SOLO la que fija la ubicación del negocio (país + zona, ver COUNTRY_TIMEZONES). Nunca la del navegador.
 'use strict';
 
 const { hasColumn, hasRelation, ensureOwnIndex, normalizeMethodName, methodKey, isCreditMethod, CREDIT_METHOD } = require('./pagos');
 
 class BadRequest extends Error {}
+// Falta la ubicación del negocio (país/zona): los cálculos por día no pueden saber qué día es. Se responde 400 con
+// { error: 'location_required', message }.
+class LocationRequired extends BadRequest {}
+const LOCATION_MSG = 'Configura la ubicación del negocio en Ajustes → Ubicación';
 
 const OPS_DDL_LOCK_KEY = 72616105;
 const DEFAULT_TIMEZONE = 'America/Caracas';
 const MAX_MONEY = 99999999.99;
-const MAX_STOCK_QTY = 1000000;
+const MAX_STOCK_QTY = 1000000;        // por ajuste
+const MAX_STOCK_LEVEL = 10000000;     // |nivel| resultante de un ajuste
 const MAX_VARIANTS_PER_PRODUCT = 400;
 const DEFAULT_EXPENSE_CATEGORIES = ['Compras de mercancía', 'Envíos', 'Alquiler', 'Servicios', 'Publicidad', 'Sueldos', 'Otros'];
 const MAX_EXPENSE_CATEGORIES = 30;
@@ -39,7 +46,83 @@ function validTz(tz) {
   if (typeof tz !== 'string' || !tz || tz.length > 64) return false;
   try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return true; } catch { return false; }
 }
-const tzOf = (t) => (t && validTz(t.timezone)) ? t.timezone : DEFAULT_TIMEZONE;
+
+// ── Ubicación del negocio: país → zonas horarias ───────────────
+// La zona de un negocio sale SOLO de su país (lista cerrada del registro) y, si el país tiene varias, de la que elija.
+// La primera de cada lista es la de por defecto. «Otro» no tiene zona por defecto: hay que elegir una.
+const COUNTRY_TIMEZONES = {
+  'Venezuela': ['America/Caracas'],
+  'Colombia': ['America/Bogota'],
+  'México': ['America/Mexico_City', 'America/Cancun', 'America/Tijuana', 'America/Hermosillo', 'America/Chihuahua', 'America/Mazatlan'],
+  'Argentina': ['America/Argentina/Buenos_Aires'],
+  'Chile': ['America/Santiago', 'Pacific/Easter'],
+  'Perú': ['America/Lima'],
+  'Ecuador': ['America/Guayaquil', 'Pacific/Galapagos'],
+  'Bolivia': ['America/La_Paz'],
+  'Paraguay': ['America/Asuncion'],
+  'Uruguay': ['America/Montevideo'],
+  'Panama': ['America/Panama'],
+  'Costa Rica': ['America/Costa_Rica'],
+  'Guatemala': ['America/Guatemala'],
+  'Honduras': ['America/Tegucigalpa'],
+  'El Salvador': ['America/El_Salvador'],
+  'Nicaragua': ['America/Managua'],
+  'República Dominicana': ['America/Santo_Domingo'],
+  'Cuba': ['America/Havana'],
+  'Puerto Rico': ['America/Puerto_Rico'],
+  'España': ['Europe/Madrid', 'Atlantic/Canary'],
+};
+const OTHER_COUNTRY = 'Otro';
+const COUNTRIES = [...Object.keys(COUNTRY_TIMEZONES), OTHER_COUNTRY];
+// «Otro»: zonas de América y Europa (las de los países de la lista y algunas más)
+const OTHER_TIMEZONES = [...new Set([
+  'America/New_York', 'America/Chicago', 'America/Denver', 'America/Phoenix', 'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu',
+  'America/Toronto', 'America/Vancouver', 'America/Winnipeg', 'America/Edmonton', 'America/Halifax', 'America/St_Johns',
+  'America/Sao_Paulo', 'America/Manaus', 'America/Fortaleza', 'America/Belem', 'America/Cuiaba', 'America/Noronha', 'America/Rio_Branco',
+  'America/Guyana', 'America/Paramaribo', 'America/Cayenne', 'America/Belize', 'America/Jamaica', 'America/Port-au-Prince', 'America/Nassau',
+  'America/Port_of_Spain', 'America/Barbados', 'America/Martinique', 'America/Curacao', 'America/Aruba', 'America/Guadeloupe',
+  'Europe/London', 'Europe/Dublin', 'Europe/Lisbon', 'Atlantic/Azores', 'Atlantic/Madeira', 'Europe/Paris', 'Europe/Berlin', 'Europe/Rome',
+  'Europe/Amsterdam', 'Europe/Brussels', 'Europe/Luxembourg', 'Europe/Zurich', 'Europe/Vienna', 'Europe/Prague', 'Europe/Warsaw',
+  'Europe/Budapest', 'Europe/Stockholm', 'Europe/Oslo', 'Europe/Copenhagen', 'Europe/Helsinki', 'Europe/Athens', 'Europe/Bucharest',
+  'Europe/Sofia', 'Europe/Istanbul', 'Europe/Moscow', 'Europe/Belgrade', 'Europe/Zagreb', 'Europe/Andorra', 'Europe/Monaco',
+  ...Object.values(COUNTRY_TIMEZONES).flat(),
+])].filter(validTz);
+
+const countryKey = (s) => stripAccents(String(s === undefined || s === null ? '' : s).replace(/\s+/g, ' ').trim()).toLowerCase();
+const COUNTRY_BY_KEY = new Map(COUNTRIES.map(c => [countryKey(c), c]));
+// Nombre canónico de un país de la lista cerrada (sin distinguir mayúsculas ni acentos); null si no está en la lista
+const canonCountry = (s) => COUNTRY_BY_KEY.get(countryKey(s)) || null;
+// Zonas válidas de un país ([] si no es un país conocido; «Otro» = lista amplia)
+function timezonesForCountry(country) {
+  const c = canonCountry(country);
+  if (!c) return [];
+  return c === OTHER_COUNTRY ? OTHER_TIMEZONES.slice() : COUNTRY_TIMEZONES[c].slice();
+}
+// Zona por defecto de un país (null para «Otro», un país desconocido o sin país)
+const defaultTimezoneFor = (country) => {
+  const c = canonCountry(country);
+  return c && c !== OTHER_COUNTRY ? COUNTRY_TIMEZONES[c][0] : null;
+};
+const tzValidForCountry = (country, tz) => timezonesForCountry(country).includes(tz);
+
+// Zona EFECTIVA de un negocio ({ country, timezone } de la fila de tenants), o null si no tiene ninguna válida:
+//  · país con zonas → la guardada si es de ese país; si no, la por defecto del país (se recalcula desde el país)
+//  · «Otro» → la guardada si está en la lista de «Otro»; si no, ninguna
+//  · sin país (negocios antiguos) → la guardada si es una zona válida (el relleno de arranque no los toca)
+function tzOf(t) {
+  if (!t) return null;
+  const c = canonCountry(t.country);
+  const stored = typeof t.timezone === 'string' ? t.timezone : null;
+  if (c && c !== OTHER_COUNTRY) return stored && COUNTRY_TIMEZONES[c].includes(stored) ? stored : COUNTRY_TIMEZONES[c][0];
+  if (c === OTHER_COUNTRY) return stored && OTHER_TIMEZONES.includes(stored) ? stored : null;
+  return validTz(stored) ? stored : null;
+}
+// Igual que tzOf pero falla con LocationRequired (400 location_required) si no hay zona
+function requireTz(t) {
+  const tz = tzOf(t);
+  if (!tz) throw new LocationRequired(LOCATION_MSG);
+  return tz;
+}
 const dayLabel = (day) => `${day.slice(8, 10)}/${day.slice(5, 7)}`; // 2026-11-27 → 27/11
 const shiftDay = (d, k) => new Date(Date.parse(d) + k * 86400000).toISOString().slice(0, 10);
 
@@ -179,7 +262,8 @@ async function ensureStockExpensesSchema(pool) {
       ['cash_closings_tenant_day_idx',   'cash_closings',   'CREATE INDEX cash_closings_tenant_day_idx ON cash_closings (tenant_id, day)'],
       ['stock_levels_product_idx',       'stock_levels',    'CREATE INDEX stock_levels_product_idx ON stock_levels (product_id)'],
       ['stock_movements_product_idx',    'stock_movements', 'CREATE INDEX stock_movements_product_idx ON stock_movements (tenant_id, product_id, created_at DESC)'],
-      ['stock_movements_order_idx',      'stock_movements', 'CREATE INDEX stock_movements_order_idx ON stock_movements (order_id) WHERE order_id IS NOT NULL'],
+      ['stock_movements_fk_product_idx', 'stock_movements', 'CREATE INDEX stock_movements_fk_product_idx ON stock_movements (product_id)'], // ON DELETE CASCADE de catalog_products
+      ['stock_movements_order_idx',      'stock_movements','CREATE INDEX stock_movements_order_idx ON stock_movements (order_id) WHERE order_id IS NOT NULL'],
     ]) await ensureOwnIndex(client, name, table, sql);
     await client.query('COMMIT');
   } catch (err) {
@@ -210,6 +294,7 @@ function cleanExpenseCategories(v) {
     if (typeof c !== 'string') throw new BadRequest('Cada categoría es un texto');
     const name = c.replace(/\s+/g, ' ').trim();
     if (!name || name.length > 60) throw new BadRequest('Categoría de gasto: el nombre es obligatorio (máx. 60 caracteres)');
+    if (name.includes(',')) throw new BadRequest(`La categoría «${name}» no puede llevar comas (envía una lista, una categoría por elemento)`);
     const k = stripAccents(name).toLowerCase();
     if (seen.has(k)) throw new BadRequest(`Categoría repetida: "${name}"`);
     seen.add(k);
@@ -225,10 +310,12 @@ async function getExpenseCategories(db, tenantId) {
 }
 
 // ── Caja: bloqueo y cierre por día ─────────────────────────────
-// Toma la fila del tenant. Operaciones de dinero: SHARE (varias a la vez); cerrar/reabrir caja: UPDATE (esperan a todas).
-// Devuelve { timezone, base_currency }.
+// Toma la fila del tenant. Operaciones de dinero: FOR KEY SHARE (varias a la vez, y no choca con el UPDATE de los contadores
+// de numeración de pedidos); cerrar/reabrir caja y cambiar la moneda base: FOR UPDATE (esperan a todas las anteriores).
+// Devuelve { timezone, country, base_currency }.
 async function lockTenantForCash(db, tenantId, mode = 'SHARE') {
-  const { rows } = await db.query(`SELECT timezone, base_currency FROM tenants WHERE id = $1 FOR ${mode === 'UPDATE' ? 'UPDATE' : 'SHARE'}`, [tenantId]);
+  const { rows } = await db.query(
+    `SELECT timezone, country, base_currency FROM tenants WHERE id = $1 FOR ${mode === 'UPDATE' ? 'UPDATE' : 'KEY SHARE'}`, [tenantId]);
   if (!rows[0]) throw new Error('Tenant no encontrado');
   return rows[0];
 }
@@ -238,137 +325,175 @@ async function businessDay(db, tz, instant = null) {
   return r.d;
 }
 // Falla (400) si alguno de los días está cerrado. Hay que llamarla DENTRO de la transacción de la operación.
+// Sin zona (negocio sin ubicación) no puede haber cierres —cerrar exige zona y la zona no cambia con cierres abiertos—,
+// así que no hay día cerrado que proteger y la operación sigue (no se cortan las ventas).
 async function assertCashOpen(db, tenantId, { instants = [], days = [] } = {}) {
   const t = await lockTenantForCash(db, tenantId, 'SHARE');
   const tz = tzOf(t);
   const all = new Set(days);
-  for (const i of instants) all.add(await businessDay(db, tz, i));
+  if (tz) for (const i of instants) all.add(await businessDay(db, tz, i));
   if (!all.size) return t;
   const { rows } = await db.query(
     'SELECT day FROM cash_closings WHERE tenant_id = $1 AND reopened_at IS NULL AND day = ANY($2::date[]) ORDER BY day LIMIT 1', [tenantId, [...all]]);
-  if (rows[0]) throw new BadRequest(`La caja del ${dayLabel(rows[0].day)} está cerrada. Reábrela en Pagos para registrar o anular movimientos de ese día.`);
+  if (rows[0]) throw new BadRequest(`La caja del ${dayLabel(rows[0].day)} está cerrada. Reábrela en Caja para registrar o anular movimientos de ese día.`);
   return t;
 }
 
-// Esperado por método del día: cobros − reembolsos − gastos (pagos no anulados; el saldo a favor no es dinero nuevo).
-// Devuelve [{ method, cobrado, reembolsado, gastos, esperado }] ordenado por método canónico.
+// Esperado del día POR MÉTODO Y MONEDA (importes ORIGINALES, en la moneda en que se cobró/pagó): cobros − reembolsos − gastos
+// (pagos no anulados; el saldo a favor no es dinero nuevo). Los reembolsos van hoy siempre en moneda base.
+// Devuelve [{ method, currency, cobrado, reembolsado, gastos, expected, base }] ordenado por método y moneda;
+// `base` = el mismo neto en moneda base (solo referencia: no se puede sumar entre monedas).
+// La clave de una fila guardada es cashKey(method, currency) = "método|MONEDA".
+const cashKey = (method, currency) => `${method}|${currency}`;
 async function computeCashExpected(db, tenantId, day, tz) {
   const RANGE = (col) => `${col} >= ($2::date::timestamp AT TIME ZONE $3) AND ${col} < (($2::date + 1)::timestamp AT TIME ZONE $3)`;
   const [pay, ref, exp] = await Promise.all([
-    db.query(`SELECT method, COALESCE(SUM(amount_base), 0) AS t FROM payments
-              WHERE tenant_id = $1 AND voided_at IS NULL AND method <> $4 AND ${RANGE('paid_at')} GROUP BY method`, [tenantId, day, tz, CREDIT_METHOD]),
-    db.query(`SELECT method, COALESCE(SUM(amount_base), 0) AS t FROM refunds
-              WHERE tenant_id = $1 AND method <> $4 AND ${RANGE('created_at')} GROUP BY method`, [tenantId, day, tz, CREDIT_METHOD]),
-    db.query(`SELECT method, COALESCE(SUM(amount_base), 0) AS t FROM expenses
-              WHERE tenant_id = $1 AND voided_at IS NULL AND spent_on = $2::date GROUP BY method`, [tenantId, day]),
+    db.query(`SELECT method, currency, COALESCE(SUM(amount), 0) AS t, COALESCE(SUM(amount_base), 0) AS b FROM payments
+              WHERE tenant_id = $1 AND voided_at IS NULL AND method <> $4 AND ${RANGE('paid_at')} GROUP BY method, currency`, [tenantId, day, tz, CREDIT_METHOD]),
+    db.query(`SELECT method, currency, COALESCE(SUM(amount), 0) AS t, COALESCE(SUM(amount_base), 0) AS b FROM refunds
+              WHERE tenant_id = $1 AND method <> $4 AND ${RANGE('created_at')} GROUP BY method, currency`, [tenantId, day, tz, CREDIT_METHOD]),
+    db.query(`SELECT method, currency, COALESCE(SUM(amount), 0) AS t, COALESCE(SUM(amount_base), 0) AS b FROM expenses
+              WHERE tenant_id = $1 AND voided_at IS NULL AND spent_on = $2::date GROUP BY method, currency`, [tenantId, day]),
   ]);
   const by = new Map();
   const add = (rows, field) => {
     for (const r of rows) {
-      const k = methodKey(r.method);
-      if (!by.has(k)) by.set(k, { method: normalizeMethodName(r.method), cobrado: 0, reembolsado: 0, gastos: 0 });
-      by.get(k)[field] += centsOf(r.t);
+      const cur0 = String(r.currency).toUpperCase();
+      const k = methodKey(r.method) + '|' + cur0;
+      const disp = normalizeMethodName(r.method);
+      let cur = by.get(k);
+      if (!cur) { cur = { method: disp, currency: cur0, cobrado: 0, reembolsado: 0, gastos: 0, base: 0 }; by.set(k, cur); }
+      else if (cur.method === stripAccents(cur.method) && disp !== stripAccents(disp)) cur.method = disp; // preferir la forma con acentos
+      cur[field] += centsOf(r.t);
+      cur.base += (field === 'cobrado' ? 1 : -1) * centsOf(r.b);
     }
   };
   add(pay.rows, 'cobrado'); add(ref.rows, 'reembolsado'); add(exp.rows, 'gastos');
   return [...by.values()].map(m => ({
-    method: m.method, cobrado: m.cobrado / 100, reembolsado: m.reembolsado / 100, gastos: m.gastos / 100,
-    esperado: (m.cobrado - m.reembolsado - m.gastos) / 100,
-  })).sort((a, b) => a.method.localeCompare(b.method));
+    method: m.method, currency: m.currency, cobrado: m.cobrado / 100, reembolsado: m.reembolsado / 100, gastos: m.gastos / 100,
+    expected: (m.cobrado - m.reembolsado - m.gastos) / 100, base: m.base / 100,
+  })).sort((a, b) => a.method.localeCompare(b.method) || a.currency.localeCompare(b.currency));
 }
 
-function mapClosing(r) {
+// Un cierre guardado → filas { method, currency, expected, counted, difference }. Formato nuevo: claves "método|MONEDA".
+// Formato antiguo (solo por método, todo en moneda base): las claves sin «|» se leen como moneda base.
+function closingLines(r, baseCurrency = 'USD') {
   const exp = r.expected || {}, cnt = r.counted || {}, dif = r.difference || {};
-  const methods = [...new Set([...Object.keys(exp), ...Object.keys(cnt)])].sort((a, b) => a.localeCompare(b));
-  const lines = methods.map(m => ({ method: m, expected: Number(exp[m] || 0), counted: Number(cnt[m] || 0), difference: Number(dif[m] || 0) }));
+  const keys = [...new Set([...Object.keys(exp), ...Object.keys(cnt)])];
+  return keys.map(k => {
+    const i = k.lastIndexOf('|');
+    const method = i >= 0 ? k.slice(0, i) : k, currency = i >= 0 ? k.slice(i + 1) : baseCurrency;
+    return { method, currency, expected: Number(exp[k] || 0), counted: Number(cnt[k] || 0), difference: Number(dif[k] || 0) };
+  }).sort((a, b) => a.method.localeCompare(b.method) || a.currency.localeCompare(b.currency));
+}
+function mapClosing(r, baseCurrency = 'USD') {
+  const lines = closingLines(r, baseCurrency);
   return {
     id: r.id, day: r.day, status: r.reopened_at ? 'reopened' : 'closed', note: r.note,
     closedAt: r.closed_at, closedBy: r.closed_by, reopenedAt: r.reopened_at, reopenReason: r.reopen_reason,
     lines,
-    totalExpected: money2(lines.reduce((a, l) => a + l.expected, 0)),
-    totalCounted: money2(lines.reduce((a, l) => a + l.counted, 0)),
-    totalDifference: money2(lines.reduce((a, l) => a + l.difference, 0)),
+    // Descuadre: cuántas filas no cuadran (los importes de monedas distintas no se suman)
+    differentLines: lines.filter(l => centsOf(l.difference) !== 0).length,
   };
 }
 
-// Estado de un día: esperado por método + cierre vigente + historial de cierres (con sus reaperturas)
+// Estado de un día: esperado por método y moneda + cierre vigente + historial de cierres (con sus reaperturas).
+// Sin zona horaria del negocio → LocationRequired (no se sabe qué día es).
 async function getCashDay(db, tenantId, day) {
   if (!isRealDate(day)) throw new BadRequest('Fecha inválida (formato AAAA-MM-DD)');
-  const { rows: [t] } = await db.query('SELECT timezone, base_currency FROM tenants WHERE id = $1', [tenantId]);
-  const tz = tzOf(t);
+  const { rows: [t] } = await db.query('SELECT timezone, country, base_currency FROM tenants WHERE id = $1', [tenantId]);
+  const tz = requireTz(t);
+  const base = (t && t.base_currency) || 'USD';
   const [expected, hist, today] = await Promise.all([
     computeCashExpected(db, tenantId, day, tz),
     db.query('SELECT * FROM cash_closings WHERE tenant_id = $1 AND day = $2::date ORDER BY closed_at DESC LIMIT 50', [tenantId, day]),
     businessDay(db, tz),
   ]);
-  const history = hist.rows.map(mapClosing);
+  const history = hist.rows.map(r => mapClosing(r, base));
   const current = history.find(h => h.status === 'closed') || null;
+  // rows: lo que se muestra/cuenta. Con el día cerrado lleva counted y difference del cierre vigente.
+  const byKey = current ? new Map(current.lines.map(l => [methodKey(l.method) + '|' + l.currency, l])) : null;
+  const rows = expected.map(e => {
+    const l = byKey && byKey.get(methodKey(e.method) + '|' + e.currency);
+    const out = { method: e.method, currency: e.currency, expected: e.expected, cobrado: e.cobrado, reembolsado: e.reembolsado, gastos: e.gastos };
+    if (l) { out.counted = l.counted; out.difference = l.difference; }
+    return out;
+  });
+  if (current) { // filas contadas que no tenían movimientos ese día
+    const seen = new Set(rows.map(r => methodKey(r.method) + '|' + r.currency));
+    for (const l of current.lines) if (!seen.has(methodKey(l.method) + '|' + l.currency)) {
+      rows.push({ method: l.method, currency: l.currency, expected: l.expected, cobrado: 0, reembolsado: 0, gastos: 0, counted: l.counted, difference: l.difference });
+    }
+  }
   return {
-    day, today, timezone: tz, baseCurrency: t.base_currency || 'USD',
+    day, today, timezone: tz, baseCurrency: base,
     status: current ? 'closed' : 'open', isFuture: day > today,
-    expected, expectedTotal: money2(expected.reduce((a, m) => a + m.esperado, 0)),
+    rows,
+    expectedBase: money2(expected.reduce((a, m) => a + m.base, 0)), // referencia: neto del día en moneda base
     closing: current, history,
   };
 }
 
-// Cierra la caja de un día. counted = { método: importe }, uno por cada método con esperado ≠ 0.
+// Cierra la caja de un día. body.counted = [{ method, currency, amount }], una fila por cada (método, moneda) con esperado ≠ 0.
 async function closeCashDay(db, tenantId, day, body, createdBy = 'owner') {
   if (!isRealDate(day)) throw new BadRequest('Fecha inválida (formato AAAA-MM-DD)');
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new BadRequest('Datos del cierre inválidos');
   const note = cleanText(body.note, 300, 'Nota', false);
   const t = await lockTenantForCash(db, tenantId, 'UPDATE'); // espera a que terminen las operaciones de dinero en curso
-  const tz = tzOf(t);
+  const tz = requireTz(t);
+  const base = t.base_currency || 'USD';
   const today = await businessDay(db, tz);
   if (day > today) throw new BadRequest('No se puede cerrar un día futuro');
   const { rows: [open] } = await db.query('SELECT 1 FROM cash_closings WHERE tenant_id = $1 AND day = $2::date AND reopened_at IS NULL', [tenantId, day]);
   if (open) throw new BadRequest(`La caja del ${dayLabel(day)} ya está cerrada`);
   const raw = body.counted;
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new BadRequest('Indica lo contado por método de pago');
-  const entries = Object.entries(raw);
-  if (entries.length > 30) throw new BadRequest('Demasiados métodos de pago');
-  const countedC = new Map(); // clave canónica → { name, cents }
-  for (const [name, v] of entries) {
-    const m = normalizeMethodName(cleanText(name, 60, 'Método', true));
+  if (!Array.isArray(raw)) throw new BadRequest('Indica lo contado por método de pago y moneda: una lista de { method, currency, amount }');
+  if (raw.length > 60) throw new BadRequest('Demasiadas filas contadas');
+  const countedC = new Map(); // "clave canónica|MONEDA" → { method, currency, cents }
+  for (const e of raw) {
+    if (!e || typeof e !== 'object' || Array.isArray(e)) throw new BadRequest('Fila contada inválida');
+    const m = normalizeMethodName(cleanText(e.method, 60, 'Método', true));
     if (isCreditMethod(m)) throw new BadRequest('El saldo a favor no entra en la caja');
-    const n = payNum(v);
-    if (!Number.isFinite(n) || n < 0 || n > MAX_MONEY) throw new BadRequest(`Importe contado inválido en «${m}»`);
-    const k = methodKey(m);
-    const cur = countedC.get(k) || { name: m, cents: 0 };
-    cur.cents += centsOf(n);
-    countedC.set(k, cur);
+    const currency = e.currency === undefined || e.currency === null || e.currency === '' ? base : String(e.currency).trim().toUpperCase();
+    if (!PAY_CURRENCY_RE.test(currency)) throw new BadRequest(`Moneda inválida en «${m}»`);
+    const n = payNum(e.amount);
+    if (!Number.isFinite(n) || n < 0 || n > MAX_MONEY) throw new BadRequest(`Importe contado inválido en «${m}» (${currency})`);
+    const k = methodKey(m) + '|' + currency;
+    if (countedC.has(k)) throw new BadRequest(`«${m}» (${currency}) está repetido en lo contado`);
+    countedC.set(k, { method: m, currency, cents: centsOf(n) });
   }
   const expected = await computeCashExpected(db, tenantId, day, tz);
   const expObj = {}, cntObj = {}, difObj = {};
+  const names = new Map();
   for (const e of expected) {
-    if (centsOf(e.esperado) !== 0 && !countedC.has(methodKey(e.method))) throw new BadRequest(`Falta contar «${e.method}»`);
-    expObj[e.method] = e.esperado;
+    const k = methodKey(e.method) + '|' + e.currency;
+    if (centsOf(e.expected) !== 0 && !countedC.has(k)) throw new BadRequest(`Falta contar «${e.method}» (${e.currency})`);
+    names.set(k, e.method);
+    expObj[cashKey(e.method, e.currency)] = e.expected;
   }
-  const names = new Map(expected.map(e => [methodKey(e.method), e.method]));
-  for (const [k, c] of countedC) {
-    const name = names.get(k) || c.name;
-    cntObj[name] = c.cents / 100;
-  }
-  for (const m of new Set([...Object.keys(expObj), ...Object.keys(cntObj)])) {
-    expObj[m] = expObj[m] || 0;
-    cntObj[m] = cntObj[m] || 0;
-    difObj[m] = (centsOf(cntObj[m]) - centsOf(expObj[m])) / 100;
+  for (const [k, c] of countedC) cntObj[cashKey(names.get(k) || c.method, c.currency)] = c.cents / 100;
+  for (const key of new Set([...Object.keys(expObj), ...Object.keys(cntObj)])) {
+    expObj[key] = expObj[key] || 0;
+    cntObj[key] = cntObj[key] || 0;
+    difObj[key] = (centsOf(cntObj[key]) - centsOf(expObj[key])) / 100;
   }
   const { rows: [row] } = await db.query(`
     INSERT INTO cash_closings (tenant_id, day, expected, counted, difference, note, closed_by)
     VALUES ($1, $2::date, $3, $4, $5, $6, $7) RETURNING *`,
     [tenantId, day, JSON.stringify(expObj), JSON.stringify(cntObj), JSON.stringify(difObj), note, createdBy]);
-  return mapClosing(row);
+  return mapClosing(row, base);
 }
 
 async function reopenCashDay(db, tenantId, day, body) {
   if (!isRealDate(day)) throw new BadRequest('Fecha inválida (formato AAAA-MM-DD)');
   const reason = cleanText(body && body.reason, 200, 'Motivo', true);
-  await lockTenantForCash(db, tenantId, 'UPDATE');
+  const t = await lockTenantForCash(db, tenantId, 'UPDATE');
+  requireTz(t);
   const { rows } = await db.query(
     'UPDATE cash_closings SET reopened_at = now(), reopen_reason = $3 WHERE tenant_id = $1 AND day = $2::date AND reopened_at IS NULL RETURNING *',
     [tenantId, day, reason]);
   if (!rows[0]) throw new BadRequest(`La caja del ${dayLabel(day)} no está cerrada`);
-  return mapClosing(rows[0]);
+  return mapClosing(rows[0], t.base_currency || 'USD');
 }
 
 // ── Gastos ────────────────────────────────────────────────────
@@ -384,7 +509,7 @@ function mapExpenseRow(r) {
 async function addExpenseTx(db, tenantId, body, createdBy = 'owner') {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new BadRequest('Datos del gasto inválidos');
   const t0 = await lockTenantForCash(db, tenantId, 'SHARE');
-  const tz = tzOf(t0), base = t0.base_currency || 'USD';
+  const tz = requireTz(t0), base = t0.base_currency || 'USD';
   const today = await businessDay(db, tz);
   let spentOn = today;
   if (body.spentOn !== undefined && body.spentOn !== null && body.spentOn !== '') {
@@ -407,6 +532,7 @@ async function addExpenseTx(db, tenantId, body, createdBy = 'owner') {
     amountBaseC = Math.round(amountR / rate * 100);
     if (amountBaseC < 1) throw new BadRequest('El monto es demasiado pequeño para esa tasa');
   }
+  if (amountBaseC > centsOf(MAX_MONEY)) throw new BadRequest('El monto es demasiado grande (en moneda base supera el máximo permitido)');
   const cats = await getExpenseCategories(db, tenantId);
   const wanted = stripAccents(String(cleanText(body.category, 60, 'Categoría', true))).toLowerCase();
   const category = cats.find(c => stripAccents(c).toLowerCase() === wanted);
@@ -428,6 +554,7 @@ async function voidExpenseTx(db, tenantId, expenseId, reason) {
   const why = cleanText(reason, 200, 'Motivo', true);
   const { rows: [e] } = await db.query('SELECT spent_on FROM expenses WHERE id = $1 AND tenant_id = $2', [expenseId, tenantId]);
   if (!e) return null;
+  requireTz(await lockTenantForCash(db, tenantId, 'SHARE')); // sin ubicación no se sabe qué día es
   await assertCashOpen(db, tenantId, { days: [e.spent_on] });
   const { rows } = await db.query(
     'UPDATE expenses SET voided_at = now(), void_reason = $3 WHERE id = $1 AND tenant_id = $2 AND voided_at IS NULL RETURNING *', [expenseId, tenantId, why]);
@@ -460,30 +587,46 @@ async function orderDeducted(db, tenantId, orderId) {
   return new Map(rows.map(r => [r.product_id + '|' + r.variant_key, { productId: r.product_id, variantKey: r.variant_key, ded: r.ded }]));
 }
 
-// Deja las existencias del pedido en lo que dicen sus líneas: descuenta lo que falta, devuelve lo que sobra.
-// lines = [{ productId, variantKey, qty }] (las líneas FINALES del pedido; [] al anular). Solo cuentan productos con
-// control de existencias. Misma función para crear, convertir, editar y anular: siempre es la diferencia.
-async function syncOrderStock(db, tenantId, orderId, lines, reason, createdBy = 'owner') {
-  const want = new Map();
-  const ids = [...new Set(lines.filter(l => l.productId).map(l => l.productId))];
+// Deja las existencias del pedido al día. lines = [{ productId, variantKey, qty }] (las líneas FINALES del pedido; [] al
+// anular). Solo cuentan productos con control de existencias.
+//  · Sin oldLines (crear, convertir presupuesto, anular): descuenta lo que las líneas piden y aún no está descontado, y
+//    devuelve lo que sobra (al anular, todo lo descontado: nunca más de eso).
+//  · Con oldLines (EDITAR): aplica SOLO la diferencia entre las líneas viejas y las nuevas. Así un pedido creado antes de
+//    activar el control (o antes de la Fase 4A) no descuenta nada al editarse sin cambiar artículos. Lo que se devuelve
+//    al reducir una línea nunca supera lo que el pedido tiene descontado.
+async function syncOrderStock(db, tenantId, orderId, lines, reason, createdBy = 'owner', oldLines = null) {
+  const all = oldLines ? lines.concat(oldLines) : lines;
+  const ids = [...new Set(all.filter(l => l.productId).map(l => l.productId))];
+  let tracked = new Set();
   if (ids.length) {
     const { rows } = await db.query('SELECT id FROM catalog_products WHERE tenant_id = $1 AND id = ANY($2::uuid[]) AND track_stock', [tenantId, ids]);
-    const tracked = new Set(rows.map(r => r.id));
-    for (const l of lines) {
+    tracked = new Set(rows.map(r => r.id));
+  }
+  const sum = (ls) => {
+    const m = new Map();
+    for (const l of ls) {
       if (!l.productId || !tracked.has(l.productId)) continue;
       const k = l.productId + '|' + (l.variantKey || '');
-      const cur = want.get(k) || { productId: l.productId, variantKey: l.variantKey || '', qty: 0 };
+      const cur = m.get(k) || { productId: l.productId, variantKey: l.variantKey || '', qty: 0 };
       cur.qty += Number(l.qty) || 0;
-      want.set(k, cur);
+      m.set(k, cur);
     }
-  }
+    return m;
+  };
+  const want = sum(lines);
   const had = await orderDeducted(db, tenantId, orderId);
-  const keys = [...new Set([...want.keys(), ...had.keys()])];
+  const old = oldLines ? sum(oldLines) : null;
+  const keys = [...new Set([...want.keys(), ...(old ? old.keys() : had.keys())])];
   const todo = [];
   for (const k of keys) {
     const w = want.get(k), h = had.get(k);
-    const diff = (w ? w.qty : 0) - (h ? h.ded : 0);
-    if (diff !== 0) todo.push({ productId: (w || h).productId, variantKey: (w || h).variantKey, delta: -diff });
+    const info = w || (old && old.get(k)) || h;
+    let diff; // unidades a descontar (+) o devolver (−)
+    if (old) {
+      diff = (w ? w.qty : 0) - (old.get(k) ? old.get(k).qty : 0);
+      if (diff < 0) diff = -Math.min(-diff, Math.max(0, h ? h.ded : 0));
+    } else diff = (w ? w.qty : 0) - (h ? h.ded : 0);
+    if (diff !== 0) todo.push({ productId: info.productId, variantKey: info.variantKey, delta: -diff });
   }
   todo.sort(byKeyOrder);
   for (const x of todo) await applyStockDelta(db, tenantId, x.productId, x.variantKey, x.delta, reason, { orderId, createdBy });
@@ -524,7 +667,7 @@ async function adjustStockTx(db, tenantId, body, createdBy = 'owner') {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new BadRequest('Datos del ajuste inválidos');
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (!UUID.test(String(body.productId || ''))) throw new BadRequest('Producto no encontrado');
-  const { rows: [p] } = await db.query('SELECT id, name, track_stock FROM catalog_products WHERE id = $1 AND tenant_id = $2', [body.productId, tenantId]);
+  const { rows: [p] } = await db.query('SELECT id, name, track_stock, sizes, colors FROM catalog_products WHERE id = $1 AND tenant_id = $2', [body.productId, tenantId]);
   if (!p) throw new BadRequest('Producto no encontrado');
   if (!p.track_stock) throw new BadRequest('Activa el control de existencias de este producto antes de ajustarlas');
   const hasDelta = body.delta !== undefined && body.delta !== null && body.delta !== '';
@@ -534,8 +677,13 @@ async function adjustStockTx(db, tenantId, body, createdBy = 'owner') {
   const variantKey = (body.size !== undefined || body.color !== undefined)
     ? buildVariantKey(body.size, body.color) : normVariantKey(body.variantKey);
   if (body.reason !== undefined && body.reason !== null && !['adjust_in', 'adjust_out', 'count'].includes(body.reason)) throw new BadRequest('Motivo de ajuste inválido');
+  // Con variantes (tallas/colores) solo se ajustan las que el producto ofrece
+  const variants = productVariants(p);
+  if (!(variants.length === 1 && variants[0].key === '') && !variants.some(v => v.key === variantKey)) {
+    throw new BadRequest('Esa talla/color no existe en este producto');
+  }
   // La fila del nivel se bloquea para que dos ajustes simultáneos (o un ajuste y una venta) no pisen el cálculo del conteo
-  await db.query(`INSERT INTO stock_levels (tenant_id, product_id, variant_key, qty) VALUES ($1, $2, $3, 0) ON CONFLICT DO NOTHING`, [tenantId, p.id, variantKey]);
+  const { rowCount: createdRow } = await db.query(`INSERT INTO stock_levels (tenant_id, product_id, variant_key, qty) VALUES ($1, $2, $3, 0) ON CONFLICT DO NOTHING`, [tenantId, p.id, variantKey]);
   const { rows: [cur] } = await db.query(
     'SELECT qty FROM stock_levels WHERE tenant_id = $1 AND product_id = $2 AND variant_key = $3 FOR UPDATE', [tenantId, p.id, variantKey]);
   const { rows: [nk] } = await db.query('SELECT COUNT(*)::int AS n FROM stock_levels WHERE tenant_id = $1 AND product_id = $2', [tenantId, p.id]);
@@ -552,7 +700,12 @@ async function adjustStockTx(db, tenantId, body, createdBy = 'owner') {
     delta = n - cur.qty; reason = 'count';
     if (body.reason && body.reason !== 'count') throw new BadRequest('El motivo no coincide con un conteo');
   }
-  if (delta === 0) return { productId: p.id, variantKey, level: cur.qty, movement: null, unchanged: true };
+  if (Math.abs(cur.qty + delta) > MAX_STOCK_LEVEL) throw new BadRequest(`Las existencias no pueden superar ${MAX_STOCK_LEVEL.toLocaleString('en-US')} unidades`);
+  if (delta === 0) {
+    // Sin cambios: si la fila la acabamos de crear aquí (la variante no existía), no se deja
+    if (createdRow) await db.query('DELETE FROM stock_levels WHERE tenant_id = $1 AND product_id = $2 AND variant_key = $3', [tenantId, p.id, variantKey]);
+    return { productId: p.id, variantKey, level: cur.qty, movement: null, unchanged: true };
+  }
   const r = await applyStockDelta(db, tenantId, p.id, variantKey, delta, reason, { note, createdBy });
   return { productId: p.id, variantKey, level: r.level, movement: mapMovementRow(r.movement), unchanged: false };
 }
@@ -571,5 +724,6 @@ module.exports = {
   lockTenantForCash, businessDay, assertCashOpen, computeCashExpected, getCashDay, closeCashDay, reopenCashDay, mapClosing,
   mapExpenseRow, addExpenseTx, voidExpenseTx,
   applyStockDelta, syncOrderStock, restoreReturnedStock, adjustStockTx, mapMovementRow, orderDeducted,
+  LocationRequired, LOCATION_MSG, COUNTRIES, COUNTRY_TIMEZONES, OTHER_COUNTRY, canonCountry, timezonesForCountry, defaultTimezoneFor, tzValidForCountry, requireTz, closingLines, cashKey,
   tzOf, DEFAULT_TIMEZONE, shiftDay, isRealDate, money2, centsOf,
 };
