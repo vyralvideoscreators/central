@@ -20,7 +20,8 @@ const digits = corpus.replace(/\D/g, '');
 
 const checks = [];
 const add = (kind, value) => { if (value && String(value).trim()) checks.push([kind, String(value).trim()]); };
-const { PRODUCTS, CLIENTS, CONVOS, EXPENSES } = DEMO_DATA;
+const { PRODUCTS, CLIENTS, CONVOS, EXPENSES, TEAM } = DEMO_DATA;
+for (const [name] of TEAM) add('usuario del equipo', name); // el «apellido» es el cargo (Vendedor, Encargada): palabra común, se compara el nombre completo
 for (const c of CLIENTS) {
   add('cliente', c.name);
   c.name.split(' ').slice(1).forEach(sur => add('apellido', sur));

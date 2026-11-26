@@ -37,7 +37,7 @@ run(async () => {
   const sockTemp = await openWs(tok1);
   ok(sockTemp.msgs.some(m => m.type === 'must_change_password') && !sockTemp.msgs.some(m => m.type === 'auth_error' || m.type === 'init'), 'Con la temporal el WebSocket no da datos ni auth_error (la app no se recarga en bucle)');
   const dec = jwt.decode(tok1);
-  ok(dec.userId === sid && dec.role === 'seller' && Number.isInteger(dec.tv) && dec.tenantId === O.id, 'El token lleva tenantId, userId, role y tv');
+  ok(dec.userId === sid && dec.role === 'seller' && Number.isInteger(dec.tv) && dec.tid === O.id && dec.tenantId === undefined, 'El token del vendedor lleva tid, userId, role y tv, y NO tenantId (la 4A lo rechazaría)');
   r = await j('/api/orders', { headers: authH(tok1) });
   ok(r.status === 403 && r.body.error === 'must_change_password', 'Con la temporal, cualquier otra ruta → 403 must_change_password');
   r = await j('/api/tenant/profile', { headers: authH(tok1) });
@@ -145,6 +145,10 @@ run(async () => {
   r = await send(authH(ownerTok), 'PUT', '/api/tenant/password', { currentPassword: 'password123', newPassword: 'password456' });
   r = await j('/api/team', { headers: authH(ownerTok) });
   ok(r.status === 401, 'Tras cambiar la clave del dueño, su token anterior se cierra');
+  r = await j('/api/team', { headers: authH(legacy) });
+  ok(r.status === 401 && r.body.error === 'session_closed', 'y también el token antiguo sin userId (el dueño ya cambió su clave)');
+  const ownerNew = jwt.decode((await login(O.email, 'password456')).body.token);
+  ok(ownerNew.tenantId === O.id && ownerNew.tid === O.id, 'El token del dueño conserva tenantId (compatible con la 4A) y lleva tid');
   r = await j('/api/orders', { headers: authH(sellerTok2) });
   ok(r.status === 200, 'La sesión del vendedor no se ve afectada');
   // Negocio suspendido: nadie del equipo entra

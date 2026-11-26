@@ -106,7 +106,7 @@ run(async () => {
   const D = { H: authH(dl2.token), token: dl2.token };
   const du = [];
   for (let k = 0; k < 3; k++) {
-    r = await send(D.H, 'POST', '/api/team', { name: 'Demo' + k, email: 'dm' + k + Date.now() + '@test.local', role: 'seller' });
+    r = await send(D.H, 'POST', '/api/team', { name: 'Demo' + k, email: 'dm' + k + Date.now() + '@demo.central.test', role: 'seller' });
     ok(r.status === 200, 'La demo crea el usuario ' + (k + 1));
     du.push(r.body.user.id);
   }

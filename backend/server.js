@@ -860,12 +860,19 @@ async function dbCreateOrder(tenantId, data, actor = null) {
   const deliveryDate = cleanDeliveryDate(data.deliveryDate);
   const deliveryZone = cleanDeliveryZone(data.deliveryZone);
   // Validación y total ANTES de abrir la transacción: el servidor calcula el total, no el cliente
-  const items = cleanOrderItems(data.items || []);
+  let items = cleanOrderItems(data.items || []);
   const shipping = cleanMoneyField(data.shipping, 'Costo de envío');
   const discount = cleanMoneyField(data.discount, 'Descuento');
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    // El vendedor no toca precios (decisión de Carlos): artículos con el precio del catálogo, sin descuento, envío solo el de la zona
+    if (isSeller(actor)) {
+      items = await sellerLockItems(client, tenantId, items, []);
+      if (discount > 0) throw sellerPriceForbidden();
+      if (shipping > 0 && !(await isZoneShipping(client, tenantId, deliveryZone, shipping))) throw sellerPriceForbidden();
+      if (!items.length && cleanMoneyField(data.totalPrice, 'Total') > 0) throw sellerPriceForbidden();
+    }
     // Impuesto: foto de la tasa vigente al crear (solo si hay artículos sobre los que calcularlo)
     const taxRate = items.length ? await getTenantTaxRate(client, tenantId) : 0;
     const amounts = items.length ? computeOrderAmounts(items, shipping, discount, taxRate) : null;
@@ -1006,6 +1013,44 @@ async function resolveOrderClient(db, tenantId, data) {
   return { clientId: rows[0].id, createdClient: mapClientRow(rows[0]) };
 }
 
+// ── El vendedor NO toca precios (decisión de Carlos) ──────────────────────────
+// Un vendedor crea y edita pedidos (artículos, cantidades, cliente, dirección, notas, estado), pero no fija ni cambia precios
+// de línea, descuento, envío ni total: son del encargado y del dueño (403 role_forbidden). Reglas del servidor:
+//  · Cada línea con producto usa SIEMPRE el precio actual del catálogo (el que llegue se ignora). Única excepción: una línea que
+//    ya existe en el pedido y se reenvía sin cambio de precio conserva el que tenía (no se re-tasa por editar la cantidad).
+//  · Las líneas libres (sin producto del catálogo) se RECHAZAN (la opción conservadora), salvo una idéntica ya guardada en el pedido.
+//  · Descuento: solo 0 o igual al actual. Envío: 0, igual al actual o el costo configurado de la zona de entrega del pedido.
+//  · Cobro inicial y pagos: permitidos.
+const SELLER_PRICE_MSG = 'Tu rol no permite cambiar precios, descuentos ni el envío';
+const sellerPriceForbidden = (msg = SELLER_PRICE_MSG) => new TeamError('role_forbidden', msg, {}, 403);
+const isSeller = (actor) => !!actor && actor.role === 'seller';
+async function isZoneShipping(db, tenantId, zoneName, shipping) {
+  if (!zoneName) return false;
+  const { rows } = await db.query('SELECT zones FROM tenant_settings WHERE tenant_id = $1', [tenantId]);
+  const zones = rows[0] && Array.isArray(rows[0].zones) ? rows[0].zones : [];
+  const z = zones.find(x => x && String(x.name || '').toLowerCase() === String(zoneName).toLowerCase() && x.cost !== undefined && x.cost !== null);
+  return !!z && centsOf(z.cost) === centsOf(shipping);
+}
+// existing: líneas guardadas del pedido [{ product_id, variant_key, name, unit_price }] (vacío al crear)
+async function sellerLockItems(db, tenantId, items, existing) {
+  const ids = [...new Set(items.map(i => i.productId).filter(Boolean))];
+  const prices = new Map();
+  if (ids.length) {
+    const { rows } = await db.query('SELECT id, price FROM catalog_products WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [tenantId, ids]);
+    for (const r of rows) prices.set(r.id, Number(r.price) || 0);
+  }
+  return items.map(it => {
+    if (!it.productId || !prices.has(it.productId)) {
+      const same = existing.find(l => !l.product_id && l.name === it.name && centsOf(l.unit_price) === centsOf(it.unitPrice));
+      if (!same) throw sellerPriceForbidden('Tu rol no permite artículos libres: elige un producto del catálogo');
+      return it;
+    }
+    const prev = existing.find(l => l.product_id === it.productId && (l.variant_key || '') === (it.variantKey || ''));
+    const unit = prev && centsOf(prev.unit_price) === centsOf(it.unitPrice) ? Number(prev.unit_price) : prices.get(it.productId);
+    return { ...it, unitPrice: unit, linePrice: Math.round(unit * it.qty * 100) / 100 };
+  });
+}
+
 // Límite de NUMERIC(10,2)
 const MAX_MONEY = 99999999.99;
 function cleanMoneyField(v, label) {
@@ -1109,12 +1154,12 @@ async function inTx(fn) {
 // Respuesta de error de las rutas de pagos: datos mal enviados → 400; lo demás → 500 sin detalles internos
 // Cuerpo del 400 de un BadRequest: «sin ubicación» lleva su código propio (location_required) para que el SPA lleve a Ajustes → Perfil → País y zona horaria
 // Error de datos con código propio (el SPA reconoce el código, no el texto): 400 { error: code, message, ...extra }
-class TeamError extends BadRequest { constructor(code, message, extra = {}) { super(message); this.errCode = code; this.extra = extra; } }
+class TeamError extends BadRequest { constructor(code, message, extra = {}, status = 400) { super(message); this.errCode = code; this.extra = extra; this.status = status; } }
 const badRequestBody = (err) => err instanceof TeamError ? { error: err.errCode, message: err.message, ...err.extra }
   : err instanceof ops.LocationRequired ? { error: 'location_required', message: err.message }
   : err instanceof ops.CashClosed ? { error: 'cash_closed', message: err.message } : { error: err.message };
 function sendApiError(res, err, label) {
-  if (err instanceof BadRequest) return res.status(400).json(badRequestBody(err));
+  if (err instanceof BadRequest) return res.status(err.status || 400).json(badRequestBody(err));
   console.error(label + ':', err.message);
   return res.status(500).json({ error: 'No se pudo completar la operación' });
 }
@@ -1670,7 +1715,18 @@ async function dbUpdateOrder(tenantId, orderId, fields, actor = null) {
       values.push(clientId);
       sets.push(`client_id = $${values.length}`);
     }
-    const items = fields.items !== undefined ? cleanOrderItems(fields.items) : null;
+    let items = fields.items !== undefined ? cleanOrderItems(fields.items) : null;
+    if (isSeller(actor)) {
+      if (items) {
+        const { rows: stored } = await client.query('SELECT product_id, variant_key, name, unit_price FROM order_items WHERE order_id = $1 AND tenant_id = $2', [orderId, tenantId]);
+        items = await sellerLockItems(client, tenantId, items, stored);
+      }
+      if (newDiscount !== undefined && centsOf(newDiscount) !== centsOf(found[0].discount)) throw sellerPriceForbidden();
+      if (newShipping !== undefined && centsOf(newShipping) !== centsOf(found[0].shipping)) {
+        const zone = fields.delivery_zone !== undefined ? cleanDeliveryZone(fields.delivery_zone) : found[0].delivery_zone;
+        if (!(await isZoneShipping(client, tenantId, zone, newShipping))) throw sellerPriceForbidden();
+      }
+    }
     // Total: con artículos = Σ subtotales + envío − descuento (valores nuevos + guardados). Un total
     // enviado se ignora si el pedido tiene artículos (pedidos antiguos sin artículos lo conservan).
     let lines = items;
@@ -1689,6 +1745,7 @@ async function dbUpdateOrder(tenantId, orderId, fields, actor = null) {
         sets.push(`tax_amount = $${values.length}`);
       }
     } else if (sentTotal !== undefined) {
+      if (isSeller(actor) && centsOf(sentTotal) !== centsOf(found[0].total_price)) throw sellerPriceForbidden();
       // Con notas de crédito el total no se toca (como el envío y el descuento): el total efectivo nunca queda negativo
       if (hasCredit && centsOf(sentTotal) !== centsOf(found[0].total_price)) throw new BadRequest('Este pedido tiene devoluciones: no se puede cambiar el total');
       values.push(sentTotal);
@@ -1993,6 +2050,13 @@ function closeTenantSockets(tenantId) {
   tenantClients.delete(String(tenantId));
 }
 
+// Cierra los sockets del dueño de un negocio (cambió su clave o su correo desde el panel admin)
+async function closeOwnerSockets(tenantId) {
+  try {
+    const { rows: [o] } = await pool.query("SELECT id FROM team_users WHERE tenant_id = $1 AND role = 'owner'", [tenantId]);
+    if (o) closeUserSockets(tenantId, o.id);
+  } catch (err) { console.error('closeOwnerSockets:', err.message); }
+}
 // Cierra los sockets abiertos de UN usuario (se desactiva, cambia de rol o de clave).
 function closeUserSockets(tenantId, userId) {
   const clients = tenantClients.get(String(tenantId));
@@ -2018,7 +2082,7 @@ wss.on('connection', (ws) => {
     if (msg.type !== 'auth' || tenantId) return;
     let decoded;
     try {
-      decoded = jwt.verify(msg.token, JWT_SECRET);
+      decoded = verifyUserToken(msg.token);
       if (!decoded.tenantId) throw new Error('sin tenant');
     } catch {
       return rejectSocket('Token inválido');
@@ -2033,13 +2097,14 @@ wss.on('connection', (ws) => {
           return;
         }
         ws.userId = sess.user.id;
+        ws.decoded = decoded; // para revalidar la sesión cada pocos minutos
       }
       if (ws.readyState !== 1) return;
       tenantId = String(decoded.tenantId);
       if (!tenantClients.has(tenantId)) tenantClients.set(tenantId, new Set());
       tenantClients.get(tenantId).add(ws);
-      const convos = await dbGetConversations(tenantId);
-      ws.send(JSON.stringify({ type: 'init', conversations: convos }));
+      // Sin las conversaciones: el SPA las pide por HTTP (paginadas) y no usa este campo; así no se leen 300 chats por conexión
+      ws.send(JSON.stringify({ type: 'init' }));
       console.log(`🔌 Tenant ${tenantId} conectado via WebSocket`);
     } catch (err) {
       console.error('WebSocket auth:', err.message);
@@ -2059,12 +2124,43 @@ wss.on('connection', (ws) => {
   });
 });
 
+// Revalida cada pocos minutos la sesión de los sockets abiertos (usuario desactivado, clave cambiada, demo caducada, cuenta
+// suspendida): un socket no debe sobrevivir a la sesión que lo abrió.
+const WS_REVALIDATE_MS = Math.max(1000, parseInt(process.env.WS_REVALIDATE_MS, 10) || 3 * 60000);
+setInterval(async () => {
+  if (!dbReady) return;
+  for (const clients of [...tenantClients.values()]) {
+    for (const ws of [...clients]) {
+      if (!ws.decoded) continue;
+      try {
+        const sess = await resolveSession({ ...ws.decoded });
+        if (sess.fail && sess.fail.status !== 500) {
+          try { ws.send(JSON.stringify({ type: 'auth_error', message: 'Sesión no válida' })); } catch {}
+          try { ws.close(); } catch {}
+          clients.delete(ws);
+        }
+      } catch {}
+    }
+  }
+}, WS_REVALIDATE_MS).unref();
+
 // ══════════════════════════════════════════════════════════════
 // JWT MIDDLEWARE
 // ══════════════════════════════════════════════════════════════
 // Firma el token de sesión de un usuario del equipo. El rol del token es solo informativo: el servidor lo lee SIEMPRE de la base.
+// Los tokens de usuarios que NO son el dueño llevan el negocio en `tid` y NO llevan `tenantId`: el servidor anterior (Fase 4A)
+// exige decoded.tenantId, así que tras una vuelta atrás los rechaza con 401 (no los trataría como al dueño). El dueño conserva
+// `tenantId` (sus sesiones siguen valiendo en la 4A). `verifyUserToken` normaliza la lectura.
 function signUserToken(u) {
-  return jwt.sign({ tenantId: u.tenant_id, userId: u.id, role: u.role, tv: u.token_version, email: u.email }, JWT_SECRET, { expiresIn: '30d' });
+  const claims = { userId: u.id, role: u.role, tv: u.token_version, email: u.email, tid: u.tenant_id };
+  if (u.role === 'owner') claims.tenantId = u.tenant_id;
+  return jwt.sign(claims, JWT_SECRET, { expiresIn: '30d' });
+}
+// Verifica un token y normaliza el negocio: decoded.tenantId = tenantId || tid (el resto del código lee tenantId).
+function verifyUserToken(token) {
+  const decoded = jwt.verify(token, JWT_SECRET);
+  if (decoded && typeof decoded === 'object' && !decoded.tenantId && decoded.tid) decoded.tenantId = decoded.tid;
+  return decoded;
 }
 const SESSION_CLOSED = { status: 401, body: { error: 'session_closed', message: 'Tu sesión se cerró. Vuelve a iniciar sesión.' } };
 
@@ -2094,6 +2190,8 @@ async function resolveSession(decoded) {
   if (!row.uid) return { fail: SESSION_CLOSED };
   if (!row.uactive) return { fail: { status: 401, body: { error: 'user_inactive', message: 'Tu usuario fue desactivado. Habla con el dueño del negocio.' } } };
   if (uid !== null && Number(decoded.tv) !== row.utv) return { fail: SESSION_CLOSED };
+  // Token antiguo (sin userId): solo vale mientras el dueño no haya cambiado su clave ni su correo (token_version > 0)
+  if (uid === null && row.utv > 0) return { fail: SESSION_CLOSED };
   if (row.umust && row.utemp && new Date(row.utemp) <= new Date()) {
     return { fail: { status: 401, body: { error: 'temp_password_expired', message: 'La contraseña temporal caducó. Pide al dueño que genere una nueva.' } } };
   }
@@ -2108,7 +2206,7 @@ async function resolveSession(decoded) {
       row.team_over_limit_since = null;
     } else if (over && Date.now() >= new Date(row.team_over_limit_since).getTime() + team.OVER_LIMIT_GRACE_DAYS * 86400000) {
       await enforceTeamLimit(decoded.tenantId);
-      const { rows: [again] } = await pool.query('SELECT active FROM team_users WHERE id = $1', [row.uid]);
+      const { rows: [again] } = await pool.query('SELECT active FROM team_users WHERE id = $1 AND tenant_id = $2', [row.uid, decoded.tenantId]);
       if (!again || !again.active) return { fail: { status: 401, body: { error: 'user_inactive', message: 'Tu usuario fue desactivado al bajar el plan. Habla con el dueño del negocio.' } } };
       row.team_over_limit_since = null;
     }
@@ -2126,12 +2224,14 @@ async function requireAuth(req, res, next) {
   }
   let decoded;
   try {
-    decoded = jwt.verify(auth.slice(7), JWT_SECRET);
+    decoded = verifyUserToken(auth.slice(7));
   } catch {
     return res.status(401).json({ error: 'Token inválido o expirado' });
   }
   if (!decoded.tenantId) return res.status(401).json({ error: 'Token inválido o expirado' });
-  if (dbReady) {
+  // Sin base de datos no se puede validar la sesión: nunca se deja pasar un token sin comprobar
+  if (!dbReady) return res.status(503).json({ error: 'Servicio no disponible, intenta en un momento' });
+  {
     const sess = await resolveSession(decoded);
     if (sess.fail) return res.status(sess.fail.status).json(sess.fail.body);
     decoded.isDemo = sess.tenant.isDemo;
@@ -2748,7 +2848,7 @@ app.post('/api/tenant/register', async (req, res) => {
     });
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ error: 'Este correo ya está registrado', field: 'email' });
-    res.status(500).json({ error: 'Error al registrar', details: err.message });
+    res.status(500).json({ error: 'Error al registrar' });
   }
 });
 
@@ -2790,7 +2890,7 @@ app.post('/api/tenant/login', async (req, res) => {
       user: { id: u.id, name: u.name, email: u.email, role: u.role, mustChangePassword: !!u.must_change_password },
     });
   } catch (err) {
-    res.status(500).json({ error: 'Error al iniciar sesión', details: err.message });
+    res.status(500).json({ error: 'Error al iniciar sesión' });
   }
 });
 
@@ -2947,7 +3047,7 @@ app.put('/api/tenant/password', requireAuth, async (req, res) => {
         token_version = token_version + 1 WHERE id = $2 AND tenant_id = $3`, [hash, req.user.id, req.tenant.tenantId]);
     }
     // Las sesiones anteriores (otros dispositivos) quedan cerradas; esta recibe un token nuevo
-    const { rows: [u] } = await pool.query('SELECT * FROM team_users WHERE id = $1', [req.user.id]);
+    const { rows: [u] } = await pool.query('SELECT * FROM team_users WHERE id = $1 AND tenant_id = $2', [req.user.id, req.tenant.tenantId]);
     closeUserSockets(req.tenant.tenantId, req.user.id);
     res.json({ success: true, token: signUserToken(u) });
   } catch (err) {
@@ -3045,7 +3145,7 @@ app.put('/api/tenant/profile', requireAuth, async (req, res) => {
     const out = { success: true, tenant: { ...rows[0], ...locationOf(rows[0]) } };
     // Cambiar el correo del dueño cierra sus sesiones anteriores (token_version): esta recibe un token nuevo
     if (req.user.role === 'owner') {
-      const { rows: [ou] } = await pool.query('SELECT * FROM team_users WHERE id = $1', [req.user.id]);
+      const { rows: [ou] } = await pool.query('SELECT * FROM team_users WHERE id = $1 AND tenant_id = $2', [req.user.id, req.tenant.tenantId]);
       if (ou && ou.token_version !== req.tenant.tv) {
         out.token = signUserToken(ou);
         if (req.tenant.userId) closeUserSockets(req.tenant.tenantId, ou.id);
@@ -3432,7 +3532,7 @@ app.get('/api/payments', requireAuth, async (req, res) => {
     const mapRefundAsPayment = (r) => ({
       id: r.id, kind: 'refund', orderId: r.order_id, creditNoteId: r.credit_note_id, clientId: null,
       amount: -Number(r.amount), currency: r.currency, exchangeRate: Number(r.exchange_rate), amountBase: -Number(r.amount_base),
-      method: r.method, reference: r.reference, paidAt: r.created_at, note: r.reason, createdAt: r.created_at, createdBy: r.created_by,
+      method: r.method, reference: r.reference, paidAt: r.created_at, note: r.reason, createdAt: r.created_at, createdBy: r.created_by, createdByUserId: r.created_by_user_id || null,
       voided: false, voidedAt: null, voidReason: null,
       orderNumber: '#' + String(r.order_num).padStart(4, '0'), clientName: r.client_name || null,
     });
@@ -3673,6 +3773,17 @@ async function teamLimitSweep() {
       AND team_over_limit_since <= now() - make_interval(days => ${team.OVER_LIMIT_GRACE_DAYS}) LIMIT 200`);
     for (const t of rows) await enforceTeamLimit(t.id);
   } catch (err) { console.error('⚠️  Revisión de límites del equipo:', err.message); }
+  await demoTeamSweep();
+}
+// Una demo caducada o revocada ya no necesita a su equipo: se borran los usuarios que no son el dueño (el dueño y los datos se
+// conservan hasta que el panel admin elimine o reinicie la demo). Corre cada hora con el barrido de límites y al revocar.
+async function demoTeamSweep(tenantId = null) {
+  try {
+    const { rowCount } = await pool.query(`DELETE FROM team_users u USING tenants t
+      WHERE u.tenant_id = t.id AND t.is_demo = true AND t.expires_at IS NOT NULL AND t.expires_at <= now() AND u.role <> 'owner'
+        AND ($1::uuid IS NULL OR t.id = $1::uuid)`, [tenantId]);
+    return rowCount;
+  } catch (err) { console.error('⚠️  Barrido del equipo de demos caducadas:', err.message); return 0; }
 }
 
 app.get('/api/team', requireAuth, async (req, res) => {
@@ -3685,18 +3796,25 @@ app.get('/api/team', requireAuth, async (req, res) => {
   } catch (err) { sendApiError(res, err, 'Equipo'); }
 });
 
+const DEMO_TEAM_DOMAIN = '@demo.central.test';
+const TEAM_CREATES_PER_HOUR = 20;
 app.post('/api/team', requireAuth, teamPlan, async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   const tenantId = req.tenant.tenantId, b = req.body || {};
   try {
     const name = cleanTeamName(b.name), role = cleanTeamRole(b.role), email = normEmail(b.email);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 200) throw new BadRequest('Correo electrónico inválido');
+    // Una demo solo crea usuarios de correo inventado: nunca se usa el correo de una persona real
+    if (req.tenant.isDemo && !email.endsWith(DEMO_TEAM_DOMAIN)) throw new BadRequest(`En una demo los correos de los usuarios deben terminar en ${DEMO_TEAM_DOMAIN} (por ejemplo ventas${DEMO_TEAM_DOMAIN}).`);
     const cred = await newTempCredentials(!!req.tenant.isDemo);
     const out = await inTx(async (c) => {
       const { rows: [t] } = await c.query('SELECT plan FROM tenants WHERE id = $1 FOR UPDATE', [tenantId]);
       const limit = team.planLimit(t.plan);
       const { rows: [n] } = await c.query('SELECT count(*)::int AS n FROM team_users WHERE tenant_id = $1 AND active', [tenantId]);
       if (n.n >= limit) throw new TeamError('team_limit', `Tu plan permite ${limit} usuarios contando al dueño. Desactiva a alguien o sube de plan.`, { limit });
+      // Tope de altas: 20 por hora y negocio (cuenta también los desactivados; el negocio está bloqueado, no hay carrera)
+      const { rows: [h] } = await c.query("SELECT count(*)::int AS n FROM team_users WHERE tenant_id = $1 AND role <> 'owner' AND created_at > now() - interval '1 hour'", [tenantId]);
+      if (h.n >= TEAM_CREATES_PER_HOUR) throw new TeamError('rate_limited', 'Creaste demasiados usuarios en la última hora. Inténtalo más tarde.', {}, 429);
       await c.query('SAVEPOINT new_user'); // el correo repetido es esperable: se responde 400 sin romper la transacción
       try {
         const { rows: [u] } = await c.query(`
@@ -4856,7 +4974,7 @@ app.get('/app', async (req, res) => {
   if (!token) return res.type('html').send(APP_BOOTSTRAP);
 
   let decoded;
-  try { decoded = jwt.verify(token, JWT_SECRET); }
+  try { decoded = verifyUserToken(token); }
   catch { return res.type('html').send(APP_LOGOUT); }
   if (!decoded.tenantId) return res.type('html').send(APP_LOGOUT);
 
@@ -5289,6 +5407,7 @@ app.put('/api/admin/tenants/:tenantId/status', requireAdmin, async (req, res) =>
   if (!dbReady) return res.status(503).json({ error: 'Base de datos no disponible' });
   try {
     await pool.query('UPDATE tenants SET active = $1 WHERE id = $2', [active, req.params.tenantId]);
+    if (!active) closeTenantSockets(req.params.tenantId); // suspender cierra las sesiones abiertas al instante
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -5328,6 +5447,7 @@ app.put('/api/admin/tenants/:tenantId', requireAdmin, async (req, res) => {
       : await txc.query('SELECT id, business_name, full_name, email, country, timezone, whatsapp_number FROM tenants WHERE id = $1', [req.params.tenantId]);
     await txc.query('COMMIT');
     if (!rows[0]) return res.status(404).json({ error: 'Tenant no encontrado' });
+    if (sets.some(s => s.startsWith('email ='))) await closeOwnerSockets(req.params.tenantId); // cambió el correo de acceso
     res.json({ success: true, tenant: rows[0] });
   } catch (err) {
     await txc.query('ROLLBACK').catch(() => {});
@@ -5351,6 +5471,7 @@ app.post('/api/admin/tenants/:tenantId/reset-password', requireAdmin, async (req
     const hash = await bcrypt.hash(newPassword, 10);
     const { rowCount } = await pool.query('UPDATE tenants SET password_hash = $1 WHERE id = $2', [hash, req.params.tenantId]);
     if (rowCount === 0) return res.status(404).json({ error: 'Tenant no encontrado' });
+    await closeOwnerSockets(req.params.tenantId); // el trigger subió su token_version: sus sockets abiertos ya no valen
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -5527,6 +5648,7 @@ app.post('/api/admin/demos/:tenantId/revoke', requireAdmin, async (req, res) => 
     );
     if (!rows[0]) return res.status(404).json({ error: 'Demo no encontrada' });
     closeTenantSockets(req.params.tenantId);
+    await demoTeamSweep(req.params.tenantId);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

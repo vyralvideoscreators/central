@@ -113,7 +113,7 @@ run(async () => {
   ok(r.status === 200, 'Encargado: anula el pago');
   r = await send(seller.H, 'POST', '/api/orders/' + orderId + '/cancel', { reason: 'x' });
   ok(r.status === 403, 'Vendedor: NO anula pedidos');
-  r = await send(seller.H, 'POST', '/api/orders', { kind: 'quote', clientName: 'Cliente Q', items: [{ name: 'Algo', qty: 1, unitPrice: 5 }] });
+  r = await send(seller.H, 'POST', '/api/orders', { kind: 'quote', clientName: 'Cliente Q', items: [{ productId: prod.id, name: 'Camisa', qty: 1, unitPrice: 20 }] });
   ok(r.status === 200 && r.body.kind === 'quote', 'Vendedor: crea un presupuesto');
   r = await send(seller.H, 'POST', '/api/orders/' + r.body.id + '/convert', {});
   ok(r.status === 200 && r.body.order.kind === 'order', 'Vendedor: convierte el presupuesto');

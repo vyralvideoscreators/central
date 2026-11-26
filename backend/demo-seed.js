@@ -133,19 +133,23 @@ function money(n) { return Math.round(n * 100) / 100; }
 
 // Fase 4B: dos usuarios inventados para probar los roles (Encargado y Vendedor). Su correo es de un dominio de prueba (nunca se les
 // envía nada) y su contraseña la muestra el panel admin al crear o reiniciar la demo. Devuelve [{ name, role, email, password }].
+// El upsert NO reactiva ni cambia el rol de un usuario existente (si el prospecto desactivó o cambió a alguien, «Nueva clave» solo
+// renueva su clave) y devuelve el rol y el estado REALES. Si no devuelve fila (el correo es de otro negocio) falla en voz alta.
+const TEAM = [['Marta Encargada', 'manager', 'encargado'], ['Víctor Vendedor', 'seller', 'vendedor']]; // también lo revisa demo-data.test.js
 async function seedDemoTeam(client, tenantId) {
   const bcrypt = require('bcrypt');
   const { generateTempPassword } = require('./equipo');
   const tag = String(tenantId).replace(/-/g, '').slice(0, 8);
   const out = [];
-  for (const [name, role, prefix] of [['Marta Encargada', 'manager', 'encargado'], ['Víctor Vendedor', 'seller', 'vendedor']]) {
+  for (const [name, role, prefix] of TEAM) {
     const password = generateTempPassword();
     const email = `${prefix}.${tag}@demo.central.test`;
     const { rows: [u] } = await client.query(`INSERT INTO team_users (tenant_id, name, email, password_hash, role) VALUES ($1, $2, $3, $4, $5)
-      ON CONFLICT (lower(email)) DO UPDATE SET password_hash = EXCLUDED.password_hash, active = true, deactivated_at = NULL,
+      ON CONFLICT (lower(email)) DO UPDATE SET password_hash = EXCLUDED.password_hash,
         must_change_password = false, temp_password_expires_at = NULL, token_version = team_users.token_version + 1
-      WHERE team_users.tenant_id = EXCLUDED.tenant_id RETURNING id`, [tenantId, name, email, await bcrypt.hash(password, 10), role]);
-    out.push({ id: u && u.id, name, role, email, password });
+      WHERE team_users.tenant_id = EXCLUDED.tenant_id RETURNING id, role, active`, [tenantId, name, email, await bcrypt.hash(password, 10), role]);
+    if (!u) throw new Error(`No se pudo crear el usuario de ejemplo ${email}: ese correo ya pertenece a otro negocio`);
+    out.push({ id: u.id, name, role: u.role, active: u.active, email, password });
   }
   return out;
 }
@@ -417,4 +421,4 @@ async function seedDemoTenant(client, tenantId, { city = 'Ciudad Demo' } = {}) {
   }
 }
 
-module.exports = { seedDemoTenant, seedDemoTeam, wipeDemoData, DEMO_DATA: { PRODUCTS, CLIENTS, ORDERS, CONVOS, EXPENSES, COLORS: C } };
+module.exports = { seedDemoTenant, seedDemoTeam, wipeDemoData, DEMO_DATA: { PRODUCTS, CLIENTS, ORDERS, CONVOS, EXPENSES, TEAM, COLORS: C } };
