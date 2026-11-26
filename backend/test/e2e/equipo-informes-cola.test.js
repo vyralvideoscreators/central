@@ -25,8 +25,20 @@ run(async () => {
   const next = await Promise.race([get(), new Promise(r => setTimeout(() => r({ timeout: true }), 8000))]);
   ok(next.status === 200, 'El informe siguiente responde (200) tras las cancelaciones, en ' + (Date.now() - t0) + ' ms');
   // Dos rondas más: los huecos siguen sanos
-  const again = await Promise.all(Array.from({ length: 6 }, () => get()));
-  ok(again.every(r => r.status === 200), 'Y seis a la vez también');
+  const again = await Promise.all(Array.from({ length: 4 }, () => get()));
+  ok(again.every(r => r.status === 200), 'Y cuatro a la vez (1 en curso + 3 en cola del negocio) tambien');
+
+  // Tope por negocio: 1 en curso y 3 en cola; el resto 503 busy aunque la cola global este casi vacia
+  const burst = await Promise.all(Array.from({ length: 8 }, () => get()));
+  ok(burst.filter(r => r.status === 503).length >= 4 && burst.every(r => r.status === 200 || r.status === 503), 'Un negocio con 8 a la vez: al menos 4 reciben 503 busy por su tope propio');
+  // Otro negocio sigue teniendo hueco mientras el primero esta saturado
+  const P = await reg('Cola informes B');
+  await setPlan(c, P.id, 'pro');
+  const getP = () => fetch(url, { headers: P.H }).then(r => r.status);
+  const [mix] = await Promise.all([getP(), ...Array.from({ length: 8 }, () => get())]);
+  ok(mix === 200, 'Otro negocio no queda bloqueado por la saturacion del primero');
+  await new Promise(r => setTimeout(r, 300));
+  ok((await get()).status === 200, 'Y los contadores se liberan (el siguiente informe responde)');
 
   await c.end();
 });

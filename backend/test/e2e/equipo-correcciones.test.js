@@ -43,7 +43,7 @@ run(async () => {
   r = await send(seller.H, 'POST', '/api/orders', { clientName: 'Cliente A', items: [line()], shipping: 3, deliveryZone: 'Norte' });
   ok(r.status === 200 && r.body.totalPrice == 43 && r.body.shipping == 3, 'Vendedor: el envío de la zona con costo sí (total 43)');
   r = await send(seller.H, 'POST', '/api/orders', { clientName: 'Cliente A', items: [line()], shipping: 4, deliveryZone: 'Norte' });
-  ok(r.status === 403, 'Vendedor: la zona Norte cuesta 3, no 4 → 403');
+  ok(r.status === 200 && r.body.shipping == 3 && r.body.totalPrice == 43, 'Vendedor: la zona Norte cuesta 3: aunque mande 4, el envio es el de la zona (3)');
   r = await send(seller.H, 'POST', '/api/orders', { clientName: 'Cliente A', items: [line()], shipping: 3, deliveryZone: 'Sur' });
   ok(r.status === 403, 'Vendedor: la zona Sur no tiene costo configurado → 403');
   r = await send(seller.H, 'POST', '/api/orders', { clientName: 'Cliente A', totalPrice: 99 });
@@ -61,7 +61,13 @@ run(async () => {
   r = await send(seller.H, 'PATCH', '/api/orders/' + orderA, { discount: 0, shipping: 0, total_price: 60, delivery_status: 'preparing' });
   ok(r.status === 200 && r.body.deliveryStatus === 'preparing', 'Vendedor: reenviar los mismos importes y cambiar el estado sí');
   r = await send(seller.H, 'PATCH', '/api/orders/' + orderA, { delivery_zone: 'Norte', shipping: 3 });
-  ok(r.status === 200 && r.body.totalPrice == 63, 'Vendedor: poner la zona Norte con su envío (63)');
+  ok(r.status === 403, 'Vendedor: cambiar la zona de un pedido existente -> 403 (es del encargado)');
+  r = await send(manager.H, 'PATCH', '/api/orders/' + orderA, { delivery_zone: 'Norte', shipping: 3 });
+  ok(r.status === 200 && r.body.totalPrice == 63, 'Encargado: pone la zona Norte con su envio (63)');
+  r = await send(seller.H, 'PATCH', '/api/orders/' + orderA, { delivery_zone: 'norte', notes: 'misma zona' });
+  ok(r.status === 200, 'Vendedor: reenviar la misma zona (aunque cambie la mayuscula) si');
+  r = await send(seller.H, 'POST', '/api/orders', { clientName: 'Cliente Z', items: [line()], shipping: 0, deliveryZone: 'Norte' });
+  ok(r.status === 200 && r.body.shipping == 3 && r.body.totalPrice == 43, 'Vendedor: con zona de costo el envio ES el de la zona aunque mande 0');
   r = await send(seller.H, 'PATCH', '/api/orders/' + orderA, { items: [{ name: 'Libre', qty: 1, unitPrice: 1 }] });
   ok(r.status === 403, 'Vendedor: PATCH con una línea libre → 403');
   // Pedido sin artículos (antiguo): el total no se toca
@@ -71,13 +77,37 @@ run(async () => {
   r = await send(manager.H, 'PATCH', '/api/orders/' + legacy.id, { total_price: 10 });
   ok(r.status === 200 && r.body.totalPrice == 10, 'Encargado: sí');
   // Una línea con precio fijado por el encargado se conserva si el vendedor la reenvía igual
-  r = await send(manager.H, 'POST', '/api/orders', { clientName: 'Cliente C', items: [line({ unitPrice: 15, qty: 1 })], discount: 2 });
-  ok(r.status === 200 && r.body.totalPrice == 13 && r.body.items[0].unitPrice == 15, 'Encargado: fija un precio de línea y un descuento');
+  r = await send(manager.H, 'POST', '/api/orders', { clientName: 'Cliente C', items: [line({ unitPrice: 15, qty: 1 })] });
+  ok(r.status === 200 && r.body.totalPrice == 15 && r.body.items[0].unitPrice == 15, 'Encargado: fija un precio de linea (promocion 15)');
   const orderC = r.body.id;
+  // El precio viejo solo vale hasta la cantidad guardada: el exceso va al precio del catalogo
   r = await send(seller.H, 'PATCH', '/api/orders/' + orderC, { items: [line({ unitPrice: 15, qty: 2 })] });
-  ok(r.status === 200 && r.body.items[0].unitPrice == 15 && r.body.totalPrice == 28, 'Vendedor: editar la cantidad de una línea ya guardada no la re-tasa (28 con el descuento)');
+  ok(r.status === 200 && r.body.totalPrice == 35 && r.body.items.length === 2, 'Vendedor: subir de 1 a 2 unidades -> la 1.a a 15 y la nueva a 20 (35)');
   r = await send(seller.H, 'PATCH', '/api/orders/' + orderC, { items: [line({ unitPrice: 1, qty: 2 })] });
-  ok(r.status === 200 && r.body.items[0].unitPrice == 20, 'y un precio distinto que envíe se ignora: vale el del catálogo (20)');
+  ok(r.status === 200 && r.body.totalPrice == 40, 'y un precio distinto que envie se ignora: todo a catalogo (40)');
+  // Duplicar la linea con promocion no da mas unidades baratas
+  r = await send(manager.H, 'POST', '/api/orders', { clientName: 'Cliente C2', items: [line({ unitPrice: 15, qty: 1 })] });
+  const orderC2 = r.body.id;
+  r = await send(seller.H, 'PATCH', '/api/orders/' + orderC2, { items: [line({ unitPrice: 15, qty: 1 }), line({ unitPrice: 15, qty: 1 }), line({ unitPrice: 15, qty: 1 })] });
+  ok(r.status === 200 && r.body.totalPrice == 55, 'Vendedor: tres lineas a 15 con una sola guardada -> 15 + 20 + 20 (55), no 45');
+  // Linea libre: no se multiplica ni se duplica
+  r = await send(manager.H, 'POST', '/api/orders', { clientName: 'Cliente L', items: [{ name: 'Libre', qty: 1, unitPrice: 0 }] });
+  const orderL = r.body.id;
+  r = await send(seller.H, 'PATCH', '/api/orders/' + orderL, { items: [{ name: 'Libre', qty: 5, unitPrice: 0 }] });
+  ok(r.status === 403, 'Vendedor: una linea libre a 0 no sube de cantidad (403)');
+  r = await send(seller.H, 'PATCH', '/api/orders/' + orderL, { items: [{ name: 'Libre', qty: 1, unitPrice: 0 }, { name: 'Libre', qty: 1, unitPrice: 0 }] });
+  ok(r.status === 403, 'ni se duplica (403)');
+  r = await send(seller.H, 'PATCH', '/api/orders/' + orderL, { items: [{ name: 'Libre', qty: 1, unitPrice: 0 }], notes: 'igual' });
+  ok(r.status === 200, 'pero reenviarla igual si');
+  // Con descuento, cambiar los articulos es del encargado
+  r = await send(manager.H, 'POST', '/api/orders', { clientName: 'Cliente D2', items: [line({ qty: 2 })], discount: 10 });
+  const orderDD = r.body.id;
+  r = await send(seller.H, 'PATCH', '/api/orders/' + orderDD, { items: [line({ qty: 5 })] });
+  ok(r.status === 403 && /descuento/.test(r.body.message), 'Vendedor: cambiar los articulos de un pedido con descuento -> 403');
+  r = await send(seller.H, 'PATCH', '/api/orders/' + orderDD, { items: [line({ qty: 2 })], notes: 'mismos articulos' });
+  ok(r.status === 200 && r.body.totalPrice == 30, 'pero reenviar los mismos articulos al editar otros datos si (30)');
+  r = await send(manager.H, 'PATCH', '/api/orders/' + orderDD, { items: [line({ qty: 3 })] });
+  ok(r.status === 200 && r.body.totalPrice == 50, 'Encargado: si (50)');
   r = await send(O.H, 'POST', '/api/orders', { clientName: 'Cliente D', items: [{ name: 'Servicio libre', qty: 1, unitPrice: 7 }], discount: 1 });
   ok(r.status === 200 && r.body.totalPrice == 6, 'El dueño sí usa líneas libres y descuentos');
 
@@ -101,8 +131,12 @@ run(async () => {
   const D = authH((await login(demoMail, demo.password)).body.token);
   r = await send(D, 'POST', '/api/team', { name: 'Real', email: 'persona.real@gmail.com', role: 'seller' });
   ok(r.status === 400 && /demo\.central\.test/.test(r.body.error || r.body.message || ''), 'Demo: un correo real se rechaza (400) con un mensaje claro');
-  r = await send(D, 'POST', '/api/team', { name: 'Ficticio', email: 'ventas' + Date.now() + '@demo.central.test', role: 'seller' });
-  ok(r.status === 200, 'Demo: un correo @demo.central.test sí');
+  r = await send(D, 'POST', '/api/team', { name: 'Ficticio', email: 'ventas' + Date.now() + '.' + String(demo.tenantId).replace(/-/g, '').slice(0, 8) + '@demo.central.test', role: 'seller' });
+  ok(r.status === 200, 'Demo: un correo con la etiqueta de la demo sí');
+  r = await send(D, 'POST', '/api/team', { name: 'Ajeno', email: 'encargado.deadbeef@demo.central.test', role: 'seller' });
+  ok(r.status === 400, 'Demo: un correo @demo.central.test con la etiqueta de OTRA demo (los que siembra seedDemoTeam) -> 400');
+  r = await send(D, 'POST', '/api/team', { name: 'Sin etiqueta', email: 'ventas' + Date.now() + '@demo.central.test', role: 'seller' });
+  ok(r.status === 400, 'Demo: sin etiqueta tampoco');
   const nTeam = async () => (await c.query("SELECT count(*)::int AS n FROM team_users WHERE tenant_id = $1 AND role <> 'owner'", [demo.tenantId])).rows[0].n;
   ok(await nTeam() === 3, 'La demo tiene 3 usuarios además del dueño');
   await c.query("UPDATE tenants SET expires_at = now() - interval '1 minute' WHERE id = $1", [demo.tenantId]); // caducó sola

@@ -26,14 +26,14 @@ run(async () => {
   r = await j('/api/team', { headers: D });
   ok(r.status === 200 && r.body.users.length === 3 && r.body.limit === 10, 'El dueño de la demo ve al equipo (3 con él, límite 10)');
   // La demo crea usuarios (sin correo enviado) con una clave que sirve mientras dure la demo
-  r = await send(D, 'POST', '/api/team', { name: 'Prospecto Uno', email: 'pu' + Date.now() + '@demo.central.test', role: 'seller' });
+  r = await send(D, 'POST', '/api/team', { name: 'Prospecto Uno', email: 'pu' + Date.now() + '.' + String(demo.tenantId).replace(/-/g, '').slice(0, 8) + '@demo.central.test', role: 'seller' });
   ok(r.status === 200 && r.body.user.mustChangePassword === false && r.body.tempPasswordExpiresAt === null, 'La demo crea un usuario sin obligar a cambiar la clave');
   ok((await login(r.body.user.email, r.body.tempPassword)).status === 200, 'y ese usuario entra');
   r = await send(authH(ls.body.token), 'PUT', '/api/tenant/password', { currentPassword: sel.password, newPassword: 'OtraClave-123' });
   ok(r.status === 403 && r.body.error === 'demo_blocked', 'Cambiar contraseña sigue bloqueado en demos');
   // Tope de usuarios (10 en total en la tabla de ese negocio)
   let last, n = 0;
-  for (let k = 0; k < 10; k++) { last = await send(D, 'POST', '/api/team', { name: 'U' + k, email: 'u' + k + Date.now() + '@demo.central.test', role: 'seller' }); if (last.status !== 200) break; n++; }
+  for (let k = 0; k < 10; k++) { last = await send(D, 'POST', '/api/team', { name: 'U' + k, email: 'u' + k + Date.now() + '.' + String(demo.tenantId).replace(/-/g, '').slice(0, 8) + '@demo.central.test', role: 'seller' }); if (last.status !== 200) break; n++; }
   ok(last.status === 400 || last.status === 429, 'Se llega al tope de usuarios de la demo (' + last.status + ' tras ' + n + ' más)');
   const cnt = (await c.query('SELECT count(*)::int AS n FROM team_users WHERE tenant_id = $1', [demo.tenantId])).rows[0].n;
   ok(cnt <= 10, 'Nunca más de 10 usuarios en la demo (' + cnt + ')');

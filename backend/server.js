@@ -882,7 +882,7 @@ async function dbCreateOrder(tenantId, data, actor = null) {
   const deliveryZone = cleanDeliveryZone(data.deliveryZone);
   // Validación y total ANTES de abrir la transacción: el servidor calcula el total, no el cliente
   let items = cleanOrderItems(data.items || []);
-  const shipping = cleanMoneyField(data.shipping, 'Costo de envío');
+  let shipping = cleanMoneyField(data.shipping, 'Costo de envío');
   const discount = cleanMoneyField(data.discount, 'Descuento');
   const client = await pool.connect();
   try {
@@ -891,7 +891,10 @@ async function dbCreateOrder(tenantId, data, actor = null) {
     if (isSeller(actor)) {
       items = await sellerLockItems(client, tenantId, items, []);
       if (discount > 0) throw sellerPriceForbidden();
-      if (shipping > 0 && !(await isZoneShipping(client, tenantId, deliveryZone, shipping))) throw sellerPriceForbidden();
+      // Con zona de costo fijo el envío ES el de la zona (aunque mande 0); sin ella, solo 0
+      const zc = await zoneCost(client, tenantId, deliveryZone);
+      if (zc !== null) shipping = zc;
+      else if (shipping > 0) throw sellerPriceForbidden();
       if (!items.length && cleanMoneyField(data.totalPrice, 'Total') > 0) throw sellerPriceForbidden();
     }
     // Impuesto: foto de la tasa vigente al crear (solo si hay artículos sobre los que calcularlo)
@@ -1045,14 +1048,23 @@ async function resolveOrderClient(db, tenantId, data) {
 const SELLER_PRICE_MSG = 'Tu rol no permite cambiar precios, descuentos ni el envío';
 const sellerPriceForbidden = (msg = SELLER_PRICE_MSG) => new TeamError('role_forbidden', msg, {}, 403);
 const isSeller = (actor) => !!actor && actor.role === 'seller';
-async function isZoneShipping(db, tenantId, zoneName, shipping) {
-  if (!zoneName) return false;
+// Costo configurado de una zona de entrega (number) o null si no existe o no tiene costo fijo
+async function zoneCost(db, tenantId, zoneName) {
+  if (!zoneName) return null;
   const { rows } = await db.query('SELECT zones FROM tenant_settings WHERE tenant_id = $1', [tenantId]);
   const zones = rows[0] && Array.isArray(rows[0].zones) ? rows[0].zones : [];
   const z = zones.find(x => x && String(x.name || '').toLowerCase() === String(zoneName).toLowerCase() && x.cost !== undefined && x.cost !== null);
-  return !!z && centsOf(z.cost) === centsOf(shipping);
+  return z ? Number(z.cost) : null;
 }
-// existing: líneas guardadas del pedido [{ product_id, variant_key, name, unit_price }] (vacío al crear)
+async function isZoneShipping(db, tenantId, zoneName, shipping) {
+  const c = await zoneCost(db, tenantId, zoneName);
+  return c !== null && centsOf(c) === centsOf(shipping);
+}
+const sameZone = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+const itemSig = (l) => [l.productId ?? l.product_id ?? '', l.variantKey ?? l.variant_key ?? '', l.name ?? '', Number(l.qty), centsOf(l.unitPrice ?? l.unit_price)].join('|');
+// existing: líneas guardadas del pedido [{ product_id, variant_key, name, unit_price, qty }] (vacío al crear).
+// Cada línea guardada se empareja UNA sola vez; el precio viejo solo vale hasta la cantidad guardada (el exceso va al precio
+// del catálogo) y una línea libre no puede subir de cantidad ni repetirse.
 async function sellerLockItems(db, tenantId, items, existing) {
   const ids = [...new Set(items.map(i => i.productId).filter(Boolean))];
   const prices = new Map();
@@ -1060,16 +1072,30 @@ async function sellerLockItems(db, tenantId, items, existing) {
     const { rows } = await db.query('SELECT id, price FROM catalog_products WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [tenantId, ids]);
     for (const r of rows) prices.set(r.id, Number(r.price) || 0);
   }
-  return items.map(it => {
+  const free = existing.map(l => ({ ...l, used: false }));
+  const out = [];
+  for (const it of items) {
     if (!it.productId || !prices.has(it.productId)) {
-      const same = existing.find(l => !l.product_id && l.name === it.name && centsOf(l.unit_price) === centsOf(it.unitPrice));
-      if (!same) throw sellerPriceForbidden('Tu rol no permite artículos libres: elige un producto del catálogo');
-      return it;
+      const same = free.find(l => !l.used && !l.product_id && l.name === it.name && centsOf(l.unit_price) === centsOf(it.unitPrice));
+      if (!same || !(Number(it.qty) <= Number(same.qty))) throw sellerPriceForbidden('Tu rol no permite artículos libres: elige un producto del catálogo');
+      same.used = true;
+      out.push(it);
+      continue;
     }
-    const prev = existing.find(l => l.product_id === it.productId && (l.variant_key || '') === (it.variantKey || ''));
-    const unit = prev && centsOf(prev.unit_price) === centsOf(it.unitPrice) ? Number(prev.unit_price) : prices.get(it.productId);
-    return { ...it, unitPrice: unit, linePrice: Math.round(unit * it.qty * 100) / 100 };
-  });
+    const cat = prices.get(it.productId);
+    const prev = free.find(l => !l.used && l.product_id === it.productId && (l.variant_key || '') === (it.variantKey || '') && centsOf(l.unit_price) === centsOf(it.unitPrice));
+    if (!prev || centsOf(prev.unit_price) === centsOf(cat)) {
+      out.push({ ...it, unitPrice: cat, linePrice: Math.round(cat * it.qty * 100) / 100 });
+      continue;
+    }
+    prev.used = true;
+    const keep = Math.min(Number(it.qty), Number(prev.qty));
+    const old = Number(prev.unit_price);
+    out.push({ ...it, qty: keep, unitPrice: old, linePrice: Math.round(old * keep * 100) / 100 });
+    const rest = Math.round((Number(it.qty) - keep) * 1000) / 1000;
+    if (rest > 0) out.push({ ...it, qty: rest, unitPrice: cat, linePrice: Math.round(cat * rest * 100) / 100 });
+  }
+  return out;
 }
 
 // Límite de NUMERIC(10,2)
@@ -1739,9 +1765,15 @@ async function dbUpdateOrder(tenantId, orderId, fields, actor = null) {
     let items = fields.items !== undefined ? cleanOrderItems(fields.items) : null;
     if (isSeller(actor)) {
       if (items) {
-        const { rows: stored } = await client.query('SELECT product_id, variant_key, name, unit_price FROM order_items WHERE order_id = $1 AND tenant_id = $2', [orderId, tenantId]);
+        const { rows: stored } = await client.query('SELECT product_id, variant_key, name, unit_price, qty FROM order_items WHERE order_id = $1 AND tenant_id = $2', [orderId, tenantId]);
+        // Con descuento, cambiar los artículos es cosa del encargado (el SPA reenvía los mismos al editar otros datos: eso sí se permite)
+        if (centsOf(found[0].discount) > 0 && items.map(itemSig).sort().join('|') !== stored.map(itemSig).sort().join('|')) {
+          throw sellerPriceForbidden('Este pedido tiene descuento: pide al encargado que cambie los artículos');
+        }
         items = await sellerLockItems(client, tenantId, items, stored);
       }
+      // La zona de entrega fija el envío: cambiarla es cosa del encargado
+      if (fields.delivery_zone !== undefined && !sameZone(cleanDeliveryZone(fields.delivery_zone), found[0].delivery_zone)) throw sellerPriceForbidden('Tu rol no permite cambiar la zona de entrega');
       if (newDiscount !== undefined && centsOf(newDiscount) !== centsOf(found[0].discount)) throw sellerPriceForbidden();
       if (newShipping !== undefined && centsOf(newShipping) !== centsOf(found[0].shipping)) {
         const zone = fields.delivery_zone !== undefined ? cleanDeliveryZone(fields.delivery_zone) : found[0].delivery_zone;
@@ -2106,7 +2138,8 @@ wss.on('connection', (ws) => {
       return rejectSocket('Token inválido');
     }
     try {
-      if (dbReady) {
+      if (!dbReady) return rejectSocket('Servicio no disponible'); // sin base no hay forma de validar la sesión
+      {
         // Mismas comprobaciones que requireAuth: cuenta activa, usuario activo y sesión vigente (token_version)
         const sess = await resolveSession(decoded);
         if (sess.fail) return rejectSocket('Sesión no válida');
@@ -2115,8 +2148,8 @@ wss.on('connection', (ws) => {
           return;
         }
         ws.userId = sess.user.id;
-        ws.decoded = decoded; // para revalidar la sesión cada pocos minutos
       }
+      ws.decoded = decoded; // para revalidar la sesión cada pocos minutos
       if (ws.readyState !== 1) return;
       tenantId = String(decoded.tenantId);
       if (!tenantClients.has(tenantId)) tenantClients.set(tenantId, new Set());
@@ -3825,7 +3858,9 @@ app.post('/api/team', requireAuth, teamPlan, async (req, res) => {
     const name = cleanTeamName(b.name), role = cleanTeamRole(b.role), email = normEmail(b.email);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 200) throw new BadRequest('Correo electrónico inválido');
     // Una demo solo crea usuarios de correo inventado: nunca se usa el correo de una persona real
-    if (req.tenant.isDemo && !email.endsWith(DEMO_TEAM_DOMAIN)) throw new BadRequest(`En una demo los correos de los usuarios deben terminar en ${DEMO_TEAM_DOMAIN} (por ejemplo ventas${DEMO_TEAM_DOMAIN}).`);
+    // ...y con la etiqueta de ESTA demo (la misma de seedDemoTeam), para no ocupar los correos que se siembran en otras demos
+    const demoTag = String(tenantId).replace(/-/g, '').slice(0, 8);
+    if (req.tenant.isDemo && !email.endsWith('.' + demoTag + DEMO_TEAM_DOMAIN)) throw new BadRequest(`En una demo los correos de los usuarios deben terminar en .${demoTag}${DEMO_TEAM_DOMAIN} (por ejemplo ventas.${demoTag}${DEMO_TEAM_DOMAIN}).`);
     const cred = await newTempCredentials(!!req.tenant.isDemo);
     const out = await inTx(async (c) => {
       const { rows: [t] } = await c.query('SELECT plan FROM tenants WHERE id = $1 FOR UPDATE', [tenantId]);
@@ -4223,31 +4258,44 @@ function reportPassSlot() {
   while (reportQueue.length) { if (reportQueue.shift().grant()) return; }
   reportActive--;
 }
+// Tope por negocio ANTES de la cola global: 1 en curso y 3 en cola por negocio (un negocio no acapara los huecos de los demás).
+const REPORT_TENANT_ACTIVE = 1, REPORT_TENANT_QUEUED = 3;
+const reportTenantLoad = new Map(); // tenantId -> { running, waiting }
 function reportSlot(req, res, next) {
   let state = 'init'; // init → waiting → running → done
   let entry = null, timer = null;
+  const tid = req.tenant && req.tenant.tenantId;
+  const load = (() => { let l = reportTenantLoad.get(tid); if (!l) { l = { running: 0, waiting: 0, counted: null }; reportTenantLoad.set(tid, l); } return l; })();
+  let mine = null; // 'running' | 'waiting' | null: lo que esta petición suma en el contador del negocio
+  const setMine = (v) => {
+    if (mine) load[mine]--;
+    mine = v;
+    if (mine) load[mine]++;
+    if (!load.running && !load.waiting) reportTenantLoad.delete(tid);
+  };
   const finish = () => {
-    const was = state; state = 'done';
+    const was = state; state = 'done'; setMine(null);
     if (was === 'waiting') { const i = reportQueue.indexOf(entry); if (i >= 0) reportQueue.splice(i, 1); clearTimeout(timer); }
     else if (was === 'running') reportPassSlot();
   };
   // ANTES de esperar
   res.once('close', finish);
   req.once('aborted', finish);
-  if (reqGone(req, res)) { state = 'done'; return; }
+  if (reqGone(req, res)) { state = 'done'; setMine(null); return; }
   const busy = () => {
-    state = 'done';
+    state = 'done'; setMine(null);
     res.set('Retry-After', '10');
     res.status(503).json({ error: 'busy', message: 'Hay muchos informes en curso. Inténtalo de nuevo en unos segundos.' });
   };
-  if (reportActive < REPORT_MAX_CONCURRENT) { reportActive++; state = 'running'; return next(); }
+  if (load.running >= REPORT_TENANT_ACTIVE && load.waiting >= REPORT_TENANT_QUEUED) return busy();
+  if (reportActive < REPORT_MAX_CONCURRENT && load.running < REPORT_TENANT_ACTIVE) { reportActive++; state = 'running'; setMine('running'); return next(); }
   if (reportQueue.length >= REPORT_QUEUE_MAX) return busy();
-  state = 'waiting';
+  state = 'waiting'; setMine('waiting');
   entry = {
     grant() {
       if (state !== 'waiting' || reqGone(req, res)) { state = 'done'; clearTimeout(timer); return false; } // cancelada mientras esperaba
       clearTimeout(timer);
-      state = 'running';
+      state = 'running'; setMine('running');
       next();
       return true;
     },
@@ -5375,7 +5423,7 @@ app.get('/api/admin/stats', requireAdmin, async (req, res) => {
       totalMensajes:       parseInt(msgs.rows[0].count),
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Admin:', err.message); res.status(500).json({ error: 'Error interno. Inténtalo de nuevo.' });
   }
 });
 
@@ -5417,7 +5465,7 @@ app.get('/api/admin/tenants', requireAdmin, async (req, res) => {
       tenants: dataRes.rows,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Admin:', err.message); res.status(500).json({ error: 'Error interno. Inténtalo de nuevo.' });
   }
 });
 
@@ -5439,7 +5487,7 @@ app.get('/api/admin/tenants/:tenantId', requireAdmin, async (req, res) => {
     if (!rows[0]) return res.status(404).json({ error: 'Tenant no encontrado' });
     res.json(rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Admin:', err.message); res.status(500).json({ error: 'Error interno. Inténtalo de nuevo.' });
   }
 });
 
@@ -5453,7 +5501,7 @@ app.put('/api/admin/tenants/:tenantId/plan', requireAdmin, async (req, res) => {
     await markTeamOverLimit(req.params.tenantId); // si baja de plan con usuarios de más: plazo de 3 días para que el dueño elija
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Admin:', err.message); res.status(500).json({ error: 'Error interno. Inténtalo de nuevo.' });
   }
 });
 
@@ -5466,7 +5514,7 @@ app.put('/api/admin/tenants/:tenantId/status', requireAdmin, async (req, res) =>
     if (!active) closeTenantSockets(req.params.tenantId); // suspender cierra las sesiones abiertas al instante
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Admin:', err.message); res.status(500).json({ error: 'Error interno. Inténtalo de nuevo.' });
   }
 });
 
@@ -5530,7 +5578,7 @@ app.post('/api/admin/tenants/:tenantId/reset-password', requireAdmin, async (req
     await closeOwnerSockets(req.params.tenantId); // el trigger subió su token_version: sus sockets abiertos ya no valen
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Admin:', err.message); res.status(500).json({ error: 'Error interno. Inténtalo de nuevo.' });
   }
 });
 
@@ -5543,7 +5591,7 @@ app.delete('/api/admin/tenants/:tenantId', requireAdmin, async (req, res) => {
     await pool.query('DELETE FROM tenants WHERE id = $1', [req.params.tenantId]);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Admin:', err.message); res.status(500).json({ error: 'Error interno. Inténtalo de nuevo.' });
   }
 });
 
@@ -5620,7 +5668,7 @@ app.get('/api/admin/demos', requireAdmin, async (req, res) => {
     `);
     res.json(rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Admin:', err.message); res.status(500).json({ error: 'Error interno. Inténtalo de nuevo.' });
   }
 });
 
@@ -5692,7 +5740,7 @@ app.post('/api/admin/demos/:tenantId/extend', requireAdmin, requireDemoKey, asyn
     if (!rows[0]) return res.status(404).json({ error: 'Demo no encontrada' });
     res.json({ success: true, expiresAt: rows[0].expires_at });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Admin:', err.message); res.status(500).json({ error: 'Error interno. Inténtalo de nuevo.' });
   }
 });
 
@@ -5707,7 +5755,7 @@ app.post('/api/admin/demos/:tenantId/revoke', requireAdmin, async (req, res) => 
     await demoTeamSweep(req.params.tenantId);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Admin:', err.message); res.status(500).json({ error: 'Error interno. Inténtalo de nuevo.' });
   }
 });
 
@@ -5738,7 +5786,7 @@ app.post('/api/admin/demos/:tenantId/resend', requireAdmin, requireDemoKey, asyn
     }
     res.json({ success: true, email: t.email, password, emailSent, emailError, teamUsers });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Admin:', err.message); res.status(500).json({ error: 'Error interno. Inténtalo de nuevo.' });
   }
 });
 
@@ -5787,7 +5835,7 @@ app.post('/api/admin/demos/:tenantId/convert', requireAdmin, async (req, res) =>
     res.json({ success: true });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
-    res.status(500).json({ error: err.message });
+    console.error('Admin:', err.message); res.status(500).json({ error: 'Error interno. Inténtalo de nuevo.' });
   } finally {
     client.release();
   }
