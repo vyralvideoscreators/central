@@ -5355,7 +5355,7 @@ app.delete('/api/admin/tenants/:tenantId', requireAdmin, async (req, res) => {
 // ADMIN — Demos (cuentas de prueba con datos ficticios y caducidad)
 // Requieren sesión de superadmin + la clave DEMO_CREATION_KEY (header X-Demo-Key)
 // ══════════════════════════════════════════════════════════════
-const { seedDemoTenant, wipeDemoData } = require('./demo-seed');
+const { seedDemoTenant, seedDemoTeam, wipeDemoData } = require('./demo-seed');
 const DEMO_CREATION_KEY = process.env.DEMO_CREATION_KEY || '';
 
 function requireDemoKey(req, res, next) {
@@ -5454,7 +5454,7 @@ app.post('/api/admin/demos', requireAdmin, requireDemoKey, async (req, res) => {
   const password = generateDemoPassword();
   const hash = await bcrypt.hash(password, 10);
   const client = await pool.connect();
-  let tenant;
+  let tenant, teamUsers;
   try {
     await client.query('BEGIN');
     const { rows } = await client.query(`
@@ -5464,10 +5464,12 @@ app.post('/api/admin/demos', requireAdmin, requireDemoKey, async (req, res) => {
     `, [businessName, ownerName || null, email, hash, country, days, demoTz]);
     tenant = rows[0];
     await seedDemoTenant(client, tenant.id, { city });
+    teamUsers = await seedDemoTeam(client, tenant.id);
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     client.release();
+    if (err.code === '23505') return res.status(409).json({ error: 'Ese correo ya pertenece a otro usuario de CENTRAL' });
     console.error('[DEMO] Error creando demo:', err.message);
     return res.status(500).json({ error: 'No se pudo crear la demo: ' + err.message });
   }
@@ -5481,7 +5483,7 @@ app.post('/api/admin/demos', requireAdmin, requireDemoKey, async (req, res) => {
     } catch (err) { emailError = err.message; }
   }
   console.log(`[DEMO] Creada demo ${tenant.id} para ${email} (${days} días) por ${req.admin.email}`);
-  res.json({ success: true, tenantId: tenant.id, email, password, expiresAt: tenant.expires_at, emailSent, emailError });
+  res.json({ success: true, tenantId: tenant.id, email, password, expiresAt: tenant.expires_at, emailSent, emailError, teamUsers });
 });
 
 app.post('/api/admin/demos/:tenantId/extend', requireAdmin, requireDemoKey, async (req, res) => {
@@ -5522,6 +5524,13 @@ app.post('/api/admin/demos/:tenantId/resend', requireAdmin, requireDemoKey, asyn
       [req.params.tenantId, hash]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Demo no encontrada' });
+    // Los usuarios inventados (Encargado y Vendedor) también reciben clave nueva; los que creó el prospecto no se tocan
+    const tc = await pool.connect();
+    let teamUsers = [];
+    try { await tc.query('BEGIN'); teamUsers = await seedDemoTeam(tc, req.params.tenantId); await tc.query('COMMIT'); }
+    catch (e) { await tc.query('ROLLBACK').catch(() => {}); console.error('[DEMO] Claves del equipo:', e.message); }
+    finally { tc.release(); }
+    for (const u of teamUsers) closeUserSockets(req.params.tenantId, u.id);
     const t = rows[0];
     let emailSent = false, emailError = null;
     if (process.env.RESEND_API_KEY) {
@@ -5530,7 +5539,7 @@ app.post('/api/admin/demos/:tenantId/resend', requireAdmin, requireDemoKey, asyn
         emailSent = true;
       } catch (err) { emailError = err.message; }
     }
-    res.json({ success: true, email: t.email, password, emailSent, emailError });
+    res.json({ success: true, email: t.email, password, emailSent, emailError, teamUsers });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -5547,10 +5556,12 @@ app.post('/api/admin/demos/:tenantId/reset-data', requireAdmin, requireDemoKey, 
     const { rows: cityRows } = await client.query('SELECT city FROM clients WHERE tenant_id = $1 AND city IS NOT NULL LIMIT 1', [req.params.tenantId]);
     await wipeDemoData(client, req.params.tenantId);
     await seedDemoTenant(client, req.params.tenantId, { city: cityRows[0]?.city || undefined });
-    await client.query("UPDATE tenants SET plan = 'business' WHERE id = $1 AND is_demo = true", [req.params.tenantId]);
+    const teamUsers = await seedDemoTeam(client, req.params.tenantId);
+    await client.query("UPDATE tenants SET plan = 'business', team_over_limit_since = NULL WHERE id = $1 AND is_demo = true", [req.params.tenantId]);
     await client.query('COMMIT');
     broadcastToTenant(req.params.tenantId, { type: 'demo_reset' });
-    res.json({ success: true });
+    closeTenantSockets(req.params.tenantId); // los usuarios del equipo se volvieron a crear: sus sesiones anteriores ya no valen
+    res.json({ success: true, teamUsers });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('[DEMO] Error reiniciando datos:', err.message);

@@ -131,9 +131,30 @@ const CONVOS = [
 
 function money(n) { return Math.round(n * 100) / 100; }
 
+// Fase 4B: dos usuarios inventados para probar los roles (Encargado y Vendedor). Su correo es de un dominio de prueba (nunca se les
+// envía nada) y su contraseña la muestra el panel admin al crear o reiniciar la demo. Devuelve [{ name, role, email, password }].
+async function seedDemoTeam(client, tenantId) {
+  const bcrypt = require('bcrypt');
+  const { generateTempPassword } = require('./equipo');
+  const tag = String(tenantId).replace(/-/g, '').slice(0, 8);
+  const out = [];
+  for (const [name, role, prefix] of [['Marta Encargada', 'manager', 'encargado'], ['Víctor Vendedor', 'seller', 'vendedor']]) {
+    const password = generateTempPassword();
+    const email = `${prefix}.${tag}@demo.central.test`;
+    const { rows: [u] } = await client.query(`INSERT INTO team_users (tenant_id, name, email, password_hash, role) VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (lower(email)) DO UPDATE SET password_hash = EXCLUDED.password_hash, active = true, deactivated_at = NULL,
+        must_change_password = false, temp_password_expires_at = NULL, token_version = team_users.token_version + 1
+      WHERE team_users.tenant_id = EXCLUDED.tenant_id RETURNING id`, [tenantId, name, email, await bcrypt.hash(password, 10), role]);
+    out.push({ id: u && u.id, name, role, email, password });
+  }
+  return out;
+}
+
 async function wipeDemoData(client, tenantId) {
   const { rows } = await client.query('SELECT is_demo FROM tenants WHERE id = $1', [tenantId]);
   if (!rows[0]?.is_demo) throw new Error('Solo se pueden vaciar cuentas demo');
+  // Fase 4B: los usuarios del equipo que no son el dueño (los inventados y los que creó el prospecto)
+  await client.query(`DELETE FROM team_users WHERE tenant_id = $1 AND role <> 'owner'`, [tenantId]);
   // Fase 4A: gastos, cierres de caja y existencias (los niveles y movimientos caen con el producto, pero se borran explícitos)
   await client.query('DELETE FROM stock_movements WHERE tenant_id = $1', [tenantId]);
   await client.query('DELETE FROM stock_levels WHERE tenant_id = $1', [tenantId]);
@@ -396,4 +417,4 @@ async function seedDemoTenant(client, tenantId, { city = 'Ciudad Demo' } = {}) {
   }
 }
 
-module.exports = { seedDemoTenant, wipeDemoData, DEMO_DATA: { PRODUCTS, CLIENTS, ORDERS, CONVOS, EXPENSES, COLORS: C } };
+module.exports = { seedDemoTenant, seedDemoTeam, wipeDemoData, DEMO_DATA: { PRODUCTS, CLIENTS, ORDERS, CONVOS, EXPENSES, COLORS: C } };

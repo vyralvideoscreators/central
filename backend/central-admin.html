@@ -1077,8 +1077,10 @@ function showCreds(title, c, wantedEmail) {
   document.getElementById('credTitle').textContent = title;
   document.getElementById('credBox').innerHTML =
     '<div>Correo: <b>' + esc(c.email) + '</b></div>' +
-    '<div>Clave temporal: <code>' + esc(c.password) + '</code></div>' +
-    (c.expiresAt ? '<div>Disponible hasta: <b>' + fmtDate(c.expiresAt) + '</b></div>' : '');
+    (c.password ? '<div>Clave temporal: <code>' + esc(c.password) + '</code></div>' : '<div>Clave del dueño: sin cambios</div>') +
+    (c.expiresAt ? '<div>Disponible hasta: <b>' + fmtDate(c.expiresAt) + '</b></div>' : '') +
+    (Array.isArray(c.teamUsers) && c.teamUsers.length ? '<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);"><div style="color:var(--text2);font-size:12px;margin-bottom:4px;">Usuarios de ejemplo para probar los roles</div>' +
+      c.teamUsers.map(u => '<div>' + esc(u.name) + ' (' + (u.role === 'manager' ? 'Encargado' : 'Vendedor') + '): <b>' + esc(u.email) + '</b> · <code>' + esc(u.password) + '</code></div>').join('') + '</div>' : '');
   const note = document.getElementById('credNote');
   if (c.emailSent) { note.style.color = 'var(--green)'; note.textContent = '✉️ Correo enviado a ' + c.email; }
   else if (wantedEmail === false) { note.style.color = 'var(--text2)'; note.textContent = 'No se envió correo: compártelo tú por WhatsApp o email.'; }
@@ -1090,8 +1092,9 @@ function copyCreds() {
   if (!lastCreds) return;
   const link = location.origin + '/central-registro.html?email=' + encodeURIComponent(lastCreds.email);
   const txt = 'Hola' + (lastCreds.ownerName ? ' ' + lastCreds.ownerName : '') + ', tu demo de CENTRAL ya está lista 🚀\n\n' +
-    'Entra aquí: ' + link + '\nCorreo: ' + lastCreds.email + '\nClave temporal: ' + lastCreds.password +
-    (lastCreds.expiresAt ? '\nDisponible hasta el ' + fmtDate(lastCreds.expiresAt) : '');
+    'Entra aquí: ' + link + '\nCorreo: ' + lastCreds.email + '\nClave temporal: ' + (lastCreds.password || '(sin cambios)') +
+    (lastCreds.expiresAt ? '\nDisponible hasta el ' + fmtDate(lastCreds.expiresAt) : '') +
+    (Array.isArray(lastCreds.teamUsers) && lastCreds.teamUsers.length ? '\n\nUsuarios de ejemplo:\n' + lastCreds.teamUsers.map(u => u.name + ' — ' + u.email + ' — ' + u.password).join('\n') : '');
   navigator.clipboard.writeText(txt).then(() => showToast('Mensaje copiado'), () => showToast('No se pudo copiar'));
 }
 
@@ -1164,7 +1167,11 @@ function resetDemoData(id) {
   const d = demos.find(x => x.id === id);
   showConfirm('¿Reiniciar los datos de esta demo?', 'Se borran los cambios que haya hecho ' + (d ? d.email : 'el prospecto') + ' y vuelven los productos, clientes, pedidos y conversaciones de ejemplo, en plan Business. La clave y la fecha de caducidad no cambian.', async () => {
     const r = await demoAction(id + '/reset-data', { key: true });
-    if (r) showToast('Datos de la demo reiniciados');
+    if (r) {
+      showToast('Datos de la demo reiniciados');
+      // Los usuarios de ejemplo se volvieron a crear con claves nuevas: se muestran
+      if (Array.isArray(r.teamUsers) && r.teamUsers.length) showCreds('Datos reiniciados', { email: d ? d.email : '', teamUsers: r.teamUsers, expiresAt: d && d.expires_at, ownerName: d && d.full_name }, false);
+    }
   });
 }
 function revokeDemo(id) {
